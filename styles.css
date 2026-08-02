@@ -132,6 +132,7 @@ input::placeholder, textarea::placeholder { color: rgba(11,11,9,.35); }
 .upload-zone.has-image .upload-art { width: 100%; height: 100%; margin: 0; border: 0; background-size: cover; background-position: center; color: transparent; }
 .upload-title { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .upload-wrap > .field-label { display: block; margin-bottom: 7px; }
+.listing-note { margin: 7px 0 0; color: rgba(11,11,9,.62); font-family: var(--mono); font-size: 8px; line-height: 1.45; text-transform: uppercase; letter-spacing: .04em; }
 .remove-image { width: 100%; margin-top: 7px; border: 0; border-bottom: 1px solid var(--ink); background: transparent; padding: 5px 0; font-family: var(--mono); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
 .optional-fields { margin-top: 21px; border-top: 1px solid rgba(11,11,9,.22); border-bottom: 1px solid rgba(11,11,9,.22); }
 .optional-fields summary { padding: 14px 0; cursor: pointer; list-style: none; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
@@ -296,6 +297,8 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
 .modal-note { margin: 11px 0 0; text-align: center; text-transform: uppercase; font-size: 8px; opacity: .55; }
 .modal-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .modal-actions .button { width: 100%; padding: 0 10px; }
+.modal-actions .button[hidden] { display: none; }
+.modal-actions #geckoTerminalButton:not([hidden]) { grid-column: 1 / -1; }
 .launch-modal.is-factory-deploy .modal-copy { color: rgba(244,241,231,.86); }
 .button-outline { background: transparent; color: var(--lime); border-color: var(--lime); }
 .button-outline:hover { box-shadow: 3px 3px 0 var(--lime); }

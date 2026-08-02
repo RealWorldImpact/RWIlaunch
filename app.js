@@ -40,11 +40,14 @@ const ROBINHOOD_CHAIN = {
 const state = {
   account: null,
   imageUrl: null,
+  imageFile: null,
   rwiBalance: null,
   rwiDecimals: 18,
   saveTimer: null,
   launchInFlight: false,
   lastLaunchTx: null,
+  lastTokenAddress: null,
+  lastPoolAddress: null,
   factoryDeploymentInFlight: false,
   lastFactoryAddress: null,
 };
@@ -191,6 +194,7 @@ function handleImage(file) {
   if (!file.type.startsWith("image/")) return toast("Choose a PNG, JPG, WEBP, or GIF image.");
   if (file.size > 5 * 1024 * 1024) return toast("Image must be smaller than 5MB.");
   if (state.imageUrl) URL.revokeObjectURL(state.imageUrl);
+  state.imageFile = file;
   state.imageUrl = URL.createObjectURL(file);
   $("#uploadZone").classList.add("has-image");
   $("#uploadArt").style.backgroundImage = `url("${state.imageUrl}")`;
@@ -206,6 +210,7 @@ function handleImage(file) {
 function clearImage() {
   if (state.imageUrl) URL.revokeObjectURL(state.imageUrl);
   state.imageUrl = null;
+  state.imageFile = null;
   fields.image.value = "";
   $("#uploadZone").classList.remove("has-image");
   $("#uploadArt").style.backgroundImage = "";
@@ -413,6 +418,7 @@ function restoreLaunchModal() {
   $("#downloadBrief").hidden = false;
   $("#downloadBrief").textContent = "Download launch brief";
   delete $("#downloadBrief").dataset.action;
+  $("#geckoTerminalButton").hidden = true;
   $("#modalCopy").textContent = "One transaction deploys exactly 1 billion tokens and allocates 100% of the supply to a token-only TOKEN / $RWI position. You supply no $RWI; first buyers bring it through swaps. The LP position is locked forever.";
 }
 
@@ -532,10 +538,16 @@ async function launchOnUniswap() {
     }
 
     state.lastLaunchTx = transaction.hash;
+    state.lastTokenAddress = launchEvent?.args.token || null;
+    state.lastPoolAddress = launchEvent?.args.pool || null;
     $("#modalTitle").textContent = "Your token is live.";
+    $("#modalCopy").textContent = state.imageFile
+      ? "The pool is registered onchain. Because it starts with 0 RWI, GeckoTerminal may keep its public page hidden until real swaps bring priced RWI into the pool. Once visible, submit the image through Token Info → Update Token Info."
+      : "The pool is registered onchain. Because it starts with 0 RWI, GeckoTerminal may keep its public page hidden until real swaps bring priced RWI into the pool. You can add an image later through Token Info → Update Token Info.";
     $("#modalNote").textContent = launchEvent
       ? `Token ${launchEvent.args.token.slice(0, 8)}… paired with $RWI in pool ${launchEvent.args.pool.slice(0, 8)}…. LP locked forever; no graduation step.`
       : "Launch confirmed. The TOKEN / $RWI pool is live, its LP is locked forever, and there is no graduation step.";
+    if (state.lastPoolAddress) $("#geckoTerminalButton").hidden = false;
     toast("Token launched directly into $RWI liquidity on Uniswap.");
     await readRwiBalance();
   } catch (error) {
@@ -606,10 +618,11 @@ function downloadLaunchBrief() {
     generatedAt: new Date().toISOString(),
     status: configuredFactoryAddress() ? "launch-enabled" : "factory-deployment-pending",
     launchModel: LIQUIDITY_MODEL,
-    token: { name: fields.name.value.trim(), ticker, description: fields.description.value.trim(), supply: FIXED_TOKEN_SUPPLY.toString(), decimals: 18, supplyPolicy: "fixed-one-billion-no-future-minting" },
+    token: { address: state.lastTokenAddress, name: fields.name.value.trim(), ticker, description: fields.description.value.trim(), imageFileName: state.imageFile?.name || null, supply: FIXED_TOKEN_SUPPLY.toString(), decimals: 18, supplyPolicy: "fixed-one-billion-no-future-minting" },
     links: { website: fields.website.value.trim(), twitter: fields.twitter.value.trim(), telegram: fields.telegram.value.trim() },
     network: { name: ROBINHOOD_CHAIN.chainName, chainId: 4663, rpc: ROBINHOOD_CHAIN.rpcUrls[0], explorer: ROBINHOOD_CHAIN.blockExplorerUrls[0] },
-    pairing: { venue: "Uniswap v3", poolFee: LIQUIDITY_MODEL.poolFee, asset: "$RWI", address: RWI_ADDRESS, initialRwiLiquidity: "0", initialLiquidityMode: "single-sided-token-position", firstBuyersSupplyRwi: true, poolAllocationPercent: 100, creatorTokenAllocationPercent: 0, tokensEnteringPool: economics.pool.toString(), openingTokensPerRwiApprox: economics.rate.toString(), liquidityLock: "permanent", liquidityWithdrawable: false, lpFeeRecipient: "token-creator", creatorLpFeeShareBps: 10000, launchpadLpFeeShareBps: 0 },
+    pairing: { venue: "Uniswap v3", pool: state.lastPoolAddress, geckoTerminalUrl: state.lastPoolAddress ? `https://www.geckoterminal.com/robinhood/pools/${state.lastPoolAddress.toLowerCase()}` : null, poolFee: LIQUIDITY_MODEL.poolFee, asset: "$RWI", address: RWI_ADDRESS, initialRwiLiquidity: "0", initialLiquidityMode: "single-sided-token-position", firstBuyersSupplyRwi: true, poolAllocationPercent: 100, creatorTokenAllocationPercent: 0, tokensEnteringPool: economics.pool.toString(), openingTokensPerRwiApprox: economics.rate.toString(), liquidityLock: "permanent", liquidityWithdrawable: false, lpFeeRecipient: "token-creator", creatorLpFeeShareBps: 10000, launchpadLpFeeShareBps: 0 },
+    listing: { imageRequiresPublicHosting: Boolean(state.imageFile), poolStartsWithPricedRwi: false, discoveryRequiresRealRwiSwaps: true, geckoTerminalInfoUpdateUrl: "https://www.geckoterminal.com/request-form/update-token" },
     note: configuredFactoryAddress()
       ? "The factory uses a token-only Uniswap v3 position, so the creator supplies no RWI. First buyers bring RWI through swaps. The LP position is locked forever with no migration or graduation state."
       : "The custom launch factory is compiled but must be independently audited and deployed before transactions are enabled.",
@@ -641,6 +654,11 @@ async function handleModalSecondary() {
   downloadLaunchBrief();
 }
 
+function openGeckoTerminalPool() {
+  if (!state.lastPoolAddress) return;
+  window.open(`https://www.geckoterminal.com/robinhood/pools/${state.lastPoolAddress.toLowerCase()}`, "_blank", "noopener,noreferrer");
+}
+
 fields.name.addEventListener("input", updatePreview);
 fields.ticker.addEventListener("input", updatePreview);
 fields.description.addEventListener("input", updatePreview);
@@ -653,6 +671,7 @@ $("#removeImage").addEventListener("click", clearImage);
 $("#resetDraft").addEventListener("click", resetDraft);
 $("#copyRwiAddress").addEventListener("click", copyRwiAddress);
 $("#downloadBrief").addEventListener("click", handleModalSecondary);
+$("#geckoTerminalButton").addEventListener("click", openGeckoTerminalPool);
 $("#deployFactoryButton").addEventListener("click", openFactoryDeploymentModal);
 
 const uploadZone = $("#uploadZone");

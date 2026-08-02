@@ -86,8 +86,9 @@
                       <input id="tokenImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
                       <span class="upload-art" id="uploadArt">+</span>
                       <span class="upload-title">Drop image or browse</span>
-                      <span class="field-hint">PNG, JPG, WEBP, GIF · max 5MB</span>
+                      <span class="field-hint">PNG, JPG, WEBP, GIF · max 5MB · used in your listing workflow</span>
                     </label>
+                    <p class="listing-note">Images are local previews until submitted to GeckoTerminal after real swaps bring priced RWI into the pool.</p>
                     <button class="remove-image" id="removeImage" type="button" hidden>Remove image</button>
                   </div>
 
@@ -260,6 +261,7 @@
         <div class="modal-actions">
           <button class="button button-lime" id="modalWallet" type="button">Connect wallet</button>
           <button class="button button-outline" id="downloadBrief" type="button">Download launch brief</button>
+          <button class="button button-outline" id="geckoTerminalButton" type="button" hidden>Check GeckoTerminal ↗</button>
         </div>
         <p class="modal-note" id="modalNote">The custom launch factory must be independently audited before mainnet deployment.</p>
       </div>
