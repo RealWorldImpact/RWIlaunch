@@ -582,6 +582,26 @@ async function publicMetadataSigningMessage(payload) {
   ].join("\n");
 }
 
+async function publicLaunchMetadataAuthorizationMessage(payload) {
+  return [
+    "RWI Launchpad launch metadata authorization",
+    "Version: 1",
+    `Chain ID: ${ROBINHOOD_CHAIN.chainId === "0x1237" ? 4663 : Number(ROBINHOOD_CHAIN.chainId)}`,
+    `Factory: ${configuredFactoryAddress().toLowerCase()}`,
+    `Creator: ${payload.creator.toLowerCase()}`,
+    `Name: ${payload.name}`,
+    `Symbol: ${payload.symbol}`,
+    `Description SHA-256: ${await sha256TextHex(payload.description)}`,
+    `Logo SHA-256: ${payload.logoSha256}`,
+    `Links SHA-256: ${await sha256TextHex(JSON.stringify(payload.links))}`,
+    "Purpose: bind this public logo and metadata to the signed launch transaction",
+  ].join("\n");
+}
+
+async function publicLaunchMetadataCommitment(payload) {
+  return window.ethers.keccak256(window.ethers.toUtf8Bytes(await publicLaunchMetadataAuthorizationMessage(payload)));
+}
+
 async function publicMetadataServiceStatus() {
   if (window.location.protocol === "file:") return { configured: false, localPreview: true };
   const response = await fetch(new URL("api/token-metadata", new URL(".", window.location.href)), {
@@ -591,6 +611,31 @@ async function publicMetadataServiceStatus() {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || "The public logo service is unavailable.");
   return result;
+}
+
+async function prepareLaunchMetadataAuthorization(creator) {
+  const service = await publicMetadataServiceStatus();
+  if (!service.configured) throw new Error("Connect a public Vercel Blob store before launching so the token logo can be published.");
+  const imageFile = state.imageFile;
+  if (!imageFile) throw new Error("The standardized token logo is unavailable.");
+  const logoSha256 = String(await sha256BlobHex(imageFile)).replace(/^0x/, "");
+  const payload = {
+    creator: window.ethers.getAddress(creator),
+    name: fields.name.value.trim(),
+    symbol: cleanTicker(fields.ticker.value),
+    description: fields.description.value.trim(),
+    links: {
+      website: canonicalPublicUrl("website", fields.website.value),
+      twitter: canonicalPublicUrl("twitter", fields.twitter.value),
+      telegram: canonicalPublicUrl("telegram", fields.telegram.value),
+    },
+    logoSha256,
+  };
+  return {
+    payload,
+    imageFile,
+    commitment: await publicLaunchMetadataCommitment(payload),
+  };
 }
 
 function mergeLocalTokenMetadata(address, update) {
@@ -632,11 +677,21 @@ async function publishLaunchedTokenAssets(signer, address, poolReference, source
     },
     logoSha256,
   };
-  const signature = await signer.signMessage(await publicMetadataSigningMessage(payload));
+  const launchTxHash = String(source.launchTxHash || "");
+  let authorization;
+  if (launchTxHash) {
+    const commitment = await publicLaunchMetadataCommitment(payload);
+    if (source.metadataCommitment && commitment.toLowerCase() !== String(source.metadataCommitment).toLowerCase()) {
+      throw new Error("The launch transaction metadata commitment no longer matches this logo.");
+    }
+    authorization = { launchTxHash };
+  } else {
+    authorization = { signature: await signer.signMessage(await publicMetadataSigningMessage(payload)) };
+  }
   const response = await fetch(new URL("api/token-metadata", new URL(".", window.location.href)), {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ ...payload, signature, imageDataUrl: await blobToDataUrl(imageFile) }),
+    body: JSON.stringify({ ...payload, ...authorization, imageDataUrl: await blobToDataUrl(imageFile) }),
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || "The public token metadata could not be published.");
@@ -2324,6 +2379,9 @@ async function launchOnUniswap() {
     await validateFactoryDeployment(provider, factoryAddress);
 
     const launchFactory = new ethers.Contract(factoryAddress, FACTORY_ABI, signer);
+    button.textContent = "Binding public logo to launch…";
+    $("#modalNote").textContent = "Preparing one transaction that authorizes both the token launch and its public logo. No second signature will be needed.";
+    const launchMetadataAuthorization = await prepareLaunchMetadataAuthorization(signerAddress);
     const devBuyRwiAmount = configuredDevBuyAmount();
     let params = {
       name: fields.name.value.trim(),
@@ -2370,7 +2428,12 @@ async function launchOnUniswap() {
         ? `$10,000 opening valuation · Lock the LP, then buy at least ${formatUnits(params.minimumDevBuyTokenOut, 18, 6)} tokens with ${formatUnits(devBuyRwiAmount, 18, 6)} RWI.`
         : "$10,000 dual-TWAP launch · Deploy the token, seed token-only v4 liquidity, and lock it forever. No RWI is required.")
       : "Source verified · Internal security review only; no independent audit. Confirm the immutable launch transaction only if you accept that risk.";
-    const transaction = await launchFactory.launch(params);
+    const launchCalldata = launchFactory.interface.encodeFunctionData("launch", [params]);
+    const authorizedLaunchCalldata = `${launchCalldata}${launchMetadataAuthorization.commitment.slice(2)}`;
+    const transaction = await signer.sendTransaction({
+      to: factoryAddress,
+      data: authorizedLaunchCalldata,
+    });
     button.textContent = "Creating Uniswap v4 pool…";
     $("#modalNote").textContent = `Transaction submitted · ${transaction.hash.slice(0, 10)}…`;
     const receipt = await transaction.wait();
@@ -2401,9 +2464,17 @@ async function launchOnUniswap() {
       }
       if (!assetPersistenceWarning && state.lastPoolId) {
         try {
-          button.textContent = "Approve public logo…";
-          $("#modalNote").textContent = "Sign the gas-free metadata approval so every visitor can see the same verified logo.";
-          publicMetadataPublication = await publishLaunchedTokenAssets(signer, state.lastTokenAddress, state.lastPoolId);
+          button.textContent = "Publishing public logo…";
+          $("#modalNote").textContent = "The signed launch transaction already authorized this logo. Publishing it for every visitor now.";
+          publicMetadataPublication = await publishLaunchedTokenAssets(signer, state.lastTokenAddress, state.lastPoolId, {
+            imageFile: launchMetadataAuthorization.imageFile,
+            name: launchMetadataAuthorization.payload.name,
+            symbol: launchMetadataAuthorization.payload.symbol,
+            description: launchMetadataAuthorization.payload.description,
+            links: launchMetadataAuthorization.payload.links,
+            launchTxHash: transaction.hash,
+            metadataCommitment: launchMetadataAuthorization.commitment,
+          });
         } catch (metadataError) {
           publicMetadataWarning = metadataError?.code === 4001 || metadataError?.code === "ACTION_REJECTED"
             ? "The public-logo signature was cancelled."
