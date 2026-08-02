@@ -352,7 +352,9 @@ function renderIntegrationStatus() {
     : `${stateLabel} · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`;
   status.classList.toggle("is-live", !FACTORY_CONFIG.launchesPaused);
   status.parentElement?.classList.toggle("is-live", !FACTORY_CONFIG.launchesPaused);
-  $("#deployFactoryButton").hidden = true;
+  const canDeployReplacement = Boolean(FACTORY_CONFIG.allowBrowserDeployment && FACTORY_CONFIG.launchesPaused);
+  $("#deployFactoryButton").hidden = !canDeployReplacement;
+  if (canDeployReplacement) $("#deployFactoryButton").textContent = "Deploy corrected v4 hook →";
 }
 
 function openLogoDatabase() {
@@ -1592,8 +1594,8 @@ function openFactoryDeploymentModal() {
   modal.classList.add("is-factory-deploy");
   $("#modalToken").hidden = true;
   $("#downloadBrief").hidden = true;
-  $("#modalTitle").textContent = "Deploy the v4 launch hook.";
-  $("#modalCopy").textContent = "Your wallet will submit two Robinhood Chain transactions: a small permissionless CREATE2 helper, then the immutable v4 hook at an address with the required callback permission. No RWI is required.";
+  $("#modalTitle").textContent = FACTORY_CONFIG.launchesPaused ? "Deploy the corrected v4 launch hook." : "Deploy the v4 launch hook.";
+  $("#modalCopy").textContent = "Your wallet will submit two Robinhood Chain transactions: a small permissionless CREATE2 helper, then the corrected immutable v4 hook at an address with the required callback permission. No RWI is required.";
   $("#modalNote").textContent = "This hook passed internal tests but not an independent professional audit. Both mainnet transactions are irreversible; continue only if you accept that risk.";
   $("#modalWallet").textContent = state.account ? "Deploy v4 hook with wallet" : "Connect wallet to deploy";
   $("#modalWallet").dataset.action = "deploy-factory";
