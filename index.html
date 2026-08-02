@@ -182,7 +182,7 @@
                 <label class="checkbox-row locked-rule">
                   <input id="lockLiquidity" type="checkbox" checked disabled />
                   <span class="fake-checkbox">✓</span>
-                  <span><strong>100% of supply is allocated to liquidity and the LP is locked forever</strong><small>Irreversible · creator receives 100% of collectible LP fees · no graduation</small></span>
+                  <span><strong>100% of supply is allocated to liquidity and the LP is locked forever</strong><small>Irreversible · creator claims net LP revenue only in ETH · no graduation</small></span>
                 </label>
 
                 <div class="launch-consent">
@@ -219,7 +219,7 @@
 
                 <div class="setup-head"><span>Launch readiness</span><strong id="setupValue">0%</strong></div>
                 <div class="setup-progress" id="setupProgress" role="progressbar" aria-label="Launch readiness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="setupBar"></i></div>
-                <p class="preview-footnote">$10K oracle target · TOKEN / RWI · 100% LP fees to creator · no graduation</p>
+                <p class="preview-footnote">$10K oracle target · TOKEN / RWI · creator revenue paid in ETH · no graduation</p>
               </div>
             </div>
           </aside>
@@ -260,7 +260,7 @@
             <p class="eyebrow">04 — Creator dashboard</p>
             <h2>Your launches.<br /><em>Your revenue.</em></h2>
           </div>
-          <p>Manage your creator identity and claim 100% of collectible LP fees from every token you launched.</p>
+          <p>Manage your creator identity and claim new-token LP revenue as native ETH.</p>
         </div>
 
         <div class="dashboard-gate" id="dashboardGate">
@@ -311,7 +311,7 @@
             <div class="revenue-list" id="revenueList" aria-live="polite">
               <div class="dashboard-empty">Connect your wallet to load creator revenue.</div>
             </div>
-            <p class="revenue-note">Claims call the verified factory. Funds are sent directly to the permanent creator address recorded at launch; the launchpad never receives them.</p>
+            <p class="revenue-note">New-factory claims convert TOKEN and RWI fees through verified Uniswap pools, unwrap WETH, and send native ETH to the permanent creator. The launchpad takes no cut; Uniswap fees and price impact apply. Legacy launches keep their original TOKEN + RWI claim behavior.</p>
           </div>
         </div>
       </section>

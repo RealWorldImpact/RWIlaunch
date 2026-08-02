@@ -2,6 +2,8 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
+const ETH_CLAIM_SLIPPAGE_BPS = 500n;
+const ETH_CLAIM_DEADLINE_SECONDS = 10 * 60;
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
 const FACTORY_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || Object.freeze({});
@@ -30,6 +32,7 @@ const LIQUIDITY_MODEL = Object.freeze({
   pairAssetAddress: RWI_ADDRESS,
   uniswapV3Factory: FACTORY_CONFIG.uniswapV3Factory || "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
   nonfungiblePositionManager: FACTORY_CONFIG.nonfungiblePositionManager || "0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3",
+  swapRouter02: FACTORY_CONFIG.swapRouter02 || "0xCaf681a66D020601342297493863E78C959E5cb2",
   launchFactory: FACTORY_CONFIG.factoryAddress || null,
   creatorLpFeeShareBps: 10000,
   launchpadLpFeeShareBps: 0,
@@ -1091,20 +1094,41 @@ function splitCollectedFees(tokenAddress, amount0, amount1) {
     : { tokenFees: BigInt(amount1), rwiFees: BigInt(amount0) };
 }
 
-async function readCreatorLaunch(eventLog, provider, factory) {
+async function readCreatorLaunch(eventLog, provider, factory, source) {
   const args = eventLog.args || factory.interface.parseLog(eventLog)?.args;
   const token = String(args.token);
   const pool = String(args.pool);
   const positionTokenId = BigInt(args.positionTokenId);
   const tokenContract = new window.ethers.Contract(token, ["function name() view returns (string)", "function symbol() view returns (string)"], provider);
+  const feePreview = source.current
+    ? factory.claimFeesInEth.staticCall(
+      positionTokenId,
+      0,
+      0,
+      BigInt(Math.floor(Date.now() / 1000) + ETH_CLAIM_DEADLINE_SECONDS),
+      { from: String(args.creator) },
+    )
+    : new window.ethers.Contract(
+      source.address,
+      ["function collectFees(uint256 positionTokenId) returns (uint256 amount0, uint256 amount1)"],
+      provider,
+    ).collectFees.staticCall(positionTokenId);
   const [nameResult, symbolResult, feeResult] = await Promise.allSettled([
     tokenContract.name(),
     tokenContract.symbol(),
-    factory.collectFees.staticCall(positionTokenId),
+    feePreview,
   ]);
-  const fees = feeResult.status === "fulfilled"
-    ? splitCollectedFees(token, feeResult.value[0], feeResult.value[1])
-    : { tokenFees: null, rwiFees: null };
+  let fees = { tokenFees: null, rwiFees: null, rwiFromToken: null, ethQuote: null };
+  if (feeResult.status === "fulfilled") {
+    fees = source.current
+      ? {
+        tokenFees: BigInt(feeResult.value.tokenFees),
+        rwiFees: BigInt(feeResult.value.rwiFees),
+        rwiFromToken: BigInt(feeResult.value.rwiFromToken),
+        ethQuote: BigInt(feeResult.value.ethAmount),
+      }
+      : { ...splitCollectedFees(token, feeResult.value[0], feeResult.value[1]), rwiFromToken: null, ethQuote: null };
+  }
   return {
     factoryAddress: factory.target,
     token,
@@ -1114,6 +1138,9 @@ async function readCreatorLaunch(eventLog, provider, factory) {
     symbol: symbolResult.status === "fulfilled" ? symbolResult.value : "TOKEN",
     tokenFees: fees.tokenFees,
     rwiFees: fees.rwiFees,
+    rwiFromToken: fees.rwiFromToken,
+    ethQuote: fees.ethQuote,
+    ethOnly: source.current,
     blockNumber: Number(eventLog.blockNumber || 0),
   };
 }
@@ -1290,12 +1317,19 @@ function renderCreatorLaunches() {
 
     const fees = dashboardElement("div", "revenue-fees");
     const rwiFee = dashboardElement("div", "");
-    rwiFee.appendChild(dashboardElement("span", "", "Collectible RWI"));
-    rwiFee.appendChild(dashboardElement("strong", "", feeLabel(launch.rwiFees, "RWI")));
     const tokenFee = dashboardElement("div", "");
-    tokenFee.appendChild(dashboardElement("span", "", `Collectible ${launch.symbol}`));
-    tokenFee.appendChild(dashboardElement("strong", "", feeLabel(launch.tokenFees, launch.symbol)));
-    const claim = dashboardElement("button", "claim-revenue", "Claim revenue");
+    if (launch.ethOnly) {
+      rwiFee.appendChild(dashboardElement("span", "", "Estimated ETH payout"));
+      rwiFee.appendChild(dashboardElement("strong", "", feeLabel(launch.ethQuote, "ETH")));
+      tokenFee.appendChild(dashboardElement("span", "", "Automatic claim route"));
+      tokenFee.appendChild(dashboardElement("strong", "", `${launch.symbol} → RWI → ETH`));
+    } else {
+      rwiFee.appendChild(dashboardElement("span", "", "Collectible RWI · legacy"));
+      rwiFee.appendChild(dashboardElement("strong", "", feeLabel(launch.rwiFees, "RWI")));
+      tokenFee.appendChild(dashboardElement("span", "", `Collectible ${launch.symbol} · legacy`));
+      tokenFee.appendChild(dashboardElement("strong", "", feeLabel(launch.tokenFees, launch.symbol)));
+    }
+    const claim = dashboardElement("button", "claim-revenue", launch.ethOnly ? "Claim ETH" : "Claim revenue");
     claim.type = "button";
     const knownEmpty = launch.rwiFees === 0n && launch.tokenFees === 0n;
     claim.disabled = knownEmpty || state.activeClaimPosition !== null;
@@ -1339,7 +1373,7 @@ async function loadCreatorDashboard({ silent = false } = {}) {
     const launchGroups = await Promise.all(sources.map(async (source) => {
       const factory = new window.ethers.Contract(source.address, FACTORY_ABI, provider);
       const logs = await queryCreatorLaunchLogs(factory, provider, requestedAccount, source.deploymentBlock);
-      return Promise.all(logs.map((log) => readCreatorLaunch(log, provider, factory)));
+      return Promise.all(logs.map((log) => readCreatorLaunch(log, provider, factory, source)));
     }));
     const launches = launchGroups.flat();
     if (requestId !== state.dashboardRequestId || !sameAddress(state.account, requestedAccount)) return;
@@ -1373,19 +1407,47 @@ async function claimCreatorRevenue(launch, button) {
     const factory = new window.ethers.Contract(launch.factoryAddress, FACTORY_ABI, signer);
     const recordedCreator = await factory.positionCreators(launch.positionTokenId);
     if (!sameAddress(recordedCreator, signerAddress)) throw new Error("This wallet is not the recorded creator for that position.");
-    const transaction = await factory.collectFees(launch.positionTokenId);
+    let transaction;
+    let claimInterface = factory.interface;
+    if (launch.ethOnly) {
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + ETH_CLAIM_DEADLINE_SECONDS);
+      const quote = await factory.claimFeesInEth.staticCall(launch.positionTokenId, 0, 0, deadline);
+      const minimumRwiFromToken = BigInt(quote.rwiFromToken) * (10_000n - ETH_CLAIM_SLIPPAGE_BPS) / 10_000n;
+      const minimumEthOut = BigInt(quote.ethAmount) * (10_000n - ETH_CLAIM_SLIPPAGE_BPS) / 10_000n;
+      if (BigInt(quote.tokenFees) === 0n && BigInt(quote.rwiFees) === 0n) throw new Error("No creator fees are currently available.");
+      transaction = await factory.claimFeesInEth(
+        launch.positionTokenId,
+        minimumRwiFromToken,
+        minimumEthOut,
+        deadline,
+      );
+    } else {
+      const legacyFactory = new window.ethers.Contract(
+        launch.factoryAddress,
+        [
+          "function positionCreators(uint256 positionTokenId) view returns (address)",
+          "function collectFees(uint256 positionTokenId) returns (uint256 amount0, uint256 amount1)",
+          "event FeesCollected(uint256 indexed positionTokenId,address indexed creator,uint256 amount0,uint256 amount1)",
+        ],
+        signer,
+      );
+      claimInterface = legacyFactory.interface;
+      transaction = await legacyFactory.collectFees(launch.positionTokenId);
+    }
     button.textContent = "Claiming revenue…";
     const receipt = await transaction.wait();
     let collected = null;
     for (const log of receipt.logs) {
       try {
-        const parsed = factory.interface.parseLog(log);
-        if (parsed?.name === "FeesCollected" && BigInt(parsed.args.positionTokenId) === launch.positionTokenId) collected = parsed.args;
+        const parsed = claimInterface.parseLog(log);
+        if (["FeesCollected", "FeesClaimedInEth"].includes(parsed?.name) && BigInt(parsed.args.positionTokenId) === launch.positionTokenId) collected = parsed.args;
       } catch {
         // Unrelated token and pool logs are ignored.
       }
     }
-    if (collected) {
+    if (collected?.ethAmount !== undefined) {
+      toast(`Claimed ${feeLabel(BigInt(collected.ethAmount), "ETH")} to the creator wallet.`);
+    } else if (collected) {
       const amounts = splitCollectedFees(launch.token, collected.amount0, collected.amount1);
       toast(`Claimed ${feeLabel(amounts.rwiFees, "RWI")} + ${feeLabel(amounts.tokenFees, launch.symbol)}.`);
     } else {
@@ -1398,7 +1460,7 @@ async function claimCreatorRevenue(launch, button) {
   } finally {
     state.activeClaimPosition = null;
     button.disabled = false;
-    button.textContent = "Claim revenue";
+    button.textContent = launch.ethOnly ? "Claim ETH" : "Claim revenue";
   }
 }
 
@@ -1418,11 +1480,12 @@ async function validateFactoryDeployment(provider, address) {
   if (!expectedRuntime || actualRuntime !== expectedRuntime) throw new Error("Deployed factory bytecode does not match this reviewed build.");
 
   const factory = new ethers.Contract(address, FACTORY_ABI, provider);
-  const [rwi, weth, uniswapFactory, positionManager, oraclePool, verifierProxy, ethUsdFeedId, immutableRwi, immutableWeth, immutableFactory, immutableManager, immutableOraclePool, immutableVerifier, immutableFeedId, chainId, poolFee, initialRwi, poolAllocation, maxDust, locked, creatorFeeShare, targetMarketCap, twapWindow, maxReportAge, maxSpotDeviation, minOracleLiquidity] = await Promise.all([
+  const [rwi, weth, uniswapFactory, positionManager, swapRouter, oraclePool, verifierProxy, ethUsdFeedId, immutableRwi, immutableWeth, immutableFactory, immutableManager, immutableSwapRouter, immutableOraclePool, immutableVerifier, immutableFeedId, chainId, poolFee, initialRwi, poolAllocation, maxDust, locked, creatorFeeShare, targetMarketCap, twapWindow, maxReportAge, maxSpotDeviation, minOracleLiquidity] = await Promise.all([
     factory.RWI(),
     factory.WETH(),
     factory.UNISWAP_V3_FACTORY(),
     factory.NONFUNGIBLE_POSITION_MANAGER(),
+    factory.SWAP_ROUTER_02(),
     factory.RWI_WETH_ORACLE_POOL(),
     factory.CHAINLINK_VERIFIER_PROXY(),
     factory.ETH_USD_STREAM_ID(),
@@ -1430,6 +1493,7 @@ async function validateFactoryDeployment(provider, address) {
     factory.weth(),
     factory.uniswapFactory(),
     factory.positionManager(),
+    factory.swapRouter(),
     factory.rwiWethPool(),
     factory.verifierProxy(),
     factory.ethUsdFeedId(),
@@ -1451,6 +1515,7 @@ async function validateFactoryDeployment(provider, address) {
   if (!sameAddress(weth, FACTORY_CONFIG.wethAddress) || !sameAddress(immutableWeth, weth)) throw new Error("Factory WETH integration mismatch.");
   if (!sameAddress(uniswapFactory, FACTORY_CONFIG.uniswapV3Factory) || !sameAddress(immutableFactory, uniswapFactory)) throw new Error("Factory Uniswap integration mismatch.");
   if (!sameAddress(positionManager, FACTORY_CONFIG.nonfungiblePositionManager) || !sameAddress(immutableManager, positionManager)) throw new Error("Factory position-manager integration mismatch.");
+  if (!sameAddress(swapRouter, FACTORY_CONFIG.swapRouter02) || !sameAddress(immutableSwapRouter, swapRouter)) throw new Error("Factory SwapRouter02 integration mismatch.");
   if (!sameAddress(oraclePool, FACTORY_CONFIG.rwiWethOraclePool) || !sameAddress(immutableOraclePool, oraclePool)) throw new Error("Factory RWI/WETH oracle-pool mismatch.");
   if (!sameAddress(verifierProxy, FACTORY_CONFIG.chainlinkVerifierProxy) || !sameAddress(immutableVerifier, verifierProxy)) throw new Error("Factory Chainlink verifier mismatch.");
   if (String(ethUsdFeedId).toLowerCase() !== String(FACTORY_CONFIG.ethUsdStreamId).toLowerCase() || String(immutableFeedId).toLowerCase() !== String(ethUsdFeedId).toLowerCase()) throw new Error("Factory ETH/USD stream mismatch.");

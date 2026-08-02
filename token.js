@@ -294,7 +294,7 @@ function renderCreator(creator, resolvedProfile) {
   const shortAddress = `${creator.slice(0, 8)}…${creator.slice(-6)}`;
   $("#creatorAddress").textContent = shortAddress;
   $("#creatorDisplayName").textContent = profile?.name || "Launch creator";
-  $("#creatorBioText").textContent = profile?.bio || "This wallet created the token and permanently receives 100% of collectible LP fees.";
+  $("#creatorBioText").textContent = profile?.bio || "This wallet created the token and permanently receives its collectible LP revenue; new-factory claims are paid in ETH.";
   $("#creatorProfileSource").textContent = resolvedProfile?.source || "Recorded onchain";
   $("#creatorExplorer").href = `${EXPLORER_URL}/address/${creator}`;
   const registryAddress = resolvedProfile?.registryAddress;
