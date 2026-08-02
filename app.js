@@ -97,6 +97,7 @@ const state = {
   creatorLaunches: [],
   dashboardLoading: false,
   dashboardRequestId: 0,
+  dashboardReturnFocus: null,
   activeClaimPosition: null,
   profileAvatarData: null,
   profileAvatarBytes: null,
@@ -603,9 +604,18 @@ function drawCrop() {
   );
 }
 
+function syncModalScrollLock() {
+  const modalOpen = ["#cropModal", "#launchModal", "#dashboardModal"]
+    .some((selector) => {
+      const modal = $(selector);
+      return modal && !modal.hidden;
+    });
+  document.body.style.overflow = modalOpen ? "hidden" : "";
+}
+
 function closeCropper() {
   $("#cropModal").hidden = true;
-  if ($("#launchModal").hidden) document.body.style.overflow = "";
+  syncModalScrollLock();
   state.cropDragging = null;
   state.cropSourceImage = null;
   if (state.cropSourceUrl) URL.revokeObjectURL(state.cropSourceUrl);
@@ -631,7 +641,7 @@ function openCropper(file, completion = null) {
     state.cropOffsetY = 0;
     $("#cropZoom").value = "1";
     $("#cropModal").hidden = false;
-    document.body.style.overflow = "hidden";
+    syncModalScrollLock();
     drawCrop();
   };
   image.onerror = () => {
@@ -1135,6 +1145,54 @@ function renderDashboardAccess() {
   $("#profileWallet").textContent = state.account;
   $("#feeRecipient").textContent = shortAddress;
   loadCreatorProfile();
+}
+
+function setDashboardOpenerState(expanded) {
+  $$('[data-dashboard-open]').forEach((opener) => opener.setAttribute("aria-expanded", String(expanded)));
+}
+
+function openCreatorDashboard(trigger = null, { updateHash = true } = {}) {
+  const modal = $("#dashboardModal");
+  if (!modal || !modal.hidden) return;
+  state.dashboardReturnFocus = trigger || (document.activeElement !== document.body ? document.activeElement : null);
+  modal.hidden = false;
+  setDashboardOpenerState(true);
+  renderDashboardAccess();
+  syncModalScrollLock();
+  if (updateHash && window.location.hash !== "#dashboard") {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#dashboard`);
+  }
+  window.requestAnimationFrame(() => $("#dashboardClose").focus());
+}
+
+function closeCreatorDashboard({ clearHash = true, restoreFocus = true } = {}) {
+  const modal = $("#dashboardModal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  setDashboardOpenerState(false);
+  syncModalScrollLock();
+  if (clearHash && window.location.hash === "#dashboard") {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  }
+  if (restoreFocus && state.dashboardReturnFocus?.focus) state.dashboardReturnFocus.focus();
+  state.dashboardReturnFocus = null;
+}
+
+function trapDashboardFocus(event) {
+  const modal = $("#dashboardModal");
+  if (event.key !== "Tab" || !modal || modal.hidden) return;
+  const focusable = $$('#dashboardModal a[href], #dashboardModal button, #dashboardModal input, #dashboardModal textarea, #dashboardModal select, #dashboardModal [tabindex]:not([tabindex="-1"])')
+    .filter((element) => !element.hidden && !element.disabled && element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 async function processProfileImage(file) {
@@ -1836,7 +1894,7 @@ function openFactoryDeploymentModal() {
   $("#modalWallet").textContent = state.account ? "Deploy v4 hook with wallet" : "Connect wallet to deploy";
   $("#modalWallet").dataset.action = "deploy-factory";
   $("#launchModal").hidden = false;
-  document.body.style.overflow = "hidden";
+  syncModalScrollLock();
 }
 
 async function mineBrowserHookSalt(deployerAddress, creationCodeHash, onProgress) {
@@ -2355,6 +2413,18 @@ cropCanvas.addEventListener("pointercancel", stopCropDrag);
 $("#walletButton").addEventListener("click", connectWallet);
 $("#modalWallet").addEventListener("click", handleModalPrimary);
 $("#dashboardConnect").addEventListener("click", connectWallet);
+$$('[data-dashboard-open]').forEach((opener) => opener.addEventListener("click", (event) => {
+  event.preventDefault();
+  openCreatorDashboard(event.currentTarget);
+}));
+$("#dashboardClose")?.addEventListener("click", () => closeCreatorDashboard());
+$("#dashboardModal")?.addEventListener("click", (event) => {
+  if (event.target === $("#dashboardModal")) closeCreatorDashboard();
+});
+window.addEventListener?.("hashchange", () => {
+  if (window.location.hash === "#dashboard") openCreatorDashboard(null, { updateHash: false });
+  else closeCreatorDashboard({ clearHash: false, restoreFocus: false });
+});
 $("#refreshRevenue").addEventListener("click", () => loadCreatorDashboard());
 $("#creatorProfileForm").addEventListener("submit", saveCreatorProfile);
 $("#profileImage").addEventListener("change", (event) => processProfileImage(event.target.files[0]));
@@ -2381,7 +2451,7 @@ $("#launchForm").addEventListener("submit", async (event) => {
   $("#modalWallet").textContent = "Preparing…";
   delete $("#modalWallet").dataset.action;
   $("#launchModal").hidden = false;
-  document.body.style.overflow = "hidden";
+  syncModalScrollLock();
   launchButton.disabled = true;
   try {
     await launchOnUniswap();
@@ -2393,14 +2463,16 @@ $("#launchForm").addEventListener("submit", async (event) => {
 function closeModal() {
   if (state.launchInFlight || state.factoryDeploymentInFlight) return;
   $("#launchModal").hidden = true;
-  document.body.style.overflow = "";
+  syncModalScrollLock();
 }
 $("#modalClose").addEventListener("click", closeModal);
 $("#launchModal").addEventListener("click", (event) => { if (event.target === $("#launchModal")) closeModal(); });
 document.addEventListener("keydown", (event) => {
+  trapDashboardFocus(event);
   if (event.key !== "Escape") return;
   if (!$("#cropModal").hidden) closeCropper();
   else if (!$("#launchModal").hidden) closeModal();
+  else if ($("#dashboardModal") && !$("#dashboardModal").hidden) closeCreatorDashboard();
 });
 
 restoreDraft();
@@ -2408,6 +2480,7 @@ restoreDraftLogo();
 renderIntegrationStatus();
 updatePreview();
 renderDashboardAccess();
+if (window.location.hash === "#dashboard") openCreatorDashboard(null, { updateHash: false });
 $("#walletOriginWarning").hidden = window.location?.protocol !== "file:";
 $$('#tokenGrid [data-token-address]').forEach((card) => enableTokenCard(card, card.dataset.tokenAddress));
 loadRecentLaunches();
