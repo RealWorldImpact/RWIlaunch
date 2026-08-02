@@ -445,6 +445,40 @@ function profileMimeType(value) {
   return ({ 1: "image/jpeg", 2: "image/png", 3: "image/webp" })[Number(value)] || null;
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error || new Error("Image unavailable."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function imageCanBeDisplayed(image, purpose = "profile-picture") {
+  if (!image) return false;
+  if (window.location.protocol === "file:") return true;
+  try {
+    const imageDataUrl = typeof image === "string" ? image : await blobToDataUrl(image);
+    if (!/^data:image\/(?:png|jpeg|webp);base64,/i.test(imageDataUrl)) return false;
+    const response = await fetch(new URL("api/image-safety", new URL(".", window.location.href)), {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ purpose, imageDataUrl }),
+    });
+    const result = await response.json().catch(() => ({}));
+    return response.ok && result.allowed === true;
+  } catch {
+    return false;
+  }
+}
+
+async function visibleLocalProfile(profile) {
+  if (!profile?.avatar) return profile;
+  return await imageCanBeDisplayed(profile.avatar)
+    ? profile
+    : { ...profile, avatar: null };
+}
+
 function readLocalJson(key) {
   try {
     return JSON.parse(localStorage.getItem(key) || "null");
@@ -574,7 +608,7 @@ async function queryProfileEvent(registry, provider, creator, version) {
 }
 
 async function resolveCreatorProfile(creator, provider) {
-  const local = readLocalJson(profileKey(creator));
+  const local = await visibleLocalProfile(readLocalJson(profileKey(creator)));
   const registryAddress = configuredProfileRegistryAddress();
   if (!registryAddress || !PROFILE_REGISTRY_ABI.length) return { profile: local, source: local ? "Browser-local profile" : "Wallet recorded onchain" };
   try {
@@ -589,8 +623,11 @@ async function resolveCreatorProfile(creator, provider) {
     let avatar = null;
     const mime = profileMimeType(profile.avatarMimeType);
     if (avatarBytes.length && mime) {
-      state.creatorImageUrl = URL.createObjectURL(new Blob([avatarBytes], { type: mime }));
-      avatar = state.creatorImageUrl;
+      const avatarBlob = new Blob([avatarBytes], { type: mime });
+      if (await imageCanBeDisplayed(avatarBlob)) {
+        state.creatorImageUrl = URL.createObjectURL(avatarBlob);
+        avatar = state.creatorImageUrl;
+      }
     }
     return {
       profile: { name: profile.name, bio: profile.bio, avatar },
