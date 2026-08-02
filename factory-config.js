@@ -1,15 +1,26 @@
 window.RWI_FACTORY_CONFIG = Object.freeze({
   chainId: 4663,
-  factoryAddress: "0xD8F82ed33D9663854b164705dafBD467f31C9F16",
-  sourceVerified: true,
+  factoryAddress: null,
+  sourceVerified: false,
   independentAuditComplete: false,
+  allowBrowserDeployment: false,
   protocol: "Uniswap v3",
   poolFee: 10000,
   rwiAddress: "0x2286397228be256529BE1ae9ed8D7d16549e9C6A",
+  wethAddress: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
   uniswapV3Factory: "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
   nonfungiblePositionManager: "0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3",
-  deploymentTransaction: "0x81a0852a73cd130caf7ea143237322d517355c831361d094e4c1c6705c900d7a",
-  deploymentBlock: 25524373,
-  validatedAtBlock: 25533574,
-  runtimeCodeHash: "0xce400717e76333cba9a592494830fc55c8cf4e853442d276ef843006d38ebcba"
+  rwiWethOraclePool: "0xFf6AA24815d1274a9bE0CfD17C7c7489Cd40A697",
+  chainlinkVerifierProxy: "0xcE73c8ad08CBDEaCa6078BF0627C8fe0a9a536E7",
+  ethUsdStreamId: "0x000362205e10b3a147d02792eccee483dca6c7b44ecce7012cb8c6e0b68b3ae9",
+  oracleReportEndpoint: "/api/eth-usd-report",
+  targetMarketCapUsd: 10000,
+  legacyFactories: Object.freeze([
+    Object.freeze({
+      address: "0xD8F82ed33D9663854b164705dafBD467f31C9F16",
+      deploymentBlock: 25524373,
+      sourceVerified: true,
+      runtimeCodeHash: "0xce400717e76333cba9a592494830fc55c8cf4e853442d276ef843006d38ebcba",
+    }),
+  ]),
 });

@@ -167,7 +167,8 @@ input::placeholder, textarea::placeholder { color: rgba(11,11,9,.35); }
 .pair-token > div:last-child { display: flex; flex-direction: column; }
 .pair-token span { text-transform: uppercase; font-size: 9px; letter-spacing: .08em; opacity: .65; }
 .pair-token strong { font-size: 21px; }
-.rwi-symbol { width: 49px; height: 49px; border-radius: 50%; display: grid; place-items: center; background: var(--lime); color: var(--ink); font-size: 15px; font-weight: 600; }
+.rwi-symbol { width: 49px; height: 49px; border-radius: 50%; display: grid; place-items: center; background: var(--lime); color: var(--ink); }
+.home-page-body .pair-token .rwi-symbol > span { display: block; transform: translateY(2px); font-family: var(--serif); font-size: 15px; font-weight: 600; line-height: 1; letter-spacing: 0; opacity: 1; text-transform: none; }
 .venue-mark { display: flex; flex-direction: column; align-items: flex-end; }
 .venue-mark span { font-family: var(--mono); font-size: 7px; text-transform: uppercase; letter-spacing: .08em; opacity: .55; }
 .venue-mark strong { color: var(--paper); font-size: 15px; font-weight: 500; }
@@ -345,6 +346,93 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 17px; heigh
 .claim-revenue:disabled { cursor: not-allowed; opacity: .42; }
 .revenue-note { margin: 0; border-top: 1px solid rgba(204,254,6,.22); padding: 13px 17px 16px; color: rgba(244,241,231,.42); font-family: var(--mono); font-size: 8px; line-height: 1.5; text-transform: uppercase; }
 
+/* Lift only microcopy; normal navigation, controls, and headings keep their original scale. */
+.home-page-body .sample-label,
+.home-page-body .draft-tools,
+.home-page-body .draft-tools button,
+.home-page-body .field-label small,
+.home-page-body .listing-note,
+.home-page-body .remove-image,
+.home-page-body .fixed-rule-card > span,
+.home-page-body .zero-liquidity-card > span,
+.home-page-body .fixed-rule-card small,
+.home-page-body .zero-liquidity-card small,
+.home-page-body .one-click-heading span,
+.home-page-body .one-click-note,
+.home-page-body .launch-consent,
+.home-page-body .venue-mark span,
+.home-page-body .pair-links,
+.home-page-body .pair-links button,
+.home-page-body .balance-row,
+.home-page-body .integration-title,
+.home-page-body .integration-title strong,
+.home-page-body .integration-links a,
+.home-page-body .integration-panel p,
+.home-page-body .range-wrap > div,
+.home-page-body .allocation-breakdown > div,
+.home-page-body .balance-warning,
+.home-page-body .preview-topline,
+.home-page-body .status-badge,
+.home-page-body .preview-stats span,
+.home-page-body .setup-head,
+.home-page-body .preview-footnote,
+.home-page-body .token-address,
+.home-page-body .token-meta > span,
+.home-page-body .mini-stats,
+.home-page-body .mini-stats strong,
+.home-page-body .dashboard-gate span,
+.home-page-body .panel-kicker span,
+.home-page-body .revenue-header span,
+.home-page-body .revenue-summary span,
+.home-page-body .revenue-token-meta span,
+.home-page-body .revenue-fees span,
+.home-page-body .panel-kicker strong,
+.home-page-body .profile-registry-status span,
+.home-page-body .profile-registry-status strong,
+.home-page-body .profile-registry-status button,
+.home-page-body .profile-image-remove,
+.home-page-body .profile-avatar-row small,
+.home-page-body .profile-storage-note,
+.home-page-body .revenue-header button,
+.home-page-body .revenue-token-meta a,
+.home-page-body .position-chip,
+.home-page-body .claim-revenue,
+.home-page-body .revenue-note,
+.home-page-body .modal-note,
+.home-page-body .crop-controls button,
+.home-page-body .crop-note { font-size: 11px; }
+.home-page-body .network-chip,
+.home-page-body .direct-launch-note strong,
+.home-page-body .step,
+.home-page-body .field-label,
+.home-page-body .field-label-row,
+.home-page-body .input-suffix-wrap > span,
+.home-page-body .upload-title,
+.home-page-body .optional-fields summary,
+.home-page-body .text-button,
+.home-page-body .preview-name-row p,
+.home-page-body .mechanism-grid article > span,
+.home-page-body .modal-token span { font-size: 11px; }
+.home-page-body .ticker,
+.home-page-body .wallet-origin-warning,
+.home-page-body .field-label-row > span:last-child,
+.home-page-body .field-hint,
+.home-page-body .pair-token span,
+.home-page-body .balance-row strong,
+.home-page-body .allocation-breakdown strong,
+.home-page-body .checkbox-row small,
+.home-page-body .review-list span,
+.home-page-body .cost-card,
+.home-page-body .form-message,
+.home-page-body .filter-chip,
+.home-page-body .token-meta p,
+.home-page-body .profile-image-button,
+.home-page-body .dashboard-empty,
+.home-page-body .crop-controls label,
+.home-page-body .toast { font-size: 12px; }
+.home-page-body footer,
+.home-page-body footer small { font-size: 12px; }
+
 .token-page-body { background: var(--paper); }
 .token-page-main { min-height: 70vh; padding: 72px max(24px, calc((100vw - 1180px) / 2)) 110px; }
 .token-page-status { min-height: 360px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; border: 1px dashed var(--ink); background: var(--white); color: rgba(11,11,9,.55); padding: 30px; font-family: var(--mono); font-size: 10px; line-height: 1.55; text-align: center; text-transform: uppercase; letter-spacing: .06em; }
@@ -396,6 +484,32 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 17px; heigh
 .market-links a { border-bottom: 1px solid var(--ink); }
 .market-card > p { margin: 20px 0 0; color: rgba(11,11,9,.48); font-family: var(--mono); font-size: 8px; line-height: 1.55; text-transform: uppercase; }
 .token-page-footer { margin-top: 0; }
+
+/* Token pages use the same restrained microcopy scale as the main launchpad. */
+.token-page-body .network-chip { font-size: 11px; }
+.token-page-body .status-badge { border-color: var(--ink); padding: 6px 8px; font-size: 11px; }
+.token-page-body .token-page-status,
+.token-page-body .token-detail-title-row p,
+.token-page-body .token-contract-row code,
+.token-page-body .token-page-footer,
+.token-page-body .token-page-footer small,
+.token-page-body .toast { font-size: 12px; }
+.token-page-body .token-detail-title-row p { margin-bottom: 9px; line-height: 1; }
+.token-page-body .token-detail-title-row h1 { line-height: .88; }
+.token-page-body .token-social-links a,
+.token-page-body .token-contract-row button,
+.token-page-body .uniswap-route-note,
+.token-page-body .token-facts span,
+.token-page-body .creator-card-heading,
+.token-page-body .market-address-row span,
+.token-page-body .token-facts small,
+.token-page-body .creator-card-heading strong,
+.token-page-body .creator-identity code,
+.token-page-body .creator-explorer-link,
+.token-page-body .market-address-row code,
+.token-page-body .market-links,
+.token-page-body .market-card > p { font-size: 11px; }
+.token-page-body .creator-identity code { max-width: 280px; }
 .token-card-clickable { cursor: pointer; transition: transform .15s ease, box-shadow .15s ease; }
 .token-card-clickable:hover { transform: translate(-3px, -3px); box-shadow: 6px 6px 0 var(--ink); }
 .token-card-clickable:focus-visible { outline: 3px solid #ff6838; outline-offset: 3px; }
@@ -506,6 +620,16 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .mechanism, .discover, .creator-dashboard { padding: 75px 16px; }
   .discover-heading { align-items: start; flex-direction: column; }
   .token-grid { grid-template-columns: 1fr; }
+  .home-page-body .token-grid,
+  .home-page-body .token-card,
+  .home-page-body .token-card-link,
+  .home-page-body .token-meta > div { min-width: 0; }
+  .home-page-body .token-card { width: 100%; }
+  .home-page-body .token-meta { flex-wrap: wrap; gap: 10px 14px; }
+  .home-page-body .token-meta > span { max-width: 100%; overflow-wrap: anywhere; }
+  .home-page-body .token-address { max-width: 100%; }
+  .home-page-body .mini-stats { flex-wrap: wrap; gap: 8px 14px; }
+  .home-page-body .checkbox-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
   footer { padding: 42px 16px; grid-template-columns: 1fr; }
   footer p, footer small { justify-self: start; text-align: left; }
   footer nav { flex-wrap: wrap; }

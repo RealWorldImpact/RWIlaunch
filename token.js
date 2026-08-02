@@ -40,6 +40,30 @@ function sameAddress(left, right) {
   return String(left).toLowerCase() === String(right).toLowerCase();
 }
 
+function configuredFactoryAddresses() {
+  const addresses = [];
+  if (isAddress(FACTORY_CONFIG.factoryAddress)) addresses.push(FACTORY_CONFIG.factoryAddress);
+  for (const entry of FACTORY_CONFIG.legacyFactories || []) {
+    if (isAddress(entry?.address) && !addresses.some((address) => sameAddress(address, entry.address))) addresses.push(entry.address);
+  }
+  return addresses;
+}
+
+async function findFactoryLaunch(address, provider) {
+  for (const factoryAddress of configuredFactoryAddresses()) {
+    try {
+      const factory = new window.ethers.Contract(factoryAddress, FACTORY_ABI, provider);
+      const launch = await factory.launches(address);
+      if (isAddress(launch.creator) && !sameAddress(launch.creator, window.ethers.ZeroAddress) && isAddress(launch.pool)) {
+        return { launch, factoryAddress };
+      }
+    } catch {
+      // Continue through configured legacy factories.
+    }
+  }
+  throw new Error("This token was not launched by a configured RWI launch factory.");
+}
+
 function withTimeout(promise, milliseconds, message) {
   let timeoutId;
   const timeout = new Promise((_, reject) => {
@@ -317,7 +341,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
 
 async function loadTokenPage() {
   const address = new URLSearchParams(window.location.search).get("address");
-  if (!isAddress(address) || !isAddress(FACTORY_CONFIG.factoryAddress)) {
+  if (!isAddress(address) || !configuredFactoryAddresses().length) {
     showTokenPageError("Invalid token address. Return to the launchpad and choose a verified launch.");
     return;
   }
@@ -344,16 +368,16 @@ async function loadTokenPage() {
       });
     }
     const provider = new window.ethers.JsonRpcProvider(RPC_URL, 4663, { staticNetwork: true });
-    const factory = new window.ethers.Contract(FACTORY_CONFIG.factoryAddress, FACTORY_ABI, provider);
     const token = new window.ethers.Contract(address, [
       "function name() view returns (string)",
       "function symbol() view returns (string)",
       "function decimals() view returns (uint8)",
       "function totalSupply() view returns (uint256)",
     ], provider);
-    const [launch, name, symbol, decimals, supply, metadata] = await withTimeout(Promise.all([
-      factory.launches(address), token.name(), token.symbol(), token.decimals(), token.totalSupply(), metadataPromise,
+    const [factoryLaunch, name, symbol, decimals, supply, metadata] = await withTimeout(Promise.all([
+      findFactoryLaunch(address, provider), token.name(), token.symbol(), token.decimals(), token.totalSupply(), metadataPromise,
     ]), 12_000, "Robinhood Chain did not return token data within 12 seconds.");
+    const launch = factoryLaunch.launch;
     if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !isAddress(launch.pool)) {
       throw new Error("This token was not launched by the configured factory.");
     }
