@@ -589,9 +589,12 @@ function renderCreator(creator, resolvedProfile) {
   $("#profileRegistryExplorer").hidden = !registryAddress;
   if (registryAddress) $("#profileRegistryExplorer").href = `${EXPLORER_URL}/address/${registryAddress}`;
   const initial = (profile?.name?.charAt(0) || creator.slice(2, 3)).toUpperCase();
+  const creatorAvatar = $("#creatorPageAvatar");
+  creatorAvatar.setAttribute("role", "img");
+  creatorAvatar.setAttribute("aria-label", `${profile?.name || "Token creator"} profile picture`);
   $("#creatorPageInitial").textContent = initial;
   if (profile?.avatar) {
-    $("#creatorPageAvatar").style.backgroundImage = `url("${profile.avatar}")`;
+    creatorAvatar.style.backgroundImage = `url("${profile.avatar}")`;
     $("#creatorPageInitial").textContent = "";
   }
 }
@@ -605,6 +608,9 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   document.title = `${name} ($${symbol}) · RWI Launchpad`;
   $("#detailName").textContent = name;
   $("#detailSymbol").textContent = `$${symbol}`;
+  const detailArt = $("#detailArt");
+  detailArt.setAttribute("role", "img");
+  detailArt.setAttribute("aria-label", `${name} ($${symbol}) token artwork`);
   $("#detailDescription").textContent = metadata.description || "A fixed-supply token launched directly into permanently locked TOKEN / RWI liquidity.";
   renderTokenLinks(metadata.links);
   $("#detailAddress").textContent = address;
@@ -615,7 +621,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#detailPool").textContent = launch.poolId || launch.pool;
   $("#detailPoolLabel").textContent = launch.poolId ? "v4 pool ID" : "Pool";
   if (metadata.imageUrl) {
-    $("#detailArt").style.backgroundImage = `url("${metadata.imageUrl}")`;
+    detailArt.style.backgroundImage = `url("${metadata.imageUrl}")`;
     $("#detailMonogram").textContent = "";
   }
   $("#buyOnUniswap").href = uniswapSwapUrl(RWI_ADDRESS, address);
