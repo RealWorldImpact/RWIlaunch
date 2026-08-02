@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
 import { list, put } from "@vercel/blob";
-import { Contract, JsonRpcProvider, getAddress, isAddress, verifyMessage } from "ethers";
+import {
+  Contract,
+  Interface,
+  JsonRpcProvider,
+  getAddress,
+  isAddress,
+  keccak256,
+  toUtf8Bytes,
+  verifyMessage,
+} from "ethers";
 import { assertImageAllowedDataUrl } from "./image-safety.mjs";
 
 const CHAIN_ID = 4663;
@@ -15,6 +24,10 @@ const TOKEN_LIST_PATH = "rwi-launchpad/rwi-launchpad.tokenlist.json";
 const FACTORY_ABI = [
   "function launches(address token) view returns (address creator,bytes32 poolId,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount,int24 tickLower,int24 tickUpper)",
 ];
+const LAUNCH_INTERFACE = new Interface([
+  "function launch((string name,string symbol,uint256 devBuyRwiAmount,uint256 minimumDevBuyTokenOut) params) returns (address token,bytes32 poolId,uint256 positionTokenId,uint256 devBuyTokenAmount)",
+  "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
+]);
 const CORS_HEADERS = Object.freeze({
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,OPTIONS",
@@ -104,6 +117,33 @@ export function metadataSigningMessage(payload) {
   ].join("\n");
 }
 
+export function launchMetadataAuthorizationMessage(payload) {
+  const creator = cleanAddress(payload.creator, "creator");
+  const name = cleanText(payload.name, 60, true);
+  const symbol = cleanText(payload.symbol, 20, true).toUpperCase();
+  const description = cleanText(payload.description, 500);
+  const links = canonicalLinks(payload.links);
+  const logoSha256 = String(payload.logoSha256 || "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(logoSha256)) throw new Error("The public logo integrity check failed.");
+  return [
+    "RWI Launchpad launch metadata authorization",
+    "Version: 1",
+    `Chain ID: ${CHAIN_ID}`,
+    `Factory: ${FACTORY_ADDRESS.toLowerCase()}`,
+    `Creator: ${creator.toLowerCase()}`,
+    `Name: ${name}`,
+    `Symbol: ${symbol}`,
+    `Description SHA-256: ${sha256(Buffer.from(description, "utf8"))}`,
+    `Logo SHA-256: ${logoSha256}`,
+    `Links SHA-256: ${sha256(Buffer.from(JSON.stringify(links), "utf8"))}`,
+    "Purpose: bind this public logo and metadata to the signed launch transaction",
+  ].join("\n");
+}
+
+export function launchMetadataCommitment(payload) {
+  return keccak256(toUtf8Bytes(launchMetadataAuthorizationMessage(payload)));
+}
+
 function decodeLogo(dataUrl, expectedHash) {
   const match = String(dataUrl || "").match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
   if (!match) throw new Error("The uploaded logo must be a PNG.");
@@ -180,8 +220,7 @@ async function writeTokenList() {
   });
 }
 
-async function verifyLaunch(payload) {
-  const provider = new JsonRpcProvider(RPC_URL, CHAIN_ID, { staticNetwork: true });
+async function verifyLaunch(payload, provider = new JsonRpcProvider(RPC_URL, CHAIN_ID, { staticNetwork: true })) {
   const factory = new Contract(FACTORY_ADDRESS, FACTORY_ABI, provider);
   const token = new Contract(payload.tokenAddress, [
     "function name() view returns (string)",
@@ -198,6 +237,57 @@ async function verifyLaunch(payload) {
   if (onchainName !== payload.name || onchainSymbol !== payload.symbol) throw new Error("The submitted name or symbol does not match the token contract.");
 }
 
+export async function verifyLaunchTransactionAuthorization(payload, transactionHash, provider) {
+  const hash = String(transactionHash || "").toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error("Invalid launch transaction authorization.");
+  const [transaction, receipt] = await Promise.all([
+    provider.getTransaction(hash),
+    provider.getTransactionReceipt(hash),
+  ]);
+  if (!transaction || !receipt || Number(receipt.status) !== 1) throw new Error("The authorized launch transaction is not confirmed.");
+  if (!transaction.to || getAddress(transaction.to) !== getAddress(FACTORY_ADDRESS)) throw new Error("The authorization transaction did not call the active factory.");
+  if (getAddress(transaction.from) !== payload.creator) throw new Error("The launch transaction was not signed by this token's creator.");
+
+  const calldata = String(transaction.data || "").toLowerCase();
+  const launchSelector = LAUNCH_INTERFACE.getFunction("launch").selector.toLowerCase();
+  const expectedCommitment = launchMetadataCommitment(payload).slice(2).toLowerCase();
+  if (!calldata.startsWith(launchSelector) || calldata.length < launchSelector.length + 64 || !calldata.endsWith(expectedCommitment)) {
+    throw new Error("The launch transaction does not authorize this public logo and metadata.");
+  }
+
+  let launchedEvent = null;
+  for (const log of receipt.logs || []) {
+    if (!log?.address || getAddress(log.address) !== getAddress(FACTORY_ADDRESS)) continue;
+    try {
+      const parsed = LAUNCH_INTERFACE.parseLog(log);
+      if (parsed?.name === "TokenLaunched") {
+        launchedEvent = parsed;
+        break;
+      }
+    } catch {
+      // Non-launch factory logs are ignored.
+    }
+  }
+  if (!launchedEvent
+    || getAddress(launchedEvent.args.token) !== payload.tokenAddress
+    || getAddress(launchedEvent.args.creator) !== payload.creator
+    || String(launchedEvent.args.poolId).toLowerCase() !== payload.poolId) {
+    throw new Error("The authorization transaction does not contain this token launch.");
+  }
+  return true;
+}
+
+async function verifyCreatorAuthorization(payload, input, provider) {
+  if (input.launchTxHash) {
+    await verifyLaunchTransactionAuthorization(payload, input.launchTxHash, provider);
+    return "launch-transaction";
+  }
+  const signature = String(input.signature || "");
+  const recovered = verifyMessage(metadataSigningMessage(payload), signature);
+  if (recovered.toLowerCase() !== payload.creator.toLowerCase()) throw new Error("The public metadata signature is invalid.");
+  return "message-signature";
+}
+
 async function publish(request) {
   if (!blobConfigured()) return json({ error: "Public logo storage is not configured.", code: "storage_not_configured" }, 503);
   const contentLength = Number(request.headers.get("content-length") || 0);
@@ -211,10 +301,9 @@ async function publish(request) {
   try {
     const payload = canonicalPayload(input);
     const logo = decodeLogo(input.imageDataUrl, payload.logoSha256);
-    const signature = String(input.signature || "");
-    const recovered = verifyMessage(metadataSigningMessage(payload), signature);
-    if (recovered.toLowerCase() !== payload.creator.toLowerCase()) throw new Error("The public metadata signature is invalid.");
-    await verifyLaunch(payload);
+    const provider = new JsonRpcProvider(RPC_URL, CHAIN_ID, { staticNetwork: true });
+    const authorizationMode = await verifyCreatorAuthorization(payload, input, provider);
+    await verifyLaunch(payload, provider);
     await assertImageAllowedDataUrl(input.imageDataUrl);
 
     const tokenKey = payload.tokenAddress.toLowerCase();
@@ -256,6 +345,7 @@ async function publish(request) {
       logoUrl: imageUrl,
       metadataUrl: `${metadataBlob.url}?v=${payload.logoSha256.slice(0, 16)}`,
       tokenListUrl: tokenListBlob?.url || null,
+      authorizationMode,
     }, 201);
   } catch (error) {
     const message = error?.message === "IMAGE_REJECTED"
