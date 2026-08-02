@@ -179,7 +179,7 @@ function renderIntegrationStatus() {
     $("#deployFactoryButton").hidden = !FACTORY_CONFIG.allowBrowserDeployment;
     return;
   }
-  const stateLabel = FACTORY_CONFIG.sourceVerified ? "Verified launch factory live" : "Launch factory active locally";
+  const stateLabel = FACTORY_CONFIG.sourceVerified ? "Source-verified launch factory live" : "Launch factory active locally";
   status.textContent = `${stateLabel} · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`;
   status.classList.add("is-live");
   status.parentElement?.classList.add("is-live");
@@ -513,7 +513,9 @@ async function launchOnUniswap() {
     };
 
     button.textContent = "Confirm launch in wallet…";
-    $("#modalNote").textContent = "One transaction · Deploy the token, seed token-only liquidity, and lock the LP position forever. No $RWI approval required.";
+    $("#modalNote").textContent = FACTORY_CONFIG.independentAuditComplete
+      ? "One transaction · Deploy the token, seed token-only liquidity, and lock the LP position forever. No $RWI approval required."
+      : "Source verified · Internal security review only; no independent audit. Confirm the launch transaction only if you accept that risk.";
     const transaction = await launchFactory.launch(params);
     button.textContent = "Creating Uniswap pool…";
     $("#modalNote").textContent = `Transaction submitted · ${transaction.hash.slice(0, 10)}…`;
