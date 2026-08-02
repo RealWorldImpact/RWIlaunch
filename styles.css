@@ -656,8 +656,7 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .site-header { height: 58px; padding: 0 16px; }
   .brand > span:last-child, .brand-divider, .network-chip { display: none; }
   .wallet-button { min-width: 0; padding: 0 12px; min-height: 38px; }
-  .ticker { justify-content: flex-start; overflow: hidden; white-space: nowrap; padding: 0 16px; }
-  .ticker span:nth-last-child(-n+2) { display: none; }
+  .ticker { display: none; }
   .hero { padding: 58px 16px 80px; }
   .hero-copy { margin-bottom: 38px; }
   h1 { font-size: 56px; }
