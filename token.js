@@ -8,8 +8,8 @@ const PROFILE_REGISTRY_CONFIG = window.RWI_PROFILE_REGISTRY || Object.freeze({})
 const PROFILE_REGISTRY_ABI = window.RWI_PROFILE_REGISTRY_ABI || Object.freeze([]);
 const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 const EXPLORER_URL = "https://robinhoodchain.blockscout.com";
-const V4_QUOTER = "0x8dc178efb8111bb0973dd9d722ebeff267c98f94";
-const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+const V4_QUOTER = FACTORY_CONFIG.uniswapV4Quoter || "0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94";
+const PERMIT2 = FACTORY_CONFIG.permit2 || "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const V4_UNIVERSAL_ROUTER = FACTORY_CONFIG.uniswapV4UniversalRouter || "0x8876789976dEcBfCbBbe364623C63652db8C0904";
 const V4_STATE_VIEW = FACTORY_CONFIG.uniswapV4StateView || "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b";
 const DIRECT_TRADE_SLIPPAGE_BPS = 300n;
@@ -43,6 +43,7 @@ const state = {
   token: null, creator: null, pool: null, poolId: null, positionTokenId: null,
   imageUrl: null, creatorImageUrl: null, tradeDirection: "buy", tradeSource: null,
   tradeQuote: null, tradeQuoteRequest: 0, tradeInFlight: false,
+  directTradeIntegrationsValidated: false,
 };
 
 function isAddress(value) {
@@ -178,6 +179,25 @@ function readTradeAmount() {
   return amount;
 }
 
+async function validateDirectTradeIntegrations(provider) {
+  if (state.directTradeIntegrationsValidated) return;
+  const expectedPoolManager = FACTORY_CONFIG.uniswapV4PoolManager;
+  const integrations = [V4_QUOTER, V4_STATE_VIEW, V4_UNIVERSAL_ROUTER, PERMIT2];
+  if (!isAddress(expectedPoolManager) || integrations.some((address) => !isAddress(address))) {
+    throw new Error("The pinned Uniswap v4 integration configuration is incomplete.");
+  }
+  const codes = await Promise.all(integrations.map((address) => provider.getCode(address)));
+  if (codes.some((code) => code === "0x")) throw new Error("A pinned Uniswap v4 integration has no deployed code.");
+  const immutableStateAbi = ["function poolManager() view returns(address)"];
+  const managerAddresses = await Promise.all([V4_QUOTER, V4_STATE_VIEW, V4_UNIVERSAL_ROUTER].map((address) => (
+    new window.ethers.Contract(address, immutableStateAbi, provider).poolManager()
+  )));
+  if (managerAddresses.some((address) => !sameAddress(address, expectedPoolManager))) {
+    throw new Error("A pinned Uniswap v4 integration points to the wrong PoolManager.");
+  }
+  state.directTradeIntegrationsValidated = true;
+}
+
 async function quoteDirectTrade({ quiet = false } = {}) {
   if (!state.tradeSource || state.tradeSource.protocol !== "Uniswap v4") return null;
   const requestId = ++state.tradeQuoteRequest;
@@ -186,6 +206,7 @@ async function quoteDirectTrade({ quiet = false } = {}) {
     const { inputCurrency, outputCurrency, poolKey, zeroForOne } = directTradeCurrencies();
     if (!quiet) $("#tradeQuote").textContent = "Reading v4 pool…";
     const provider = new window.ethers.JsonRpcProvider(RPC_URL, 4663, { staticNetwork: true });
+    await validateDirectTradeIntegrations(provider);
     const quoter = new window.ethers.Contract(V4_QUOTER, [
       "function quoteExactInputSingle(((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) params) returns (uint256 amountOut,uint256 gasEstimate)",
     ], provider);
@@ -302,6 +323,7 @@ async function executeDirectTrade() {
     const quote = await quoteDirectTrade({ quiet: true });
     if (!quote) throw new Error("A valid direct v4 quote is required before trading.");
     const provider = new window.ethers.BrowserProvider(window.ethereum);
+    await validateDirectTradeIntegrations(provider);
     const signer = await provider.getSigner();
     const inputToken = new window.ethers.Contract(quote.inputCurrency, [
       "function balanceOf(address owner) view returns (uint256)",
@@ -438,6 +460,16 @@ async function readHostedMetadata(address) {
     if (response.ok) return { ...known, ...await response.json() };
   } catch {
     // File previews cannot fetch sibling JSON; known and locally saved metadata remain available.
+  }
+  if (window.location.protocol !== "file:") {
+    try {
+      const publicMetadataUrl = new URL("api/token-metadata", new URL(".", window.location.href));
+      publicMetadataUrl.searchParams.set("token", address);
+      const response = await fetch(publicMetadataUrl, { headers: { accept: "application/json" } });
+      if (response.ok) return { ...known, ...await response.json() };
+    } catch {
+      // Public metadata is optional; onchain token and trading data remain usable without it.
+    }
   }
   return known;
 }
@@ -592,9 +624,11 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   if (launch.pool) {
     $("#poolExplorer").href = `${EXPLORER_URL}/address/${launch.pool}`;
     $("#poolExplorer").textContent = "Pool explorer ↗";
+    $("#geckoTerminalPool").href = `https://www.geckoterminal.com/robinhood/pools/${launch.pool}`;
   } else {
     $("#poolExplorer").href = `${EXPLORER_URL}/address/${FACTORY_CONFIG.uniswapV4PoolManager}`;
     $("#poolExplorer").textContent = "v4 PoolManager ↗";
+    $("#geckoTerminalPool").href = `https://www.geckoterminal.com/robinhood/pools/${launch.poolId}`;
   }
   setupDirectTrade(launch);
   renderCreator(launch.creator, creatorProfile);
@@ -695,5 +729,5 @@ if (!window.RWI_TOKEN_PAGE_TEST_MODE) window.RWI_TOKEN_PAGE_READY = loadTokenPag
 
 window.RWITokenPage = {
   uniswapSwapUrl, isAddress, resolveAssetUrl, normalizeSocialUrl, loadTokenPage, withTimeout,
-  directTradePoolKey, directTradeCurrencies, encodeDirectV4Swap,
+  directTradePoolKey, directTradeCurrencies, encodeDirectV4Swap, validateDirectTradeIntegrations,
 };

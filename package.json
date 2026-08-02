@@ -1,0 +1,9 @@
+{
+  "name": "rwi-launchpad-site",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@vercel/blob": "2.6.1",
+    "ethers": "6.17.0"
+  }
+}

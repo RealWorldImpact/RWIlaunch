@@ -92,7 +92,7 @@
                       <span class="upload-title">Drop image or browse</span>
                       <span class="field-hint">PNG, JPG, WEBP, GIF · max 5MB · crop after upload</span>
                     </label>
-                    <p class="listing-note" id="logoStatus">Every logo is standardized to a square 512×512 PNG and saved with the draft.</p>
+                    <p class="listing-note" id="logoStatus">Every logo is standardized to a square 512×512 PNG, verified after launch, and automatically published when public storage is connected.</p>
                     <div class="image-actions">
                       <button class="remove-image" id="editImage" type="button" hidden>Adjust crop</button>
                       <button class="remove-image" id="downloadLogo" type="button" hidden>Download logo</button>
@@ -171,7 +171,9 @@
                   <div class="integration-title"><span><i></i> Uniswap v4 + dual-TWAP protection</span><strong>Robinhood Chain · 4663</strong></div>
                   <div class="integration-links">
                     <a href="https://robinhoodchain.blockscout.com/address/0x8366a39CC670B4001A1121B8F6A443A643e40951" target="_blank" rel="noreferrer">v4 PoolManager 0x8366…0951 ↗</a>
+                    <a href="https://robinhoodchain.blockscout.com/address/0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94" target="_blank" rel="noreferrer">v4 Quoter 0x8Dc1…8F94 ↗</a>
                     <a href="https://robinhoodchain.blockscout.com/address/0x8876789976dEcBfCbBbe364623C63652db8C0904" target="_blank" rel="noreferrer">Universal Router 0x8876…0904 ↗</a>
+                    <a href="https://robinhoodchain.blockscout.com/address/0x000000000022D473030F116dDEE9F6B43aC78BA3" target="_blank" rel="noreferrer">Permit2 0x0000…BA3 ↗</a>
                     <a href="https://robinhoodchain.blockscout.com/address/0xFf6AA24815d1274a9bE0CfD17C7c7489Cd40A697" target="_blank" rel="noreferrer">RWI/WETH TWAP 0xFf6A…A697 ↗</a>
                     <a href="https://robinhoodchain.blockscout.com/address/0x52e65B17fB6E5BA00Ed806f37Afcd2DaA50271Ca" target="_blank" rel="noreferrer">WETH/USDG TWAP 0x52e6…71Ca ↗</a>
                   </div>
@@ -210,7 +212,7 @@
                   </div>
                   <span class="status-badge">Direct pool</span>
                 </div>
-                <p class="preview-description" id="previewDescription">Description optional · name, ticker, and cropped logo required.</p>
+                <p class="preview-description" id="previewDescription">Description optional · name, ticker, and cropped logo required. Public listing files are generated after launch.</p>
 
                 <div class="preview-stats">
                   <div><span>Pair</span><strong id="previewPair">TOKEN / RWI</strong></div>
@@ -337,7 +339,7 @@
         <div class="modal-actions">
           <button class="button button-lime" id="modalWallet" type="button">Connect wallet</button>
           <button class="button button-outline" id="downloadBrief" type="button">Download launch brief</button>
-          <button class="button button-outline" id="uniswapTradeButton" type="button" hidden>Trade on Uniswap ↗</button>
+          <button class="button button-outline" id="uniswapTradeButton" type="button" hidden>Open direct trader →</button>
         </div>
         <p class="modal-note" id="modalNote">This immutable custom factory has not been independently audited. Proceed only if you explicitly accept that risk.</p>
       </div>
