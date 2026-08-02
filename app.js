@@ -7,6 +7,16 @@ const ETH_CLAIM_DEADLINE_SECONDS = 10 * 60;
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
 const FACTORY_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || Object.freeze({});
+const HOOK_DEPLOYER_DEPLOYMENT = window.RWI_HOOK_DEPLOYER_DEPLOYMENT || Object.freeze({});
+const LEGACY_FACTORY_ABI = Object.freeze([
+  "event TokenLaunched(address indexed token,address indexed creator,address indexed pool,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
+  "event FeesCollected(uint256 indexed positionTokenId,address indexed creator,uint256 amount0,uint256 amount1)",
+  "event FeesClaimedInEth(uint256 indexed positionTokenId,address indexed creator,uint256 tokenFees,uint256 rwiFees,uint256 rwiFromToken,uint256 ethAmount)",
+  "function launches(address token) view returns (address creator,address pool,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount)",
+  "function positionCreators(uint256 positionTokenId) view returns (address)",
+  "function claimFeesInEth(uint256 positionTokenId,uint256 minimumRwiFromToken,uint256 minimumEthOut,uint256 deadline) returns (uint256 tokenFees,uint256 rwiFees,uint256 rwiFromToken,uint256 ethAmount)",
+  "function collectFees(uint256 positionTokenId) returns (uint256 amount0,uint256 amount1)",
+]);
 const PROFILE_REGISTRY_CONFIG = window.RWI_PROFILE_REGISTRY || Object.freeze({});
 const PROFILE_REGISTRY_ABI = window.RWI_PROFILE_REGISTRY_ABI || Object.freeze([]);
 const PROFILE_REGISTRY_DEPLOYMENT = window.RWI_PROFILE_REGISTRY_DEPLOYMENT || Object.freeze({});
@@ -17,6 +27,7 @@ const DRAFT_LOGO_KEY = "current-draft-logo";
 const TOKEN_METADATA_PREFIX = "rwi-token-metadata:";
 const PROFILE_REGISTRY_LOCAL_ADDRESS_KEY = "rwi-profile-registry-address";
 const PROFILE_REGISTRY_LOCAL_BLOCK_KEY = "rwi-profile-registry-block";
+const FACTORY_LOCAL_BLOCK_KEY = `${FACTORY_CONFIG.factoryAddressStorageKey || "rwi-launchpad-factory-address-v4"}-deployment-block`;
 const PROFILE_AVATAR_MAX_BYTES = 12_000;
 const LOGO_SIZE = 512;
 const KNOWN_TOKEN_IMAGES = Object.freeze({
@@ -26,12 +37,12 @@ const KNOWN_TOKEN_DESCRIPTIONS = Object.freeze({
   "0xc29d66d54d2ed13fffdc89323e5a9d70c197eaec": "Standard one-billion-supply test launch from the RWI Launchpad factory.",
 });
 const LIQUIDITY_MODEL = Object.freeze({
-  venue: "Uniswap v3",
+  venue: "Uniswap v4",
   poolFee: FACTORY_CONFIG.poolFee || 10000,
   pairAsset: "$RWI",
   pairAssetAddress: RWI_ADDRESS,
-  uniswapV3Factory: FACTORY_CONFIG.uniswapV3Factory || "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
-  nonfungiblePositionManager: FACTORY_CONFIG.nonfungiblePositionManager || "0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3",
+  uniswapV4PoolManager: FACTORY_CONFIG.uniswapV4PoolManager || "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+  uniswapV4UniversalRouter: FACTORY_CONFIG.uniswapV4UniversalRouter || "0x8876789976dEcBfCbBbe364623C63652db8C0904",
   swapRouter02: FACTORY_CONFIG.swapRouter02 || "0xCaf681a66D020601342297493863E78C959E5cb2",
   launchFactory: FACTORY_CONFIG.factoryAddress || null,
   creatorLpFeeShareBps: 10000,
@@ -44,7 +55,7 @@ const LIQUIDITY_MODEL = Object.freeze({
   initialRwiLiquidity: "0",
   initialLiquidityMode: "single-sided-token-position",
   targetMarketCapUsd: TARGET_MARKET_CAP_USD,
-  openingPriceMode: "chainlink-eth-usd-plus-uniswap-rwi-weth-twap",
+  openingPriceMode: "uniswap-rwi-weth-plus-weth-usdg-dual-twap",
   launchPath: "direct-to-pool",
   bondingCurve: false,
   graduation: false,
@@ -76,6 +87,7 @@ const state = {
   lastLaunchTx: null,
   lastTokenAddress: null,
   lastPoolAddress: null,
+  lastPoolId: null,
   factoryDeploymentInFlight: false,
   lastFactoryAddress: null,
   creatorLaunches: [],
@@ -220,15 +232,30 @@ function configuredFactoryAddress() {
   }
 }
 
+function configuredFactoryDeploymentBlock() {
+  const configured = Number(FACTORY_CONFIG.deploymentBlock || 0);
+  if (configured > 0) return configured;
+  try {
+    const local = Number(localStorage.getItem(FACTORY_LOCAL_BLOCK_KEY) || 0);
+    return Number.isSafeInteger(local) && local > 0 ? local : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function configuredFactorySources() {
   const sources = [];
   const current = configuredFactoryAddress();
-  if (current) sources.push({ address: current, deploymentBlock: Number(FACTORY_CONFIG.deploymentBlock || 0), current: true });
+  if (current) sources.push({ address: current, deploymentBlock: configuredFactoryDeploymentBlock(), current: true, protocol: "Uniswap v4", feeMode: "eth" });
   for (const entry of FACTORY_CONFIG.legacyFactories || []) {
     if (!isAddress(entry?.address) || sources.some((source) => sameAddress(source.address, entry.address))) continue;
     sources.push({ ...entry, deploymentBlock: Number(entry.deploymentBlock || 0), current: false });
   }
   return sources;
+}
+
+function factoryAbiForSource(source) {
+  return source.current ? FACTORY_ABI : LEGACY_FACTORY_ABI;
 }
 
 function configuredFactorySource(address) {
@@ -311,7 +338,7 @@ function renderIntegrationStatus() {
   if (!factoryAddress) {
     status.textContent = FACTORY_CONFIG.allowBrowserDeployment
       ? "Launch factory compiled · ready for wallet deployment"
-      : "Oracle-priced factory pending deployment · internal review only";
+      : "Dual-TWAP v4 hook pending deployment · internal review only";
     status.classList.remove("is-live");
     status.parentElement?.classList.remove("is-live");
     $("#deployFactoryButton").hidden = !FACTORY_CONFIG.allowBrowserDeployment;
@@ -642,7 +669,7 @@ function renderAccount() {
   renderDashboardAccess();
   if (state.launchInFlight) return;
   if ($("#modalWallet").dataset.action === "deploy-factory") {
-    $("#modalWallet").textContent = "Deploy factory with wallet";
+    $("#modalWallet").textContent = "Deploy v4 hook with wallet";
     return;
   }
   if (state.lastLaunchTx) {
@@ -650,7 +677,7 @@ function renderAccount() {
   } else if (configuredFactoryAddress()) {
     $("#modalWallet").textContent = "Launch on Uniswap";
   } else {
-    $("#modalWallet").textContent = "$10K oracle factory pending deployment";
+    $("#modalWallet").textContent = "$10K v4 hook pending deployment";
   }
 }
 
@@ -758,7 +785,7 @@ function readLocalTokenMetadata(address) {
   }
 }
 
-function saveLocalTokenMetadata(address, poolAddress) {
+function saveLocalTokenMetadata(address, poolReference) {
   const metadata = {
     name: fields.name.value.trim(),
     symbol: cleanTicker(fields.ticker.value),
@@ -770,7 +797,9 @@ function saveLocalTokenMetadata(address, poolAddress) {
     },
     creator: state.account,
     tokenAddress: String(address),
-    poolAddress: poolAddress ? String(poolAddress) : null,
+    poolAddress: null,
+    poolId: poolReference ? String(poolReference) : null,
+    protocol: "Uniswap v4",
     imageKey: `token:${String(address).toLowerCase()}`,
     createdAt: new Date().toISOString(),
   };
@@ -1106,10 +1135,12 @@ function splitCollectedFees(tokenAddress, amount0, amount1) {
 async function readCreatorLaunch(eventLog, provider, factory, source) {
   const args = eventLog.args || factory.interface.parseLog(eventLog)?.args;
   const token = String(args.token);
-  const pool = String(args.pool);
+  const pool = source.current ? null : String(args.pool);
+  const poolId = source.current ? String(args.poolId) : null;
   const positionTokenId = BigInt(args.positionTokenId);
   const tokenContract = new window.ethers.Contract(token, ["function name() view returns (string)", "function symbol() view returns (string)"], provider);
-  const feePreview = source.current
+  const ethOnly = source.feeMode === "eth";
+  const feePreview = ethOnly
     ? factory.claimFeesInEth.staticCall(
       positionTokenId,
       0,
@@ -1129,7 +1160,7 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
   ]);
   let fees = { tokenFees: null, rwiFees: null, rwiFromToken: null, ethQuote: null };
   if (feeResult.status === "fulfilled") {
-    fees = source.current
+    fees = ethOnly
       ? {
         tokenFees: BigInt(feeResult.value.tokenFees),
         rwiFees: BigInt(feeResult.value.rwiFees),
@@ -1142,6 +1173,7 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
     factoryAddress: factory.target,
     token,
     pool,
+    poolId,
     positionTokenId,
     name: nameResult.status === "fulfilled" ? nameResult.value : "Creator token",
     symbol: symbolResult.status === "fulfilled" ? symbolResult.value : "TOKEN",
@@ -1149,7 +1181,7 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
     rwiFees: fees.rwiFees,
     rwiFromToken: fees.rwiFromToken,
     ethQuote: fees.ethQuote,
-    ethOnly: source.current,
+    ethOnly,
     blockNumber: Number(eventLog.blockNumber || 0),
   };
 }
@@ -1163,6 +1195,11 @@ function dashboardElement(tag, className, text) {
 
 function tokenDetailHref(address) {
   return `token.html?address=${encodeURIComponent(String(address))}`;
+}
+
+function uniswapSwapUrl(inputCurrency, outputCurrency) {
+  const query = new URLSearchParams({ chain: "robinhood", inputCurrency, outputCurrency });
+  return `https://app.uniswap.org/swap?${query.toString()}`;
 }
 
 function enableTokenCard(card, address) {
@@ -1196,7 +1233,7 @@ async function queryRecentLaunchLogs(factory, provider, deploymentBlock = 0) {
   return logs.sort((left, right) => Number(right.blockNumber || 0) - Number(left.blockNumber || 0)).slice(0, 18);
 }
 
-async function readDiscoverLaunch(eventLog, provider, factory) {
+async function readDiscoverLaunch(eventLog, provider, factory, source) {
   const args = eventLog.args || factory.interface.parseLog(eventLog)?.args;
   const token = String(args.token);
   const tokenContract = new window.ethers.Contract(token, [
@@ -1211,7 +1248,9 @@ async function readDiscoverLaunch(eventLog, provider, factory) {
   return {
     factoryAddress: factory.target,
     token,
-    pool: String(args.pool),
+    pool: source.current ? null : String(args.pool),
+    poolId: source.current ? String(args.poolId) : null,
+    protocol: source.protocol || (source.current ? "Uniswap v4" : "Uniswap v3"),
     creator: String(args.creator),
     positionTokenId: BigInt(args.positionTokenId),
     name: nameResult.status === "fulfilled" ? nameResult.value : "Factory token",
@@ -1258,7 +1297,7 @@ function renderDiscoverLaunches(launches) {
     identity.appendChild(dashboardElement("p", "", `$${launch.symbol}`));
     identity.appendChild(dashboardElement("h3", "", launch.name));
     tokenMeta.appendChild(identity);
-    tokenMeta.appendChild(dashboardElement("span", "verified-label", "Factory launch"));
+    tokenMeta.appendChild(dashboardElement("span", "verified-label", launch.protocol === "Uniswap v4" ? "v4 hook launch" : "Factory launch"));
     card.appendChild(tokenMeta);
     card.appendChild(dashboardElement("p", "", launch.metadata?.description || KNOWN_TOKEN_DESCRIPTIONS[launch.token.toLowerCase()] || "Fixed one-billion supply with direct, permanently locked TOKEN / RWI liquidity."));
     card.appendChild(dashboardElement("code", "token-address", launch.token));
@@ -1282,9 +1321,9 @@ async function loadRecentLaunches() {
   try {
     const provider = new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
     const launchGroups = await Promise.all(sources.map(async (source) => {
-      const factory = new window.ethers.Contract(source.address, FACTORY_ABI, provider);
+      const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), provider);
       const logs = await queryRecentLaunchLogs(factory, provider, source.deploymentBlock);
-      return Promise.all(logs.map((log) => readDiscoverLaunch(log, provider, factory)));
+      return Promise.all(logs.map((log) => readDiscoverLaunch(log, provider, factory, source)));
     }));
     const launches = launchGroups.flat().sort((left, right) => right.blockNumber - left.blockNumber).slice(0, 18);
     renderDiscoverLaunches(launches);
@@ -1321,7 +1360,7 @@ function renderCreatorLaunches() {
     meta.appendChild(tokenLink);
     top.appendChild(avatar);
     top.appendChild(meta);
-    top.appendChild(dashboardElement("span", "position-chip", `Position #${launch.positionTokenId}`));
+    top.appendChild(dashboardElement("span", "position-chip", `Locked position #${launch.positionTokenId}`));
     card.appendChild(top);
 
     const fees = dashboardElement("div", "revenue-fees");
@@ -1380,7 +1419,7 @@ async function loadCreatorDashboard({ silent = false } = {}) {
     const network = await provider.getNetwork();
     if (network.chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain to load creator revenue.");
     const launchGroups = await Promise.all(sources.map(async (source) => {
-      const factory = new window.ethers.Contract(source.address, FACTORY_ABI, provider);
+      const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), provider);
       const logs = await queryCreatorLaunchLogs(factory, provider, requestedAccount, source.deploymentBlock);
       return Promise.all(logs.map((log) => readCreatorLaunch(log, provider, factory, source)));
     }));
@@ -1413,7 +1452,9 @@ async function claimCreatorRevenue(launch, button) {
     const signer = await provider.getSigner();
     const signerAddress = await signer.getAddress();
     if (!sameAddress(signerAddress, state.account)) throw new Error("Connected wallet changed. Refresh the dashboard.");
-    const factory = new window.ethers.Contract(launch.factoryAddress, FACTORY_ABI, signer);
+    const source = configuredFactorySource(launch.factoryAddress);
+    if (!source) throw new Error("This token factory is not in the launchpad configuration.");
+    const factory = new window.ethers.Contract(launch.factoryAddress, factoryAbiForSource(source), signer);
     const recordedCreator = await factory.positionCreators(launch.positionTokenId);
     if (!sameAddress(recordedCreator, signerAddress)) throw new Error("This wallet is not the recorded creator for that position.");
     let transaction;
@@ -1431,17 +1472,8 @@ async function claimCreatorRevenue(launch, button) {
         deadline,
       );
     } else {
-      const legacyFactory = new window.ethers.Contract(
-        launch.factoryAddress,
-        [
-          "function positionCreators(uint256 positionTokenId) view returns (address)",
-          "function collectFees(uint256 positionTokenId) returns (uint256 amount0, uint256 amount1)",
-          "event FeesCollected(uint256 indexed positionTokenId,address indexed creator,uint256 amount0,uint256 amount1)",
-        ],
-        signer,
-      );
-      claimInterface = legacyFactory.interface;
-      transaction = await legacyFactory.collectFees(launch.positionTokenId);
+      claimInterface = factory.interface;
+      transaction = await factory.collectFees(launch.positionTokenId);
     }
     button.textContent = "Claiming revenue…";
     const receipt = await transaction.wait();
@@ -1487,48 +1519,53 @@ async function validateFactoryDeployment(provider, address) {
   const expectedRuntime = normalizeImmutableSlots(FACTORY_DEPLOYMENT.deployedBytecode, FACTORY_DEPLOYMENT.immutableReferences);
   const actualRuntime = normalizeImmutableSlots(code, FACTORY_DEPLOYMENT.immutableReferences);
   if (!expectedRuntime || actualRuntime !== expectedRuntime) throw new Error("Deployed factory bytecode does not match this reviewed build.");
+  if ((BigInt(address) & 0x3fffn) !== 0x2000n) throw new Error("Factory address does not encode the required Uniswap v4 hook permission.");
 
   const factory = new ethers.Contract(address, FACTORY_ABI, provider);
-  const [rwi, weth, uniswapFactory, positionManager, swapRouter, oraclePool, verifierProxy, ethUsdFeedId, immutableRwi, immutableWeth, immutableFactory, immutableManager, immutableSwapRouter, immutableOraclePool, immutableVerifier, immutableFeedId, chainId, poolFee, initialRwi, poolAllocation, maxDust, locked, creatorFeeShare, targetMarketCap, twapWindow, maxReportAge, maxSpotDeviation, minOracleLiquidity] = await Promise.all([
-    factory.RWI(),
-    factory.WETH(),
-    factory.UNISWAP_V3_FACTORY(),
-    factory.NONFUNGIBLE_POSITION_MANAGER(),
-    factory.SWAP_ROUTER_02(),
-    factory.RWI_WETH_ORACLE_POOL(),
-    factory.CHAINLINK_VERIFIER_PROXY(),
-    factory.ETH_USD_STREAM_ID(),
-    factory.rwi(),
-    factory.weth(),
-    factory.uniswapFactory(),
-    factory.positionManager(),
-    factory.swapRouter(),
-    factory.rwiWethPool(),
-    factory.verifierProxy(),
-    factory.ethUsdFeedId(),
-    factory.ROBINHOOD_CHAIN_ID(),
-    factory.POOL_FEE(),
-    factory.INITIAL_RWI_LIQUIDITY(),
-    factory.POOL_ALLOCATION_BPS(),
-    factory.MAX_LOCKED_TOKEN_DUST(),
-    factory.LIQUIDITY_PERMANENTLY_LOCKED(),
-    factory.CREATOR_LP_FEE_SHARE_BPS(),
-    factory.TARGET_MARKET_CAP_USD_E18(),
-    factory.RWI_WETH_TWAP_WINDOW(),
-    factory.MAX_ETH_USD_REPORT_AGE(),
-    factory.MAX_SPOT_TWAP_TICK_DEVIATION(),
-    factory.MIN_TWAP_HARMONIC_LIQUIDITY(),
+  const values = await Promise.all([
+    factory.RWI(), factory.WETH(), factory.USDG(),
+    factory.UNISWAP_V4_POOL_MANAGER(), factory.UNISWAP_V4_STATE_VIEW(), factory.UNISWAP_V4_UNIVERSAL_ROUTER(),
+    factory.UNISWAP_V3_FACTORY(), factory.SWAP_ROUTER_02(), factory.RWI_WETH_ORACLE_POOL(), factory.WETH_USDG_ORACLE_POOL(),
+    factory.rwi(), factory.weth(), factory.usdg(), factory.poolManager(), factory.uniswapV3Factory(), factory.swapRouter(), factory.rwiWethPool(), factory.wethUsdgPool(),
+    factory.ROBINHOOD_CHAIN_ID(), factory.TOKEN_SUPPLY_WHOLE(), factory.POOL_FEE(), factory.POOL_TICK_SPACING(),
+    factory.INITIAL_RWI_LIQUIDITY(), factory.POOL_ALLOCATION_BPS(), factory.MAX_LOCKED_TOKEN_DUST(),
+    factory.LIQUIDITY_PERMANENTLY_LOCKED(), factory.CREATOR_LP_FEE_SHARE_BPS(), factory.TARGET_MARKET_CAP_USD_E18(),
+    factory.ORACLE_TWAP_WINDOW(), factory.MAX_RWI_WETH_SPOT_TWAP_DEVIATION(), factory.MAX_WETH_USDG_SPOT_TWAP_DEVIATION(),
+    factory.MIN_RWI_WETH_HARMONIC_LIQUIDITY(), factory.MIN_WETH_USDG_HARMONIC_LIQUIDITY(),
+    factory.REQUIRED_HOOK_FLAGS(), factory.ALL_HOOK_FLAGS_MASK(), factory.WETH_USDG_ORACLE_FEE(),
   ]);
+  const [
+    rwi, weth, usdg, poolManager, stateView, universalRouter, uniswapFactory, swapRouter, rwiWethPool, wethUsdgPool,
+    immutableRwi, immutableWeth, immutableUsdg, immutablePoolManager, immutableFactory, immutableSwapRouter,
+    immutableRwiWethPool, immutableWethUsdgPool, chainId, tokenSupplyWhole, poolFee, tickSpacing, initialRwi,
+    poolAllocation, maxDust, locked, creatorFeeShare, targetMarketCap, twapWindow, maxRwiDeviation,
+    maxWethDeviation, minRwiLiquidity, minWethLiquidity, requiredHookFlags, allHookFlagsMask, wethUsdgFee,
+  ] = values;
 
-  if (!sameAddress(rwi, RWI_ADDRESS) || !sameAddress(immutableRwi, rwi)) throw new Error("Factory RWI integration mismatch.");
-  if (!sameAddress(weth, FACTORY_CONFIG.wethAddress) || !sameAddress(immutableWeth, weth)) throw new Error("Factory WETH integration mismatch.");
-  if (!sameAddress(uniswapFactory, FACTORY_CONFIG.uniswapV3Factory) || !sameAddress(immutableFactory, uniswapFactory)) throw new Error("Factory Uniswap integration mismatch.");
-  if (!sameAddress(positionManager, FACTORY_CONFIG.nonfungiblePositionManager) || !sameAddress(immutableManager, positionManager)) throw new Error("Factory position-manager integration mismatch.");
-  if (!sameAddress(swapRouter, FACTORY_CONFIG.swapRouter02) || !sameAddress(immutableSwapRouter, swapRouter)) throw new Error("Factory SwapRouter02 integration mismatch.");
-  if (!sameAddress(oraclePool, FACTORY_CONFIG.rwiWethOraclePool) || !sameAddress(immutableOraclePool, oraclePool)) throw new Error("Factory RWI/WETH oracle-pool mismatch.");
-  if (!sameAddress(verifierProxy, FACTORY_CONFIG.chainlinkVerifierProxy) || !sameAddress(immutableVerifier, verifierProxy)) throw new Error("Factory Chainlink verifier mismatch.");
-  if (String(ethUsdFeedId).toLowerCase() !== String(FACTORY_CONFIG.ethUsdStreamId).toLowerCase() || String(immutableFeedId).toLowerCase() !== String(ethUsdFeedId).toLowerCase()) throw new Error("Factory ETH/USD stream mismatch.");
-  if (chainId !== 4663n || poolFee !== 10_000n || initialRwi !== 0n || poolAllocation !== 10_000n || maxDust !== ethers.parseEther("1") || !locked || creatorFeeShare !== 10_000n || targetMarketCap !== ethers.parseUnits("10000", 18) || twapWindow !== 1_800n || maxReportAge !== 120n || maxSpotDeviation !== 1_000n || minOracleLiquidity !== 10n ** 22n) {
+  const addressChecks = [
+    [rwi, RWI_ADDRESS, "RWI"], [weth, FACTORY_CONFIG.wethAddress, "WETH"], [usdg, FACTORY_CONFIG.usdgAddress, "USDG"],
+    [poolManager, FACTORY_CONFIG.uniswapV4PoolManager, "v4 PoolManager"], [stateView, FACTORY_CONFIG.uniswapV4StateView, "v4 StateView"],
+    [universalRouter, FACTORY_CONFIG.uniswapV4UniversalRouter, "v4 Universal Router"],
+    [uniswapFactory, FACTORY_CONFIG.uniswapV3Factory, "v3 factory"], [swapRouter, FACTORY_CONFIG.swapRouter02, "SwapRouter02"],
+    [rwiWethPool, FACTORY_CONFIG.rwiWethOraclePool, "RWI/WETH oracle pool"], [wethUsdgPool, FACTORY_CONFIG.wethUsdgOraclePool, "WETH/USDG oracle pool"],
+    [immutableRwi, rwi, "immutable RWI"], [immutableWeth, weth, "immutable WETH"], [immutableUsdg, usdg, "immutable USDG"],
+    [immutablePoolManager, poolManager, "immutable PoolManager"], [immutableFactory, uniswapFactory, "immutable v3 factory"],
+    [immutableSwapRouter, swapRouter, "immutable SwapRouter02"], [immutableRwiWethPool, rwiWethPool, "immutable RWI/WETH pool"],
+    [immutableWethUsdgPool, wethUsdgPool, "immutable WETH/USDG pool"],
+  ];
+  for (const [actual, expected, label] of addressChecks) {
+    if (!sameAddress(actual, expected)) throw new Error(`Factory ${label} integration mismatch.`);
+  }
+  const integrationCodes = await Promise.all([poolManager, stateView, universalRouter, uniswapFactory, swapRouter, rwiWethPool, wethUsdgPool].map((integration) => provider.getCode(integration)));
+  if (integrationCodes.some((integrationCode) => integrationCode === "0x")) throw new Error("A required Uniswap integration has no deployed code.");
+  if (
+    chainId !== 4663n || tokenSupplyWhole !== 1_000_000_000n || poolFee !== 10_000n || tickSpacing !== 200n
+    || initialRwi !== 0n || poolAllocation !== 10_000n || maxDust !== ethers.parseEther("1") || !locked
+    || creatorFeeShare !== 10_000n || targetMarketCap !== ethers.parseUnits("10000", 18) || twapWindow !== 1_800n
+    || maxRwiDeviation !== 1_000n || maxWethDeviation !== 300n || minRwiLiquidity !== 10n ** 22n
+    || minWethLiquidity !== 5n * 10n ** 17n || requiredHookFlags !== 8_192n || allHookFlagsMask !== 16_383n
+    || wethUsdgFee !== 100n
+  ) {
     throw new Error("Factory launch rules do not match this reviewed build.");
   }
   return ethers.keccak256(code);
@@ -1552,13 +1589,28 @@ function openFactoryDeploymentModal() {
   modal.classList.add("is-factory-deploy");
   $("#modalToken").hidden = true;
   $("#downloadBrief").hidden = true;
-  $("#modalTitle").textContent = "Deploy the launch factory.";
-  $("#modalCopy").textContent = "Your wallet will deploy the reviewed custom factory on Robinhood Chain. This is a one-time, irreversible mainnet transaction paid in ETH; it does not require RWI.";
-  $("#modalNote").textContent = "This custom factory has completed an internal review but not an independent professional audit. Confirm only if you accept that risk.";
-  $("#modalWallet").textContent = state.account ? "Deploy factory with wallet" : "Connect wallet to deploy";
+  $("#modalTitle").textContent = "Deploy the v4 launch hook.";
+  $("#modalCopy").textContent = "Your wallet will submit two Robinhood Chain transactions: a small permissionless CREATE2 helper, then the immutable v4 hook at an address with the required callback permission. No RWI is required.";
+  $("#modalNote").textContent = "This hook passed internal tests but not an independent professional audit. Both mainnet transactions are irreversible; continue only if you accept that risk.";
+  $("#modalWallet").textContent = state.account ? "Deploy v4 hook with wallet" : "Connect wallet to deploy";
   $("#modalWallet").dataset.action = "deploy-factory";
   $("#launchModal").hidden = false;
   document.body.style.overflow = "hidden";
+}
+
+async function mineBrowserHookSalt(deployerAddress, creationCodeHash, onProgress) {
+  const requiredFlags = 1n << 13n;
+  const hookMask = (1n << 14n) - 1n;
+  for (let candidate = 0n; candidate < 1_000_000n; candidate += 1n) {
+    const salt = window.ethers.zeroPadValue(window.ethers.toBeHex(candidate), 32);
+    const address = window.ethers.getCreate2Address(deployerAddress, salt, creationCodeHash);
+    if ((BigInt(address) & hookMask) === requiredFlags) return { salt, address };
+    if (candidate !== 0n && candidate % 10_000n === 0n) {
+      onProgress?.(Number(candidate));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+  }
+  throw new Error("A valid Uniswap v4 hook address was not found in the bounded salt search.");
 }
 
 function restoreLaunchModal() {
@@ -1567,14 +1619,16 @@ function restoreLaunchModal() {
   $("#downloadBrief").hidden = false;
   $("#downloadBrief").textContent = state.imageFile ? "Download metadata kit" : "Download launch brief";
   delete $("#downloadBrief").dataset.action;
-  $("#geckoTerminalButton").hidden = true;
-  $("#modalCopy").textContent = "One transaction deploys exactly 1 billion tokens at a tick-rounded $10,000 oracle valuation and allocates 100% of the supply to a token-only TOKEN / $RWI position. You supply no $RWI, and the LP position is locked forever.";
+  $("#uniswapTradeButton").hidden = true;
+  $("#modalCopy").textContent = "One transaction deploys exactly 1 billion tokens at a tick-rounded $10,000 dual-TWAP valuation and allocates 100% of the supply to a token-only TOKEN / $RWI v4 position. You supply no $RWI, and the LP position is locked forever.";
 }
 
 async function deployFactoryWithWallet() {
   const button = $("#modalWallet");
   if (!FACTORY_CONFIG.allowBrowserDeployment) return toast("Browser factory deployment is available only from the local launchpad.");
-  if (!window.ethers || !FACTORY_ABI.length || !FACTORY_DEPLOYMENT.bytecode) return toast("Factory deployment bundle did not load. Refresh and try again.");
+  if (!window.ethers || !FACTORY_ABI.length || !FACTORY_DEPLOYMENT.bytecode || !HOOK_DEPLOYER_DEPLOYMENT.bytecode || !HOOK_DEPLOYER_DEPLOYMENT.abi?.length) {
+    return toast("The v4 deployment bundle did not load. Refresh and try again.");
+  }
   if (!state.account && !(await connectWallet())) return;
 
   state.factoryDeploymentInFlight = true;
@@ -1586,33 +1640,50 @@ async function deployFactoryWithWallet() {
     state.account = await signer.getAddress();
     renderAccount();
 
-    button.textContent = "Confirm deployment in wallet…";
-    $("#modalNote").textContent = "Review the Robinhood Chain gas charge in your wallet. The transaction creates the launch factory and cannot be reversed.";
-    const contractFactory = new window.ethers.ContractFactory(FACTORY_ABI, FACTORY_DEPLOYMENT.bytecode, signer);
-    const factory = await contractFactory.deploy();
-    const deploymentTransaction = factory.deploymentTransaction();
-    button.textContent = "Deploying factory…";
-    $("#modalNote").textContent = `Transaction submitted · ${deploymentTransaction.hash.slice(0, 10)}…`;
-    await factory.waitForDeployment();
-    const address = await factory.getAddress();
+    button.textContent = "Confirm helper deployment…";
+    $("#modalNote").textContent = "Transaction 1 of 2 deploys the permissionless CREATE2 helper used to derive the hook address.";
+    const helperFactory = new window.ethers.ContractFactory(HOOK_DEPLOYER_DEPLOYMENT.abi, HOOK_DEPLOYER_DEPLOYMENT.bytecode, signer);
+    const helper = await helperFactory.deploy();
+    const helperTransaction = helper.deploymentTransaction();
+    button.textContent = "Deploying CREATE2 helper…";
+    $("#modalNote").textContent = `Transaction 1 submitted · ${helperTransaction.hash.slice(0, 10)}…`;
+    await helper.waitForDeployment();
+    const helperAddress = await helper.getAddress();
+
+    button.textContent = "Finding valid v4 hook address…";
+    $("#modalNote").textContent = "Mining the address permission bits locally. No wallet action is required for this step.";
+    const creationCodeHash = window.ethers.keccak256(FACTORY_DEPLOYMENT.bytecode);
+    const mined = await mineBrowserHookSalt(helperAddress, creationCodeHash, (candidate) => {
+      $("#modalNote").textContent = `Checking CREATE2 salts locally · ${candidate.toLocaleString()} tested…`;
+    });
+
+    button.textContent = "Confirm v4 hook deployment…";
+    $("#modalNote").textContent = `Transaction 2 of 2 deploys the immutable hook at ${mined.address}. Review the mainnet gas charge carefully.`;
+    const helperWithSigner = new window.ethers.Contract(helperAddress, HOOK_DEPLOYER_DEPLOYMENT.abi, signer);
+    const deploymentTransaction = await helperWithSigner.deploy(mined.salt, FACTORY_DEPLOYMENT.bytecode, { gasLimit: 12_000_000 });
+    button.textContent = "Deploying v4 hook…";
+    $("#modalNote").textContent = `Transaction 2 submitted · ${deploymentTransaction.hash.slice(0, 10)}…`;
+    const deploymentReceipt = await deploymentTransaction.wait();
+    const address = mined.address;
     await validateFactoryDeployment(provider, address);
 
     if (!FACTORY_CONFIG.factoryAddressStorageKey) throw new Error("Local factory storage is not configured.");
     localStorage.setItem(FACTORY_CONFIG.factoryAddressStorageKey, address);
+    localStorage.setItem(FACTORY_LOCAL_BLOCK_KEY, String(deploymentReceipt.blockNumber));
     state.lastFactoryAddress = address;
-    $("#modalTitle").textContent = "Factory deployed and validated.";
-    $("#modalCopy").textContent = `${address} is now the local launch factory. Activate it to enable token launches in this browser.`;
-    $("#modalNote").textContent = "Source verification on Blockscout is still required before treating this as a public production deployment.";
+    $("#modalTitle").textContent = "v4 hook deployed and validated.";
+    $("#modalCopy").textContent = `${address} is now this browser's local launch hook. Its bytecode, address permission, immutable integrations, and launch rules match the compiled build.`;
+    $("#modalNote").textContent = `CREATE2 helper ${helperAddress}. Source verification and canonical site configuration are still required before treating the hook as a public production deployment.`;
     $("#downloadBrief").hidden = false;
     $("#downloadBrief").textContent = "Copy factory address";
     $("#downloadBrief").dataset.action = "copy-factory";
     button.textContent = "Activate factory";
     button.dataset.action = "activate-factory";
-    toast("Factory deployed and bytecode validated.");
+    toast("v4 hook deployed and bytecode validated.");
   } catch (error) {
     const message = readableWalletError(error).replace(/^Launch reverted:/, "Deployment reverted:");
     $("#modalNote").textContent = message;
-    button.textContent = "Try factory deployment again";
+    button.textContent = "Try v4 hook deployment again";
     button.dataset.action = "deploy-factory";
     toast(message);
   } finally {
@@ -1621,31 +1692,11 @@ async function deployFactoryWithWallet() {
   }
 }
 
-async function fetchFreshEthUsdReport() {
-  const endpoint = FACTORY_CONFIG.oracleReportEndpoint || "/api/eth-usd-report";
-  const response = await fetch(endpoint, { method: "GET", cache: "no-store", credentials: "same-origin" });
-  let payload = null;
-  try { payload = await response.json(); } catch {}
-  if (!response.ok) throw new Error(payload?.error || "A fresh launch oracle report is unavailable.");
-  const feedId = String(payload?.feedID || "").toLowerCase();
-  const fullReport = String(payload?.fullReport || "");
-  const observedAt = Number(payload?.observationsTimestamp);
-  const now = Math.floor(Date.now() / 1000);
-  if (
-    feedId !== String(FACTORY_CONFIG.ethUsdStreamId || "").toLowerCase()
-    || !/^0x[0-9a-fA-F]+$/.test(fullReport)
-    || !Number.isInteger(observedAt)
-    || observedAt > now + 10
-    || now - observedAt > 120
-  ) throw new Error("The launch oracle returned an invalid or stale report.");
-  return { fullReport, observedAt };
-}
-
 async function launchOnUniswap() {
   const factoryAddress = configuredFactoryAddress();
   if (!factoryAddress) {
     if (FACTORY_CONFIG.allowBrowserDeployment) openFactoryDeploymentModal();
-    toast("The $10,000 oracle-priced factory is pending deployment and source verification.");
+    toast("The $10,000 dual-TWAP v4 hook is pending deployment and source verification.");
     return;
   }
   if (!window.ethers || !FACTORY_ABI.length) {
@@ -1688,15 +1739,15 @@ async function launchOnUniswap() {
       symbol: cleanTicker(fields.ticker.value),
     };
 
-    button.textContent = "Reading launch oracle…";
-    $("#modalNote").textContent = "Checking fresh ETH/USD and the protected 30-minute RWI/WETH price before opening your wallet.";
-    const oracleReport = await fetchFreshEthUsdReport();
+    button.textContent = "Reading onchain prices…";
+    $("#modalNote").textContent = "Checking protected 30-minute RWI/WETH and WETH/USDG prices before opening your wallet. No oracle account or credentials are required.";
+    await launchFactory.ORACLE_TWAP_WINDOW();
     button.textContent = "Confirm launch in wallet…";
     $("#modalNote").textContent = FACTORY_CONFIG.independentAuditComplete
-      ? "$10,000 oracle-priced launch · Deploy the token, seed token-only liquidity, and lock the LP position forever. No $RWI approval required."
+      ? "$10,000 dual-TWAP launch · Deploy the token, seed token-only v4 liquidity, and lock it forever. No $RWI approval required."
       : "Source verified · Internal security review only; no independent audit. Confirm the launch transaction only if you accept that risk.";
-    const transaction = await launchFactory.launch(params, oracleReport.fullReport);
-    button.textContent = "Creating Uniswap pool…";
+    const transaction = await launchFactory.launch(params);
+    button.textContent = "Creating Uniswap v4 pool…";
     $("#modalNote").textContent = `Transaction submitted · ${transaction.hash.slice(0, 10)}…`;
     const receipt = await transaction.wait();
 
@@ -1712,17 +1763,18 @@ async function launchOnUniswap() {
 
     state.lastLaunchTx = transaction.hash;
     state.lastTokenAddress = launchEvent?.args.token || null;
-    state.lastPoolAddress = launchEvent?.args.pool || null;
+    state.lastPoolAddress = null;
+    state.lastPoolId = launchEvent?.args.poolId || null;
     if (state.lastTokenAddress && state.imageFile) {
       saveLogoAsset(`token:${String(state.lastTokenAddress).toLowerCase()}`, state.imageFile).catch(() => {});
     }
-    if (state.lastTokenAddress) saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolAddress);
+    if (state.lastTokenAddress) saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolId);
     $("#modalTitle").textContent = "Your token is live.";
-    $("#modalCopy").textContent = "The pool opened at the factory-enforced, tick-rounded $10,000 oracle valuation. The standardized logo is saved in this browser; download the metadata kit for the public listing workflow. GeckoTerminal may still wait for real swaps before indexing the zero-RWI pool.";
+    $("#modalCopy").textContent = "The v4 pool opened at the factory-enforced, tick-rounded $10,000 valuation derived entirely from onchain Uniswap TWAPs. The standardized logo is saved in this browser; download the metadata kit for public listing services.";
     $("#modalNote").textContent = launchEvent
-      ? `Token ${launchEvent.args.token.slice(0, 8)}… paired with $RWI in pool ${launchEvent.args.pool.slice(0, 8)}…. LP locked forever; no graduation step.`
+      ? `Token ${launchEvent.args.token.slice(0, 8)}… paired with $RWI in v4 pool ${launchEvent.args.poolId.slice(0, 10)}…. Liquidity locked forever; no graduation step.`
       : "Launch confirmed. The TOKEN / $RWI pool is live, its LP is locked forever, and there is no graduation step.";
-    if (state.lastPoolAddress) $("#geckoTerminalButton").hidden = false;
+    if (state.lastTokenAddress) $("#uniswapTradeButton").hidden = false;
     toast("Token launched directly into $RWI liquidity on Uniswap.");
     await readRwiBalance();
     loadRecentLaunches();
@@ -1885,11 +1937,11 @@ async function downloadLaunchBrief() {
     token: { address: state.lastTokenAddress, name: fields.name.value.trim(), ticker, description: fields.description.value.trim(), imageFileName: state.imageFile?.name || null, supply: FIXED_TOKEN_SUPPLY.toString(), decimals: 18, supplyPolicy: "fixed-one-billion-no-future-minting" },
     links: { website: fields.website.value.trim(), twitter: fields.twitter.value.trim(), telegram: fields.telegram.value.trim() },
     network: { name: ROBINHOOD_CHAIN.chainName, chainId: 4663, rpc: ROBINHOOD_CHAIN.rpcUrls[0], explorer: ROBINHOOD_CHAIN.blockExplorerUrls[0] },
-    pairing: { venue: "Uniswap v3", pool: state.lastPoolAddress, geckoTerminalUrl: state.lastPoolAddress ? `https://www.geckoterminal.com/robinhood/pools/${state.lastPoolAddress.toLowerCase()}` : null, poolFee: LIQUIDITY_MODEL.poolFee, asset: "$RWI", address: RWI_ADDRESS, initialRwiLiquidity: "0", initialLiquidityMode: "single-sided-token-position", firstBuyersSupplyRwi: true, poolAllocationPercent: 100, creatorTokenAllocationPercent: 0, tokensEnteringPool: economics.pool.toString(), targetMarketCapUsd: TARGET_MARKET_CAP_USD, openingPriceMode: "fresh-chainlink-eth-usd-plus-30-minute-uniswap-rwi-weth-twap", liquidityLock: "permanent", liquidityWithdrawable: false, lpFeeRecipient: "token-creator", creatorLpFeeShareBps: 10000, launchpadLpFeeShareBps: 0 },
-    listing: { metadataVersion: 1, metadataReady: Boolean(state.imageFile), logo: state.imageFile ? { fileName: state.imageFile.name, mimeType: "image/png", width: LOGO_SIZE, height: LOGO_SIZE, crop: "square-cover", browserAssetKey: state.lastTokenAddress ? `token:${String(state.lastTokenAddress).toLowerCase()}` : DRAFT_LOGO_KEY } : null, imageRequiresPublicHosting: Boolean(state.imageFile), poolStartsWithPricedRwi: false, discoveryRequiresRealRwiSwaps: true, geckoTerminalInfoUpdateUrl: "https://www.geckoterminal.com/request-form/update-token" },
+    pairing: { venue: "Uniswap v4", poolId: state.lastPoolId, hookAddress: configuredFactoryAddress(), poolManager: FACTORY_CONFIG.uniswapV4PoolManager, tradeUrl: state.lastTokenAddress ? uniswapSwapUrl(RWI_ADDRESS, state.lastTokenAddress) : null, poolFee: LIQUIDITY_MODEL.poolFee, asset: "$RWI", address: RWI_ADDRESS, initialRwiLiquidity: "0", initialLiquidityMode: "single-sided-token-position", firstBuyersSupplyRwi: true, poolAllocationPercent: 100, creatorTokenAllocationPercent: 0, tokensEnteringPool: economics.pool.toString(), targetMarketCapUsd: TARGET_MARKET_CAP_USD, openingPriceMode: "30-minute-uniswap-rwi-weth-plus-weth-usdg-dual-twap", liquidityLock: "permanent", liquidityWithdrawable: false, lpFeeRecipient: "token-creator-in-eth", creatorLpFeeShareBps: 10000, launchpadLpFeeShareBps: 0 },
+    listing: { metadataVersion: 1, metadataReady: Boolean(state.imageFile), logo: state.imageFile ? { fileName: state.imageFile.name, mimeType: "image/png", width: LOGO_SIZE, height: LOGO_SIZE, crop: "square-cover", browserAssetKey: state.lastTokenAddress ? `token:${String(state.lastTokenAddress).toLowerCase()}` : DRAFT_LOGO_KEY } : null, imageRequiresPublicHosting: Boolean(state.imageFile), poolStartsWithPricedRwi: false, discoveryRequiresRealRwiSwaps: true },
     note: configuredFactoryAddress()
-      ? "The factory enforces a tick-rounded $10,000 opening valuation from fresh Chainlink ETH/USD and a protected 30-minute RWI/WETH TWAP. The creator supplies no RWI, and the LP position is locked forever with no migration or graduation state."
-      : "The oracle-priced launch factory is compiled but not independently audited. Deployment and source verification are still required before transactions are enabled.",
+      ? "The hook enforces a tick-rounded $10,000 opening valuation from protected 30-minute RWI/WETH and WETH/USDG Uniswap TWAPs. The creator supplies no RWI, receives all claimable LP revenue only as ETH, and the v4 liquidity is locked forever with no migration or graduation state."
+      : "The dual-TWAP v4 launch hook is compiled but not independently audited. CREATE2 deployment and source verification are still required before transactions are enabled.",
   };
   const metadataName = `${ticker.toLowerCase()}-metadata.json`;
   const metadataBlob = new Blob([JSON.stringify(brief, null, 2)], { type: "application/json" });
@@ -1924,9 +1976,9 @@ async function handleModalSecondary() {
   await downloadLaunchBrief();
 }
 
-function openGeckoTerminalPool() {
-  if (!state.lastPoolAddress) return;
-  window.open(`https://www.geckoterminal.com/robinhood/pools/${state.lastPoolAddress.toLowerCase()}`, "_blank", "noopener,noreferrer");
+function openUniswapTrade() {
+  if (!state.lastTokenAddress) return;
+  window.open(uniswapSwapUrl(RWI_ADDRESS, state.lastTokenAddress), "_blank", "noopener,noreferrer");
 }
 
 fields.name.addEventListener("input", updatePreview);
@@ -1943,7 +1995,7 @@ $("#downloadLogo").addEventListener("click", downloadLogo);
 $("#resetDraft").addEventListener("click", resetDraft);
 $("#copyRwiAddress").addEventListener("click", copyRwiAddress);
 $("#downloadBrief").addEventListener("click", handleModalSecondary);
-$("#geckoTerminalButton").addEventListener("click", openGeckoTerminalPool);
+$("#uniswapTradeButton").addEventListener("click", openUniswapTrade);
 $("#deployFactoryButton").addEventListener("click", openFactoryDeploymentModal);
 
 const uploadZone = $("#uploadZone");

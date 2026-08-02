@@ -1,6 +1,9 @@
 const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
+const LEGACY_FACTORY_ABI = Object.freeze([
+  "function launches(address token) view returns (address creator,address pool,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount)",
+]);
 const PROFILE_REGISTRY_CONFIG = window.RWI_PROFILE_REGISTRY || Object.freeze({});
 const PROFILE_REGISTRY_ABI = window.RWI_PROFILE_REGISTRY_ABI || Object.freeze([]);
 const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
@@ -30,7 +33,7 @@ const KNOWN_LAUNCHES = Object.freeze({
 });
 
 const $ = (selector) => document.querySelector(selector);
-const state = { token: null, creator: null, pool: null, positionTokenId: null, imageUrl: null, creatorImageUrl: null };
+const state = { token: null, creator: null, pool: null, poolId: null, positionTokenId: null, imageUrl: null, creatorImageUrl: null };
 
 function isAddress(value) {
   return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value);
@@ -40,22 +43,35 @@ function sameAddress(left, right) {
   return String(left).toLowerCase() === String(right).toLowerCase();
 }
 
-function configuredFactoryAddresses() {
-  const addresses = [];
-  if (isAddress(FACTORY_CONFIG.factoryAddress)) addresses.push(FACTORY_CONFIG.factoryAddress);
+function configuredFactorySources() {
+  const sources = [];
+  if (isAddress(FACTORY_CONFIG.factoryAddress)) sources.push({ address: FACTORY_CONFIG.factoryAddress, current: true, protocol: "Uniswap v4" });
   for (const entry of FACTORY_CONFIG.legacyFactories || []) {
-    if (isAddress(entry?.address) && !addresses.some((address) => sameAddress(address, entry.address))) addresses.push(entry.address);
+    if (isAddress(entry?.address) && !sources.some((source) => sameAddress(source.address, entry.address))) sources.push({ ...entry, current: false });
   }
-  return addresses;
+  return sources;
+}
+
+function configuredFactoryAddresses() {
+  return configuredFactorySources().map((source) => source.address);
+}
+
+function factoryAbiForSource(source) {
+  return source.current ? FACTORY_ABI : LEGACY_FACTORY_ABI;
+}
+
+function isPoolId(value) {
+  return typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value) && !/^0x0{64}$/.test(value);
 }
 
 async function findFactoryLaunch(address, provider) {
-  for (const factoryAddress of configuredFactoryAddresses()) {
+  for (const source of configuredFactorySources()) {
     try {
-      const factory = new window.ethers.Contract(factoryAddress, FACTORY_ABI, provider);
+      const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), provider);
       const launch = await factory.launches(address);
-      if (isAddress(launch.creator) && !sameAddress(launch.creator, window.ethers.ZeroAddress) && isAddress(launch.pool)) {
-        return { launch, factoryAddress };
+      const hasPool = source.current ? isPoolId(String(launch.poolId)) : isAddress(launch.pool);
+      if (isAddress(launch.creator) && !sameAddress(launch.creator, window.ethers.ZeroAddress) && hasPool) {
+        return { launch, factoryAddress: source.address, source };
       }
     } catch {
       // Continue through configured legacy factories.
@@ -312,6 +328,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   state.token = address;
   state.creator = launch.creator;
   state.pool = launch.pool;
+  state.poolId = launch.poolId;
   state.positionTokenId = launch.positionTokenId;
   document.title = `${name} ($${symbol}) · RWI Launchpad`;
   $("#detailName").textContent = name;
@@ -323,7 +340,8 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#detailSupply").textContent = formatSupply(supply, decimals);
   $("#detailPair").textContent = `${symbol} / RWI`;
   $("#detailPosition").textContent = `#${launch.positionTokenId}`;
-  $("#detailPool").textContent = launch.pool;
+  $("#detailPool").textContent = launch.poolId || launch.pool;
+  $("#detailPoolLabel").textContent = launch.poolId ? "v4 pool ID" : "Pool";
   if (metadata.imageUrl) {
     $("#detailArt").style.backgroundImage = `url("${metadata.imageUrl}")`;
     $("#detailMonogram").textContent = "";
@@ -331,7 +349,13 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#buyOnUniswap").href = uniswapSwapUrl(RWI_ADDRESS, address);
   $("#sellOnUniswap").href = uniswapSwapUrl(address, RWI_ADDRESS);
   $("#uniswapTokenPage").href = `https://app.uniswap.org/explore/tokens/robinhood/${address}`;
-  $("#poolExplorer").href = `${EXPLORER_URL}/address/${launch.pool}`;
+  if (launch.pool) {
+    $("#poolExplorer").href = `${EXPLORER_URL}/address/${launch.pool}`;
+    $("#poolExplorer").textContent = "Pool explorer ↗";
+  } else {
+    $("#poolExplorer").href = `${EXPLORER_URL}/address/${FACTORY_CONFIG.uniswapV4PoolManager}`;
+    $("#poolExplorer").textContent = "v4 PoolManager ↗";
+  }
   renderCreator(launch.creator, creatorProfile);
   $("#tokenPageStatus").hidden = true;
   $("#tokenDetail").hidden = false;
@@ -358,7 +382,7 @@ async function loadTokenPage() {
         symbol: knownLaunch.symbol,
         decimals: knownLaunch.decimals,
         supply: knownLaunch.supply,
-        launch: { creator: knownLaunch.creator, pool: knownLaunch.pool, positionTokenId: knownLaunch.positionTokenId },
+        launch: { creator: knownLaunch.creator, pool: knownLaunch.pool, poolId: null, protocol: "Uniswap v3", positionTokenId: knownLaunch.positionTokenId },
         metadata: cachedMetadata,
         creatorProfile: {
           profile: readLocalJson(profileKey(knownLaunch.creator)),
@@ -378,7 +402,10 @@ async function loadTokenPage() {
       findFactoryLaunch(address, provider), token.name(), token.symbol(), token.decimals(), token.totalSupply(), metadataPromise,
     ]), 12_000, "Robinhood Chain did not return token data within 12 seconds.");
     const launch = factoryLaunch.launch;
-    if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !isAddress(launch.pool)) {
+    const current = factoryLaunch.source.current;
+    const pool = current ? null : String(launch.pool);
+    const poolId = current ? String(launch.poolId) : null;
+    if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !(current ? isPoolId(poolId) : isAddress(pool))) {
       throw new Error("This token was not launched by the configured factory.");
     }
     const creatorProfile = await withTimeout(
@@ -392,7 +419,7 @@ async function loadTokenPage() {
       symbol,
       decimals: Number(decimals),
       supply,
-      launch: { creator: launch.creator, pool: launch.pool, positionTokenId: BigInt(launch.positionTokenId) },
+      launch: { creator: launch.creator, pool, poolId, protocol: factoryLaunch.source.protocol, positionTokenId: BigInt(launch.positionTokenId) },
       metadata,
       creatorProfile,
     });

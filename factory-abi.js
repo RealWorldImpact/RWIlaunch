@@ -11,6 +11,16 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "InvalidHookAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidHookCall",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidIntegration",
     "type": "error"
   },
@@ -26,7 +36,7 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "InvalidOracleReport",
+    "name": "InvalidOraclePool",
     "type": "error"
   },
   {
@@ -41,6 +51,11 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [
+      {
+        "internalType": "address",
+        "name": "pool",
+        "type": "address"
+      },
       {
         "internalType": "uint128",
         "name": "actual",
@@ -63,6 +78,11 @@ window.RWI_FACTORY_ABI = Object.freeze([
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "pool",
+        "type": "address"
+      },
+      {
         "internalType": "int24",
         "name": "spotTick",
         "type": "int24"
@@ -78,12 +98,12 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "PoolAlreadyExists",
+    "name": "PoolCreationFailed",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "PoolCreationFailed",
+    "name": "PoolManagerSettlementFailed",
     "type": "error"
   },
   {
@@ -104,32 +124,12 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "StaleOracleReport",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "UnexpectedEther",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "UnexpectedNFT",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "UnexpectedRWIUsage",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "UnknownPosition",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "UnsupportedFeeTier",
     "type": "error"
   },
   {
@@ -215,8 +215,14 @@ window.RWI_FACTORY_ABI = Object.freeze([
       },
       {
         "indexed": false,
+        "internalType": "int24",
+        "name": "wethUsdgTwapTick",
+        "type": "int24"
+      },
+      {
+        "indexed": false,
         "internalType": "uint32",
-        "name": "ethUsdObservationTimestamp",
+        "name": "twapWindow",
         "type": "uint32"
       },
       {
@@ -246,9 +252,9 @@ window.RWI_FACTORY_ABI = Object.freeze([
       },
       {
         "indexed": true,
-        "internalType": "address",
-        "name": "pool",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "poolId",
+        "type": "bytes32"
       },
       {
         "indexed": false,
@@ -286,6 +292,19 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "ALL_HOOK_FLAGS_MASK",
+    "outputs": [
+      {
+        "internalType": "uint160",
+        "name": "",
+        "type": "uint160"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "BPS",
     "outputs": [
       {
@@ -299,38 +318,12 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "CHAINLINK_VERIFIER_PROXY",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "CREATOR_LP_FEE_SHARE_BPS",
     "outputs": [
       {
         "internalType": "uint16",
         "name": "",
         "type": "uint16"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "ETH_USD_STREAM_ID",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
       }
     ],
     "stateMutability": "view",
@@ -364,32 +357,6 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "MAX_ETH_USD_REPORT_AGE",
-    "outputs": [
-      {
-        "internalType": "uint32",
-        "name": "",
-        "type": "uint32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_FUTURE_TIMESTAMP_DRIFT",
-    "outputs": [
-      {
-        "internalType": "uint32",
-        "name": "",
-        "type": "uint32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "MAX_LOCKED_TOKEN_DUST",
     "outputs": [
       {
@@ -403,7 +370,7 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "MAX_SPOT_TWAP_TICK_DEVIATION",
+    "name": "MAX_RWI_WETH_SPOT_TWAP_DEVIATION",
     "outputs": [
       {
         "internalType": "int24",
@@ -416,7 +383,20 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "MIN_TWAP_HARMONIC_LIQUIDITY",
+    "name": "MAX_WETH_USDG_SPOT_TWAP_DEVIATION",
+    "outputs": [
+      {
+        "internalType": "int24",
+        "name": "",
+        "type": "int24"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MIN_RWI_WETH_HARMONIC_LIQUIDITY",
     "outputs": [
       {
         "internalType": "uint128",
@@ -429,12 +409,25 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "NONFUNGIBLE_POSITION_MANAGER",
+    "name": "MIN_WETH_USDG_HARMONIC_LIQUIDITY",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "uint128",
         "name": "",
-        "type": "address"
+        "type": "uint128"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ORACLE_TWAP_WINDOW",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "",
+        "type": "uint32"
       }
     ],
     "stateMutability": "view",
@@ -461,6 +454,32 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "internalType": "uint24",
         "name": "",
         "type": "uint24"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "POOL_TICK_SPACING",
+    "outputs": [
+      {
+        "internalType": "int24",
+        "name": "",
+        "type": "int24"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "REQUIRED_HOOK_FLAGS",
+    "outputs": [
+      {
+        "internalType": "uint160",
+        "name": "",
+        "type": "uint160"
       }
     ],
     "stateMutability": "view",
@@ -500,19 +519,6 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "internalType": "address",
         "name": "",
         "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "RWI_WETH_TWAP_WINDOW",
-    "outputs": [
-      {
-        "internalType": "uint32",
-        "name": "",
-        "type": "uint32"
       }
     ],
     "stateMutability": "view",
@@ -572,12 +578,146 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "UNISWAP_V4_POOL_MANAGER",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "UNISWAP_V4_STATE_VIEW",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "UNISWAP_V4_UNIVERSAL_ROUTER",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "USDG",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "WETH",
     "outputs": [
       {
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "WETH_USDG_ORACLE_FEE",
+    "outputs": [
+      {
+        "internalType": "uint24",
+        "name": "",
+        "type": "uint24"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "WETH_USDG_ORACLE_POOL",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "currency0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "currency1",
+            "type": "address"
+          },
+          {
+            "internalType": "uint24",
+            "name": "fee",
+            "type": "uint24"
+          },
+          {
+            "internalType": "int24",
+            "name": "tickSpacing",
+            "type": "int24"
+          },
+          {
+            "internalType": "address",
+            "name": "hooks",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct V4PoolKey",
+        "name": "key",
+        "type": "tuple"
+      },
+      {
+        "internalType": "uint160",
+        "name": "sqrtPriceX96",
+        "type": "uint160"
+      }
+    ],
+    "name": "beforeInitialize",
+    "outputs": [
+      {
+        "internalType": "bytes4",
+        "name": "",
+        "type": "bytes4"
       }
     ],
     "stateMutability": "view",
@@ -633,19 +773,6 @@ window.RWI_FACTORY_ABI = Object.freeze([
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "ethUsdFeedId",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "components": [
@@ -660,14 +787,9 @@ window.RWI_FACTORY_ABI = Object.freeze([
             "type": "string"
           }
         ],
-        "internalType": "struct DirectRWIUniswapV3LaunchFactory.LaunchParams",
+        "internalType": "struct DirectRWIV4LaunchHook.LaunchParams",
         "name": "params",
         "type": "tuple"
-      },
-      {
-        "internalType": "bytes",
-        "name": "ethUsdReport",
-        "type": "bytes"
       }
     ],
     "name": "launch",
@@ -678,9 +800,9 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "type": "address"
       },
       {
-        "internalType": "address",
-        "name": "pool",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "poolId",
+        "type": "bytes32"
       },
       {
         "internalType": "uint256",
@@ -717,8 +839,13 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "type": "int24"
       },
       {
+        "internalType": "int24",
+        "name": "wethUsdgTwapTick",
+        "type": "int24"
+      },
+      {
         "internalType": "uint32",
-        "name": "ethUsdObservationTimestamp",
+        "name": "twapWindow",
         "type": "uint32"
       }
     ],
@@ -741,9 +868,9 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "type": "address"
       },
       {
-        "internalType": "address",
-        "name": "pool",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "poolId",
+        "type": "bytes32"
       },
       {
         "internalType": "uint256",
@@ -769,6 +896,29 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "internalType": "uint256",
         "name": "initialRwiAmount",
         "type": "uint256"
+      },
+      {
+        "internalType": "int24",
+        "name": "tickLower",
+        "type": "int24"
+      },
+      {
+        "internalType": "int24",
+        "name": "tickUpper",
+        "type": "int24"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "nextPositionTokenId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -778,31 +928,56 @@ window.RWI_FACTORY_ABI = Object.freeze([
     "inputs": [
       {
         "internalType": "address",
-        "name": "",
+        "name": "token",
         "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes",
-        "name": "",
-        "type": "bytes"
       }
     ],
-    "name": "onERC721Received",
+    "name": "poolKey",
     "outputs": [
       {
-        "internalType": "bytes4",
+        "components": [
+          {
+            "internalType": "address",
+            "name": "currency0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "currency1",
+            "type": "address"
+          },
+          {
+            "internalType": "uint24",
+            "name": "fee",
+            "type": "uint24"
+          },
+          {
+            "internalType": "int24",
+            "name": "tickSpacing",
+            "type": "int24"
+          },
+          {
+            "internalType": "address",
+            "name": "hooks",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct V4PoolKey",
         "name": "",
-        "type": "bytes4"
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "poolManager",
+    "outputs": [
+      {
+        "internalType": "contract IUniswapV4PoolManagerMinimal",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -821,19 +996,6 @@ window.RWI_FACTORY_ABI = Object.freeze([
       {
         "internalType": "address",
         "name": "creator",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "positionManager",
-    "outputs": [
-      {
-        "internalType": "contract INonfungiblePositionManagerMinimal",
-        "name": "",
         "type": "address"
       }
     ],
@@ -900,7 +1062,7 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
-    "name": "uniswapFactory",
+    "name": "uniswapV3Factory",
     "outputs": [
       {
         "internalType": "contract IUniswapV3Factory",
@@ -912,11 +1074,30 @@ window.RWI_FACTORY_ABI = Object.freeze([
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "verifierProxy",
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
+      }
+    ],
+    "name": "unlockCallback",
     "outputs": [
       {
-        "internalType": "contract IChainlinkDataStreamsVerifier",
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "usdg",
+    "outputs": [
+      {
+        "internalType": "contract IERC20Metadata",
         "name": "",
         "type": "address"
       }
@@ -930,6 +1111,19 @@ window.RWI_FACTORY_ABI = Object.freeze([
     "outputs": [
       {
         "internalType": "contract IERC20Metadata",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "wethUsdgPool",
+    "outputs": [
+      {
+        "internalType": "contract IUniswapV3OraclePoolMinimal",
         "name": "",
         "type": "address"
       }
