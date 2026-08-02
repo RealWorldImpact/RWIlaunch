@@ -210,7 +210,14 @@ function isAddress(value) {
 }
 
 function configuredFactoryAddress() {
-  return isAddress(FACTORY_CONFIG.factoryAddress) ? FACTORY_CONFIG.factoryAddress : null;
+  if (isAddress(FACTORY_CONFIG.factoryAddress)) return FACTORY_CONFIG.factoryAddress;
+  if (!FACTORY_CONFIG.allowBrowserDeployment || !FACTORY_CONFIG.factoryAddressStorageKey) return null;
+  try {
+    const localAddress = localStorage.getItem(FACTORY_CONFIG.factoryAddressStorageKey);
+    return isAddress(localAddress) ? localAddress : null;
+  } catch {
+    return null;
+  }
 }
 
 function configuredFactorySources() {
@@ -304,13 +311,15 @@ function renderIntegrationStatus() {
   if (!factoryAddress) {
     status.textContent = FACTORY_CONFIG.allowBrowserDeployment
       ? "Launch factory compiled · ready for wallet deployment"
-      : "Oracle-priced factory pending audit and deployment · legacy launches remain available";
+      : "Oracle-priced factory pending deployment · internal review only";
     status.classList.remove("is-live");
     status.parentElement?.classList.remove("is-live");
     $("#deployFactoryButton").hidden = !FACTORY_CONFIG.allowBrowserDeployment;
     return;
   }
-  const stateLabel = FACTORY_CONFIG.sourceVerified ? "Source-verified launch factory live" : "Launch factory active locally";
+  const stateLabel = FACTORY_CONFIG.sourceVerified
+    ? (FACTORY_CONFIG.independentAuditComplete ? "Source-verified audited factory live" : "Source-verified unaudited factory live")
+    : "Launch factory active locally";
   status.textContent = `${stateLabel} · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`;
   status.classList.add("is-live");
   status.parentElement?.classList.add("is-live");
@@ -641,7 +650,7 @@ function renderAccount() {
   } else if (configuredFactoryAddress()) {
     $("#modalWallet").textContent = "Launch on Uniswap";
   } else {
-    $("#modalWallet").textContent = "$10K oracle factory pending audit";
+    $("#modalWallet").textContent = "$10K oracle factory pending deployment";
   }
 }
 
@@ -1588,6 +1597,7 @@ async function deployFactoryWithWallet() {
     const address = await factory.getAddress();
     await validateFactoryDeployment(provider, address);
 
+    if (!FACTORY_CONFIG.factoryAddressStorageKey) throw new Error("Local factory storage is not configured.");
     localStorage.setItem(FACTORY_CONFIG.factoryAddressStorageKey, address);
     state.lastFactoryAddress = address;
     $("#modalTitle").textContent = "Factory deployed and validated.";
@@ -1635,7 +1645,7 @@ async function launchOnUniswap() {
   const factoryAddress = configuredFactoryAddress();
   if (!factoryAddress) {
     if (FACTORY_CONFIG.allowBrowserDeployment) openFactoryDeploymentModal();
-    toast("The $10,000 oracle-priced factory is pending audit, deployment, and source verification.");
+    toast("The $10,000 oracle-priced factory is pending deployment and source verification.");
     return;
   }
   if (!window.ethers || !FACTORY_ABI.length) {
@@ -1879,7 +1889,7 @@ async function downloadLaunchBrief() {
     listing: { metadataVersion: 1, metadataReady: Boolean(state.imageFile), logo: state.imageFile ? { fileName: state.imageFile.name, mimeType: "image/png", width: LOGO_SIZE, height: LOGO_SIZE, crop: "square-cover", browserAssetKey: state.lastTokenAddress ? `token:${String(state.lastTokenAddress).toLowerCase()}` : DRAFT_LOGO_KEY } : null, imageRequiresPublicHosting: Boolean(state.imageFile), poolStartsWithPricedRwi: false, discoveryRequiresRealRwiSwaps: true, geckoTerminalInfoUpdateUrl: "https://www.geckoterminal.com/request-form/update-token" },
     note: configuredFactoryAddress()
       ? "The factory enforces a tick-rounded $10,000 opening valuation from fresh Chainlink ETH/USD and a protected 30-minute RWI/WETH TWAP. The creator supplies no RWI, and the LP position is locked forever with no migration or graduation state."
-      : "The oracle-priced launch factory is compiled but must be independently audited, deployed, and source-verified before transactions are enabled.",
+      : "The oracle-priced launch factory is compiled but not independently audited. Deployment and source verification are still required before transactions are enabled.",
   };
   const metadataName = `${ticker.toLowerCase()}-metadata.json`;
   const metadataBlob = new Blob([JSON.stringify(brief, null, 2)], { type: "application/json" });

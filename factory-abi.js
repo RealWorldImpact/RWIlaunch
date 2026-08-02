@@ -6,6 +6,11 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "ClaimExpired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidIntegration",
     "type": "error"
   },
@@ -22,6 +27,16 @@ window.RWI_FACTORY_ABI = Object.freeze([
   {
     "inputs": [],
     "name": "InvalidOracleReport",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NativeTransferFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotPositionCreator",
     "type": "error"
   },
   {
@@ -94,6 +109,11 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "UnexpectedEther",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "UnexpectedNFT",
     "type": "error"
   },
@@ -141,17 +161,29 @@ window.RWI_FACTORY_ABI = Object.freeze([
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "amount0",
+        "name": "tokenFees",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "amount1",
+        "name": "rwiFees",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "rwiFromToken",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "ethAmount",
         "type": "uint256"
       }
     ],
-    "name": "FeesCollected",
+    "name": "FeesClaimedInEth",
     "type": "event"
   },
   {
@@ -488,6 +520,19 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "SWAP_ROUTER_02",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "TARGET_MARKET_CAP_USD_E18",
     "outputs": [
       {
@@ -544,18 +589,43 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "internalType": "uint256",
         "name": "positionTokenId",
         "type": "uint256"
-      }
-    ],
-    "name": "collectFees",
-    "outputs": [
+      },
       {
         "internalType": "uint256",
-        "name": "amount0",
+        "name": "minimumRwiFromToken",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "amount1",
+        "name": "minimumEthOut",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimFeesInEth",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenFees",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "rwiFees",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "rwiFromToken",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "ethAmount",
         "type": "uint256"
       }
     ],
@@ -771,6 +841,25 @@ window.RWI_FACTORY_ABI = Object.freeze([
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "positionTokens",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "rwi",
     "outputs": [
@@ -789,6 +878,19 @@ window.RWI_FACTORY_ABI = Object.freeze([
     "outputs": [
       {
         "internalType": "contract IUniswapV3OraclePoolMinimal",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "swapRouter",
+    "outputs": [
+      {
+        "internalType": "contract ISwapRouter02Minimal",
         "name": "",
         "type": "address"
       }
@@ -834,5 +936,9 @@ window.RWI_FACTORY_ABI = Object.freeze([
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "stateMutability": "payable",
+    "type": "receive"
   }
 ]);
