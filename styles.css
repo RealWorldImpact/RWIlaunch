@@ -51,6 +51,7 @@ a { color: inherit; text-decoration: none; }
 .desktop-nav a { padding: 23px 0 20px; border-bottom: 3px solid transparent; }
 .desktop-nav a:hover, .desktop-nav a.active { border-color: var(--ink); }
 .header-actions { justify-self: end; display: flex; align-items: center; gap: 12px; }
+.dashboard-header-button { display: none; min-height: 38px; border: 1px solid var(--ink); background: transparent; padding: 0 11px; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; cursor: pointer; }
 .network-chip { display: inline-flex; align-items: center; gap: 8px; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
 .network-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px rgba(11,11,9,.12); }
 
@@ -548,6 +549,12 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(11,11,9,.78); display: grid; place-items: center; padding: 20px; }
 .modal-backdrop[hidden] { display: none; }
+.creator-dashboard-backdrop { z-index: 75; background: rgba(11,11,9,.88); }
+.creator-dashboard.creator-dashboard-modal { width: min(1180px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); position: relative; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--lime); padding: 34px; box-shadow: 10px 10px 0 var(--lime); }
+.creator-dashboard-modal > .modal-close { position: sticky; top: 0; z-index: 3; float: right; margin: 0 0 -34px 14px; background: var(--ink); }
+.creator-dashboard-modal .dashboard-heading { gap: 34px; margin: 0 48px 28px 0; }
+.creator-dashboard-modal .dashboard-heading h2 { font-size: clamp(44px, 5.5vw, 68px); }
+.creator-dashboard-modal .dashboard-heading > p { font-size: 15px; }
 .launch-modal { width: min(490px, 100%); position: relative; border: 1px solid var(--lime); background: var(--ink); color: var(--lime); padding: 34px; box-shadow: 10px 10px 0 var(--lime); }
 .modal-close { position: absolute; top: 14px; right: 14px; width: 34px; height: 34px; border: 1px solid rgba(204,254,6,.4); background: transparent; color: var(--lime); cursor: pointer; font-size: 22px; line-height: 1; }
 .launch-modal h2 { margin: 0 45px 24px 0; color: var(--paper); font-size: 45px; line-height: .95; font-weight: 500; letter-spacing: -.04em; }
@@ -586,6 +593,7 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
 @media (max-width: 960px) {
   .desktop-nav { display: none; }
   .site-header { grid-template-columns: 1fr auto; }
+  .dashboard-header-button { display: inline-flex; align-items: center; justify-content: center; }
   .launch-shell { grid-template-columns: 1fr; }
   .preview-card { border-left: 0; border-top: 1px solid var(--ink); display: grid; grid-template-columns: .9fr 1.1fr; }
   .preview-sticky { position: static; display: grid; grid-template-columns: .9fr 1.1fr; grid-column: 1 / -1; }
@@ -598,6 +606,7 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .token-grid { grid-template-columns: 1fr 1fr; }
   .dashboard-heading { grid-template-columns: 1fr; align-items: start; }
   .dashboard-content { grid-template-columns: 1fr; }
+  .creator-dashboard-modal .dashboard-heading { gap: 18px; }
   .token-detail-hero { grid-template-columns: 1fr; }
   .token-detail-art { width: min(calc(100% - 80px), 420px); min-height: 0; margin: 40px 0; }
   .token-detail-copy { border-top: 1px solid var(--ink); border-left: 0; }
@@ -643,6 +652,10 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .preview-image { min-height: 245px; border-right: 0; border-bottom: 1px solid rgba(204,254,6,.32); }
   .section-heading { grid-template-columns: 1fr; gap: 20px; }
   .mechanism, .discover, .creator-dashboard { padding: 75px 16px; }
+  .creator-dashboard-backdrop { padding: 10px; }
+  .creator-dashboard.creator-dashboard-modal { max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); padding: 24px 16px; box-shadow: 6px 6px 0 var(--lime); }
+  .creator-dashboard-modal .dashboard-heading { margin-right: 42px; }
+  .creator-dashboard-modal .dashboard-heading h2 { font-size: 44px; }
   .discover-heading { align-items: start; flex-direction: column; }
   .token-grid { grid-template-columns: 1fr; }
   .home-page-body .token-grid,
