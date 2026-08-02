@@ -123,6 +123,7 @@ const state = {
 const discoveredWalletProviders = new Map();
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+const approvedImageHashes = new Set();
 
 window.addEventListener?.("eip6963:announceProvider", (event) => {
   const detail = event?.detail;
@@ -522,6 +523,33 @@ function blobToDataUrl(blob) {
   });
 }
 
+function rejectedImageError() {
+  const error = new Error("This image can't be used. Choose another.");
+  error.code = "IMAGE_REJECTED";
+  return error;
+}
+
+async function assertImageAllowed(blob, purpose) {
+  if (!blob) throw rejectedImageError();
+  if (window.location.protocol === "file:") return true;
+  const digest = await sha256BlobHex(blob);
+  if (digest && approvedImageHashes.has(digest)) return true;
+  try {
+    const response = await fetch(new URL("api/image-safety", new URL(".", window.location.href)), {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ purpose, imageDataUrl: await blobToDataUrl(blob) }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.allowed !== true) throw rejectedImageError();
+    if (digest) approvedImageHashes.add(digest);
+    return true;
+  } catch (error) {
+    if (error?.code === "IMAGE_REJECTED") throw error;
+    throw rejectedImageError();
+  }
+}
+
 function canonicalPublicUrl(kind, value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -747,6 +775,7 @@ async function applyCrop() {
     if (!blob) throw new Error("Logo export failed");
     const ticker = cleanTicker(fields.ticker.value).toLowerCase() || "token";
     const file = logoFileFromBlob(blob, `${ticker}-logo.png`);
+    await assertImageAllowed(file, "token-logo");
     const completion = state.cropCompletion;
     if (completion) {
       state.cropCompletion = null;
@@ -757,8 +786,8 @@ async function applyCrop() {
     }
     closeCropper();
     toast("Square 512×512 logo ready.");
-  } catch {
-    toast("The crop could not be saved. Try again.");
+  } catch (error) {
+    toast(error?.code === "IMAGE_REJECTED" ? error.message : "The crop could not be saved. Try again.");
   } finally {
     button.disabled = false;
     button.textContent = "Use this crop";
@@ -1193,7 +1222,19 @@ async function loadCreatorProfile() {
     const profile = await readOnchainCreatorProfile(requestedAccount);
     if (!sameAddress(state.account, requestedAccount)) return;
     if (profile) {
-      applyProfileToEditor(profile, `Onchain profile v${profile.version.toString()} loaded from Robinhood Chain.`);
+      const visibleProfile = { ...profile };
+      if (visibleProfile.avatarBytes?.length && visibleProfile.avatarMimeType) {
+        try {
+          await assertImageAllowed(
+            new Blob([visibleProfile.avatarBytes], { type: profileMimeType(visibleProfile.avatarMimeType) }),
+            "profile-picture",
+          );
+        } catch {
+          visibleProfile.avatarBytes = null;
+          visibleProfile.avatarMimeType = 0;
+        }
+      }
+      applyProfileToEditor(visibleProfile, `Onchain profile v${profile.version.toString()} loaded from Robinhood Chain.`);
     } else {
       $("#profileStatus").textContent = local
         ? "No onchain profile yet. Your local draft is ready to publish."
@@ -1318,14 +1359,15 @@ async function processProfileImage(file) {
       if (selected) break;
     }
     if (!selected) throw new Error("Avatar could not be compressed to the onchain limit.");
+    await assertImageAllowed(selected.blob, "profile-picture");
     releaseProfileAvatarObjectUrl();
     state.profileAvatarBytes = new Uint8Array(await selected.blob.arrayBuffer());
     state.profileAvatarMimeType = 1;
     state.profileAvatarData = selected.canvas.toDataURL("image/jpeg", selected.quality);
     renderProfileAvatar();
     $("#profileStatus").textContent = `Profile picture ready · ${(state.profileAvatarBytes.length / 1024).toFixed(1)} KiB onchain payload.`;
-  } catch {
-    toast("That profile picture could not be processed.");
+  } catch (error) {
+    toast(error?.code === "IMAGE_REJECTED" ? error.message : "That profile picture could not be processed.");
   } finally {
     URL.revokeObjectURL(objectUrl);
     $("#profileImage").value = "";
@@ -1355,6 +1397,13 @@ async function saveCreatorProfile(event) {
   if (new TextEncoder().encode(name).length > 80) return toast("Creator name is too long after encoding.");
   if (new TextEncoder().encode(bio).length > 320) return toast("Creator bio is too long after encoding.");
   if ((state.profileAvatarBytes?.length || 0) > PROFILE_AVATAR_MAX_BYTES) return toast("Profile picture exceeds the onchain size limit.");
+  if (state.profileAvatarBytes?.length) {
+    try {
+      await assertImageAllowed(new Blob([state.profileAvatarBytes], { type: "image/jpeg" }), "profile-picture");
+    } catch (error) {
+      return toast(error?.code === "IMAGE_REJECTED" ? error.message : "This image can't be used. Choose another.");
+    }
+  }
   const profile = { name, bio, wallet: state.account, updatedAt: new Date().toISOString() };
   try {
     persistLocalCreatorProfile(profile);
@@ -2265,6 +2314,8 @@ async function launchOnUniswap() {
   state.launchInFlight = true;
   button.disabled = true;
   try {
+    button.textContent = "Preparing launch…";
+    await assertImageAllowed(state.imageFile, "token-logo");
     await ensureRobinhoodChain();
     const provider = new ethers.BrowserProvider(currentWalletProvider());
     const signer = await provider.getSigner();
