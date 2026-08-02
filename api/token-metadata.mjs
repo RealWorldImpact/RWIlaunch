@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { list, put } from "@vercel/blob";
 import { Contract, JsonRpcProvider, getAddress, isAddress, verifyMessage } from "ethers";
+import { assertImageAllowedDataUrl } from "./image-safety.mjs";
 
 const CHAIN_ID = 4663;
 const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
-const DEFAULT_FACTORY = "0xB725d44EA09BA4c1C8650D79aDB84C06d3CbE000";
+const DEFAULT_FACTORY = "0x0Fb46f019eBf66D0767E891f8fACe687F1156088";
 const FACTORY_ADDRESS = process.env.RWI_FACTORY_ADDRESS || DEFAULT_FACTORY;
 const MAX_REQUEST_BYTES = 2_500_000;
 const MAX_LOGO_BYTES = 1_500_000;
@@ -214,6 +215,7 @@ async function publish(request) {
     const recovered = verifyMessage(metadataSigningMessage(payload), signature);
     if (recovered.toLowerCase() !== payload.creator.toLowerCase()) throw new Error("The public metadata signature is invalid.");
     await verifyLaunch(payload);
+    await assertImageAllowedDataUrl(input.imageDataUrl);
 
     const tokenKey = payload.tokenAddress.toLowerCase();
     const logoBlob = await put(`${LOGO_PREFIX}${tokenKey}.png`, logo, {
@@ -256,7 +258,10 @@ async function publish(request) {
       tokenListUrl: tokenListBlob?.url || null,
     }, 201);
   } catch (error) {
-    return json({ error: String(error?.shortMessage || error?.message || "Public metadata publication failed.").slice(0, 300) }, 400);
+    const message = error?.message === "IMAGE_REJECTED"
+      ? "This image can't be used."
+      : String(error?.shortMessage || error?.message || "Public metadata publication failed.").slice(0, 300);
+    return json({ error: message }, 400);
   }
 }
 
