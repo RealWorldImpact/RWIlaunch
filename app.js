@@ -5,11 +5,24 @@ const OPENING_TOKENS_PER_RWI = 1_003_806n;
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
 const FACTORY_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || Object.freeze({});
+const PROFILE_REGISTRY_CONFIG = window.RWI_PROFILE_REGISTRY || Object.freeze({});
+const PROFILE_REGISTRY_ABI = window.RWI_PROFILE_REGISTRY_ABI || Object.freeze([]);
+const PROFILE_REGISTRY_DEPLOYMENT = window.RWI_PROFILE_REGISTRY_DEPLOYMENT || Object.freeze({});
 const DRAFT_KEY = "rwi-launchpad-draft-v2";
 const LOGO_DATABASE = "rwi-launchpad-assets-v1";
 const LOGO_STORE = "logos";
 const DRAFT_LOGO_KEY = "current-draft-logo";
+const TOKEN_METADATA_PREFIX = "rwi-token-metadata:";
+const PROFILE_REGISTRY_LOCAL_ADDRESS_KEY = "rwi-profile-registry-address";
+const PROFILE_REGISTRY_LOCAL_BLOCK_KEY = "rwi-profile-registry-block";
+const PROFILE_AVATAR_MAX_BYTES = 12_000;
 const LOGO_SIZE = 512;
+const KNOWN_TOKEN_IMAGES = Object.freeze({
+  "0xc29d66d54d2ed13fffdc89323e5a9d70c197eaec": "assets/testcoin.png",
+});
+const KNOWN_TOKEN_DESCRIPTIONS = Object.freeze({
+  "0xc29d66d54d2ed13fffdc89323e5a9d70c197eaec": "Standard one-billion-supply test launch from the RWI Launchpad factory.",
+});
 const LIQUIDITY_MODEL = Object.freeze({
   venue: "Uniswap v3",
   poolFee: FACTORY_CONFIG.poolFee || 10000,
@@ -66,6 +79,13 @@ const state = {
   dashboardRequestId: 0,
   activeClaimPosition: null,
   profileAvatarData: null,
+  profileAvatarBytes: null,
+  profileAvatarMimeType: 0,
+  profileAvatarObjectUrl: null,
+  profileVersion: 0n,
+  profileSaveInFlight: false,
+  profileRegistryDeploymentInFlight: false,
+  discoverImageUrls: [],
 };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -174,6 +194,64 @@ function isAddress(value) {
 
 function configuredFactoryAddress() {
   return isAddress(FACTORY_CONFIG.factoryAddress) ? FACTORY_CONFIG.factoryAddress : null;
+}
+
+function configuredProfileRegistryAddress() {
+  if (isAddress(PROFILE_REGISTRY_CONFIG.address)) return PROFILE_REGISTRY_CONFIG.address;
+  try {
+    const locallyDeployed = localStorage.getItem(PROFILE_REGISTRY_LOCAL_ADDRESS_KEY);
+    return isAddress(locallyDeployed) ? locallyDeployed : null;
+  } catch {
+    return null;
+  }
+}
+
+function configuredProfileRegistryBlock() {
+  const configured = Number(PROFILE_REGISTRY_CONFIG.deploymentBlock || 0);
+  if (configured > 0) return configured;
+  try {
+    const local = Number(localStorage.getItem(PROFILE_REGISTRY_LOCAL_BLOCK_KEY) || 0);
+    return local > 0 ? local : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function profileMimeType(value) {
+  return ({ 1: "image/jpeg", 2: "image/png", 3: "image/webp" })[Number(value)] || null;
+}
+
+function renderProfileRegistryStatus() {
+  const address = configuredProfileRegistryAddress();
+  const status = $("#profileRegistryStatus");
+  const indicator = $("#profileRegistryIndicator");
+  const deploy = $("#deployProfileRegistry");
+  if (!address) {
+    status.classList.remove("is-live");
+    indicator.textContent = "Deployment required · not independently audited";
+    deploy.hidden = false;
+    $("#saveCreatorProfile").textContent = "Save local profile draft";
+    return;
+  }
+  status.classList.add("is-live");
+  indicator.textContent = `${PROFILE_REGISTRY_CONFIG.sourceVerified ? "Source-verified global registry" : "Active locally · configure public site"} · ${address.slice(0, 6)}…${address.slice(-4)}`;
+  deploy.hidden = true;
+  $("#saveCreatorProfile").textContent = "Publish profile onchain";
+}
+
+async function validateProfileRegistryDeployment(provider, address) {
+  if (!isAddress(address)) throw new Error("Invalid profile registry address.");
+  const network = await provider.getNetwork();
+  if (network.chainId !== 4663n) throw new Error("Profile registry must be deployed on Robinhood Chain.");
+  const code = await provider.getCode(address);
+  if (code === "0x") throw new Error("No profile registry bytecode exists at that address.");
+  if (!PROFILE_REGISTRY_DEPLOYMENT.deployedBytecode || code.toLowerCase() !== PROFILE_REGISTRY_DEPLOYMENT.deployedBytecode.toLowerCase()) {
+    throw new Error("Profile registry bytecode does not match this reviewed build.");
+  }
+  const registry = new window.ethers.Contract(address, PROFILE_REGISTRY_ABI, provider);
+  const [version, maxAvatarBytes] = await Promise.all([registry.CODE_VERSION(), registry.MAX_AVATAR_BYTES()]);
+  if (version !== 1n || maxAvatarBytes !== BigInt(PROFILE_AVATAR_MAX_BYTES)) throw new Error("Profile registry limits do not match this interface.");
+  return registry;
 }
 
 function normalizeImmutableSlots(bytecode, immutableReferences) {
@@ -548,6 +626,41 @@ function creatorProfileKey(address) {
   return `rwi-creator-profile:${String(address).toLowerCase()}`;
 }
 
+function tokenMetadataKey(address) {
+  return `${TOKEN_METADATA_PREFIX}${String(address).toLowerCase()}`;
+}
+
+function readLocalTokenMetadata(address) {
+  try {
+    return JSON.parse(localStorage.getItem(tokenMetadataKey(address)) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalTokenMetadata(address, poolAddress) {
+  const metadata = {
+    name: fields.name.value.trim(),
+    symbol: cleanTicker(fields.ticker.value),
+    description: fields.description.value.trim(),
+    links: {
+      website: fields.website.value.trim(),
+      twitter: fields.twitter.value.trim(),
+      telegram: fields.telegram.value.trim(),
+    },
+    creator: state.account,
+    tokenAddress: String(address),
+    poolAddress: poolAddress ? String(poolAddress) : null,
+    imageKey: `token:${String(address).toLowerCase()}`,
+    createdAt: new Date().toISOString(),
+  };
+  try {
+    localStorage.setItem(tokenMetadataKey(address), JSON.stringify(metadata));
+  } catch {
+    // Onchain launch success must not be obscured by unavailable browser storage.
+  }
+}
+
 function renderProfileAvatar() {
   const avatar = $("#profileAvatar");
   const text = $("#profileAvatarText");
@@ -561,22 +674,115 @@ function renderProfileAvatar() {
   text.textContent = (name.charAt(0) || state.account?.slice(2, 3) || "?").toUpperCase();
 }
 
-function loadCreatorProfile() {
-  if (!state.account) return;
-  let profile = null;
+function readLocalCreatorProfile(address) {
   try {
-    profile = JSON.parse(localStorage.getItem(creatorProfileKey(state.account)) || "null");
+    return JSON.parse(localStorage.getItem(creatorProfileKey(address)) || "null");
   } catch {
-    localStorage.removeItem(creatorProfileKey(state.account));
+    localStorage.removeItem(creatorProfileKey(address));
+    return null;
   }
+}
+
+function decodeProfileDataUrl(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match || typeof atob !== "function") return null;
+  const binary = atob(match[2]);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const mimeType = ({ "image/jpeg": 1, "image/png": 2, "image/webp": 3 })[match[1].toLowerCase()] || 0;
+  return bytes.length <= PROFILE_AVATAR_MAX_BYTES && mimeType ? { bytes, mimeType } : null;
+}
+
+function releaseProfileAvatarObjectUrl() {
+  if (state.profileAvatarObjectUrl) URL.revokeObjectURL(state.profileAvatarObjectUrl);
+  state.profileAvatarObjectUrl = null;
+}
+
+function applyProfileToEditor(profile, source) {
+  releaseProfileAvatarObjectUrl();
   $("#creatorName").value = profile?.name || "";
   $("#creatorBio").value = profile?.bio || "";
+  state.profileVersion = BigInt(profile?.version || 0);
+  state.profileAvatarBytes = profile?.avatarBytes || null;
+  state.profileAvatarMimeType = Number(profile?.avatarMimeType || 0);
   state.profileAvatarData = profile?.avatar || null;
+  if (state.profileAvatarBytes?.length && state.profileAvatarMimeType) {
+    const mime = profileMimeType(state.profileAvatarMimeType);
+    state.profileAvatarObjectUrl = URL.createObjectURL(new Blob([state.profileAvatarBytes], { type: mime }));
+    state.profileAvatarData = state.profileAvatarObjectUrl;
+  } else if (state.profileAvatarData) {
+    const decoded = decodeProfileDataUrl(state.profileAvatarData);
+    state.profileAvatarBytes = decoded?.bytes || null;
+    state.profileAvatarMimeType = decoded?.mimeType || 0;
+  }
   $("#creatorBioCount").textContent = `${$("#creatorBio").value.length} / 160`;
-  $("#profileStatus").textContent = profile
-    ? "Profile loaded for this creator wallet. Changes are saved to this browser."
-    : "Profile details are saved to this browser for the connected wallet.";
+  $("#profileStatus").textContent = source;
   renderProfileAvatar();
+}
+
+async function queryProfileAvatarEvent(registry, provider, creator, version) {
+  if (!version) return null;
+  const latestBlock = await provider.getBlockNumber();
+  const firstBlock = configuredProfileRegistryBlock();
+  if (!firstBlock || firstBlock > latestBlock) throw new Error("Profile registry deployment block is unavailable.");
+  const filter = registry.filters.ProfileUpdated(creator, version);
+  const logs = [];
+  const chunkSize = 50_000;
+  for (let fromBlock = firstBlock; fromBlock <= latestBlock; fromBlock += chunkSize) {
+    const toBlock = Math.min(latestBlock, fromBlock + chunkSize - 1);
+    logs.push(...await registry.queryFilter(filter, fromBlock, toBlock));
+  }
+  return logs.at(-1) || null;
+}
+
+async function readOnchainCreatorProfile(address) {
+  const registryAddress = configuredProfileRegistryAddress();
+  if (!registryAddress || !window.ethers || !PROFILE_REGISTRY_ABI.length) return null;
+  const provider = new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
+  const registry = await validateProfileRegistryDeployment(provider, registryAddress);
+  const profile = await registry.profiles(address);
+  const version = BigInt(profile.version);
+  if (!version) return null;
+  const event = await queryProfileAvatarEvent(registry, provider, address, version);
+  const avatarBytes = event ? window.ethers.getBytes(event.args.avatar) : new Uint8Array();
+  if (window.ethers.keccak256(avatarBytes) !== profile.avatarHash) throw new Error("Onchain avatar data does not match the registry hash.");
+  return {
+    name: profile.name,
+    bio: profile.bio,
+    version,
+    updatedAt: Number(profile.updatedAt),
+    avatarMimeType: Number(profile.avatarMimeType),
+    avatarBytes,
+  };
+}
+
+async function loadCreatorProfile() {
+  if (!state.account) return;
+  const requestedAccount = state.account;
+  const local = readLocalCreatorProfile(requestedAccount);
+  applyProfileToEditor(local, local
+    ? "Local draft loaded while the shared registry is checked."
+    : "Checking the shared profile registry…");
+  renderProfileRegistryStatus();
+  if (!configuredProfileRegistryAddress()) {
+    $("#profileStatus").textContent = local
+      ? "Local draft ready. Deploy and configure the registry to publish it globally."
+      : "Deploy and configure the shared registry to publish a globally visible profile.";
+    return;
+  }
+  try {
+    const profile = await readOnchainCreatorProfile(requestedAccount);
+    if (!sameAddress(state.account, requestedAccount)) return;
+    if (profile) {
+      applyProfileToEditor(profile, `Onchain profile v${profile.version.toString()} loaded from Robinhood Chain.`);
+    } else {
+      $("#profileStatus").textContent = local
+        ? "No onchain profile yet. Your local draft is ready to publish."
+        : "No onchain profile yet. Add your details and publish them globally.";
+    }
+  } catch (error) {
+    if (!sameAddress(state.account, requestedAccount)) return;
+    $("#profileStatus").textContent = `Shared profile unavailable: ${String(error?.message || error).slice(0, 120)}`;
+  }
 }
 
 function setRevenueMessage(message) {
@@ -586,6 +792,7 @@ function setRevenueMessage(message) {
 }
 
 function renderDashboardAccess() {
+  renderProfileRegistryStatus();
   const connected = Boolean(state.account);
   $("#dashboardGate").hidden = connected;
   $("#dashboardContent").hidden = !connected;
@@ -593,7 +800,11 @@ function renderDashboardAccess() {
     state.dashboardRequestId += 1;
     state.dashboardLoading = false;
     state.creatorLaunches = [];
+    releaseProfileAvatarObjectUrl();
     state.profileAvatarData = null;
+    state.profileAvatarBytes = null;
+    state.profileAvatarMimeType = 0;
+    state.profileVersion = 0n;
     $("#creatorTokenCount").textContent = "0 launches";
     setRevenueMessage("Connect your wallet to load creator revenue.");
     return;
@@ -617,19 +828,34 @@ async function processProfileImage(file) {
       candidate.onerror = reject;
       candidate.src = objectUrl;
     });
-    const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 256;
-    const context = canvas.getContext("2d");
-    const scale = Math.max(256 / image.naturalWidth, 256 / image.naturalHeight);
-    const width = image.naturalWidth * scale;
-    const height = image.naturalHeight * scale;
-    context.fillStyle = "#e8e5dc";
-    context.fillRect(0, 0, 256, 256);
-    context.drawImage(image, (256 - width) / 2, (256 - height) / 2, width, height);
-    state.profileAvatarData = canvas.toDataURL("image/jpeg", 0.88);
+    let selected = null;
+    for (const size of [128, 112, 96, 80]) {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d");
+      const scale = Math.max(size / image.naturalWidth, size / image.naturalHeight);
+      const width = image.naturalWidth * scale;
+      const height = image.naturalHeight * scale;
+      context.fillStyle = "#e8e5dc";
+      context.fillRect(0, 0, size, size);
+      context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+      for (const quality of [0.82, 0.68, 0.54, 0.42]) {
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (blob && blob.size <= PROFILE_AVATAR_MAX_BYTES) {
+          selected = { blob, canvas, quality };
+          break;
+        }
+      }
+      if (selected) break;
+    }
+    if (!selected) throw new Error("Avatar could not be compressed to the onchain limit.");
+    releaseProfileAvatarObjectUrl();
+    state.profileAvatarBytes = new Uint8Array(await selected.blob.arrayBuffer());
+    state.profileAvatarMimeType = 1;
+    state.profileAvatarData = selected.canvas.toDataURL("image/jpeg", selected.quality);
     renderProfileAvatar();
-    $("#profileStatus").textContent = "Profile picture ready. Save profile to keep it.";
+    $("#profileStatus").textContent = `Profile picture ready · ${(state.profileAvatarBytes.length / 1024).toFixed(1)} KiB onchain payload.`;
   } catch {
     toast("That profile picture could not be processed.");
   } finally {
@@ -638,19 +864,102 @@ async function processProfileImage(file) {
   }
 }
 
-function saveCreatorProfile(event) {
+function clearProfileImage() {
+  releaseProfileAvatarObjectUrl();
+  state.profileAvatarData = null;
+  state.profileAvatarBytes = null;
+  state.profileAvatarMimeType = 0;
+  renderProfileAvatar();
+  $("#profileStatus").textContent = "Profile picture will be removed when you publish.";
+}
+
+function persistLocalCreatorProfile(profile) {
+  const avatar = String(state.profileAvatarData || "").startsWith("data:") ? state.profileAvatarData : null;
+  localStorage.setItem(creatorProfileKey(state.account), JSON.stringify({ ...profile, avatar }));
+}
+
+async function saveCreatorProfile(event) {
   event.preventDefault();
-  if (!state.account) return toast("Connect the creator wallet first.");
+  if (!state.account || state.profileSaveInFlight) return toast("Connect the creator wallet first.");
   const name = $("#creatorName").value.trim();
   const bio = $("#creatorBio").value.trim();
   if (name && name.length < 2) return toast("Creator name must be at least 2 characters or left blank.");
-  const profile = { name, bio, avatar: state.profileAvatarData, wallet: state.account, updatedAt: new Date().toISOString() };
+  if (new TextEncoder().encode(name).length > 80) return toast("Creator name is too long after encoding.");
+  if (new TextEncoder().encode(bio).length > 320) return toast("Creator bio is too long after encoding.");
+  if ((state.profileAvatarBytes?.length || 0) > PROFILE_AVATAR_MAX_BYTES) return toast("Profile picture exceeds the onchain size limit.");
+  const profile = { name, bio, wallet: state.account, updatedAt: new Date().toISOString() };
   try {
-    localStorage.setItem(creatorProfileKey(state.account), JSON.stringify(profile));
-    $("#profileStatus").textContent = "Profile saved to this browser for the connected wallet.";
-    toast("Creator profile saved.");
+    persistLocalCreatorProfile(profile);
   } catch {
-    toast("Profile storage is unavailable in this browser.");
+    // Publishing remains available when local draft storage is disabled.
+  }
+  const registryAddress = configuredProfileRegistryAddress();
+  if (!registryAddress) {
+    $("#profileStatus").textContent = "Local draft saved. Deploy the registry before publishing globally.";
+    toast("Profile saved locally; registry deployment is still required.");
+    return;
+  }
+
+  const button = $("#saveCreatorProfile");
+  state.profileSaveInFlight = true;
+  button.disabled = true;
+  try {
+    await ensureRobinhoodChain();
+    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    await validateProfileRegistryDeployment(provider, registryAddress);
+    const signer = await provider.getSigner();
+    if (!sameAddress(await signer.getAddress(), state.account)) throw new Error("Connected wallet changed. Reload the creator dashboard.");
+    const registry = new window.ethers.Contract(registryAddress, PROFILE_REGISTRY_ABI, signer);
+    const avatar = state.profileAvatarBytes || new Uint8Array();
+    button.textContent = "Confirm profile in wallet…";
+    $("#profileStatus").textContent = "Review the onchain profile update in your wallet.";
+    const transaction = await registry.setProfile(name, bio, state.profileAvatarMimeType, avatar);
+    button.textContent = "Publishing profile…";
+    $("#profileStatus").textContent = `Profile transaction submitted · ${transaction.hash.slice(0, 10)}…`;
+    await transaction.wait();
+    toast("Creator profile published onchain.");
+    await loadCreatorProfile();
+  } catch (error) {
+    $("#profileStatus").textContent = readableWalletError(error).replace(/^Launch reverted:/, "Profile update reverted:");
+    toast($("#profileStatus").textContent);
+  } finally {
+    state.profileSaveInFlight = false;
+    button.disabled = false;
+    button.textContent = configuredProfileRegistryAddress() ? "Publish profile onchain" : "Save local profile draft";
+  }
+}
+
+async function deployProfileRegistry() {
+  if (state.profileRegistryDeploymentInFlight) return;
+  if (!window.ethereum || !window.ethers || !PROFILE_REGISTRY_ABI.length || !PROFILE_REGISTRY_DEPLOYMENT.bytecode) {
+    return toast("Connect an EVM wallet and refresh before deploying the registry.");
+  }
+  if (!state.account && !(await connectWallet())) return;
+  const button = $("#deployProfileRegistry");
+  state.profileRegistryDeploymentInFlight = true;
+  button.disabled = true;
+  try {
+    await ensureRobinhoodChain();
+    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    button.textContent = "Confirm in wallet…";
+    const contractFactory = new window.ethers.ContractFactory(PROFILE_REGISTRY_ABI, PROFILE_REGISTRY_DEPLOYMENT.bytecode, signer);
+    const registry = await contractFactory.deploy();
+    button.textContent = "Deploying registry…";
+    const receipt = await registry.deploymentTransaction().wait();
+    const address = await registry.getAddress();
+    await validateProfileRegistryDeployment(provider, address);
+    localStorage.setItem(PROFILE_REGISTRY_LOCAL_ADDRESS_KEY, address);
+    localStorage.setItem(PROFILE_REGISTRY_LOCAL_BLOCK_KEY, String(receipt.blockNumber));
+    renderProfileRegistryStatus();
+    $("#profileStatus").textContent = `Registry deployed at ${address}. Publish your profile, then configure this address in the public site.`;
+    toast("Shared profile registry deployed and validated.");
+  } catch (error) {
+    toast(readableWalletError(error).replace(/^Launch reverted:/, "Registry deployment reverted:"));
+  } finally {
+    state.profileRegistryDeploymentInFlight = false;
+    button.disabled = false;
+    button.textContent = "Deploy registry";
   }
 }
 
@@ -705,6 +1014,132 @@ function dashboardElement(tag, className, text) {
   if (className) element.className = className;
   if (text !== undefined) element.textContent = text;
   return element;
+}
+
+function tokenDetailHref(address) {
+  return `token.html?address=${encodeURIComponent(String(address))}`;
+}
+
+function enableTokenCard(card, address) {
+  const href = tokenDetailHref(address);
+  card.classList.add("token-card-clickable");
+  card.dataset.tokenAddress = address;
+  card.tabIndex = 0;
+  card.setAttribute("role", "link");
+  card.addEventListener("click", (event) => {
+    if (event.target.closest?.("a, button")) return;
+    window.location.href = href;
+  });
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      window.location.href = href;
+    }
+  });
+}
+
+async function queryRecentLaunchLogs(factory, provider) {
+  const latestBlock = await provider.getBlockNumber();
+  const firstBlock = Number(FACTORY_CONFIG.deploymentBlock || 0);
+  const filter = factory.filters.TokenLaunched(null, null, null);
+  const logs = [];
+  const chunkSize = 50_000;
+  for (let fromBlock = firstBlock; fromBlock <= latestBlock; fromBlock += chunkSize) {
+    const toBlock = Math.min(latestBlock, fromBlock + chunkSize - 1);
+    logs.push(...await factory.queryFilter(filter, fromBlock, toBlock));
+  }
+  return logs.sort((left, right) => Number(right.blockNumber || 0) - Number(left.blockNumber || 0)).slice(0, 18);
+}
+
+async function readDiscoverLaunch(eventLog, provider, factory) {
+  const args = eventLog.args || factory.interface.parseLog(eventLog)?.args;
+  const token = String(args.token);
+  const tokenContract = new window.ethers.Contract(token, [
+    "function name() view returns (string)",
+    "function symbol() view returns (string)",
+  ], provider);
+  const [nameResult, symbolResult, logoResult] = await Promise.allSettled([
+    tokenContract.name(),
+    tokenContract.symbol(),
+    readLogoAsset(`token:${token.toLowerCase()}`),
+  ]);
+  return {
+    token,
+    pool: String(args.pool),
+    creator: String(args.creator),
+    positionTokenId: BigInt(args.positionTokenId),
+    name: nameResult.status === "fulfilled" ? nameResult.value : "Factory token",
+    symbol: symbolResult.status === "fulfilled" ? symbolResult.value : "TOKEN",
+    metadata: readLocalTokenMetadata(token),
+    logo: logoResult.status === "fulfilled" ? logoResult.value : null,
+  };
+}
+
+function appendTokenArtwork(card, launch, href) {
+  const artLink = dashboardElement("a", "token-card-link");
+  artLink.href = href;
+  artLink.setAttribute("aria-label", `Open ${launch.symbol} token page`);
+  let imageUrl = KNOWN_TOKEN_IMAGES[launch.token.toLowerCase()] || null;
+  if (launch.logo?.blob) {
+    imageUrl = URL.createObjectURL(launch.logo.blob);
+    state.discoverImageUrls.push(imageUrl);
+  }
+  if (imageUrl) {
+    const image = dashboardElement("img", "token-art token-art-image");
+    image.src = imageUrl;
+    image.alt = `${launch.name} token artwork`;
+    artLink.appendChild(image);
+  } else {
+    artLink.appendChild(dashboardElement("div", "token-art art-one", launch.symbol.charAt(0) || "?"));
+  }
+  card.appendChild(artLink);
+}
+
+function renderDiscoverLaunches(launches) {
+  const grid = $("#tokenGrid");
+  if (!grid || !launches.length) return;
+  for (const imageUrl of state.discoverImageUrls) URL.revokeObjectURL(imageUrl);
+  state.discoverImageUrls = [];
+  grid.textContent = "";
+  for (const launch of launches) {
+    const href = tokenDetailHref(launch.token);
+    const card = dashboardElement("article", "token-card live-token-card");
+    appendTokenArtwork(card, launch, href);
+
+    const tokenMeta = dashboardElement("div", "token-meta");
+    const identity = dashboardElement("div", "");
+    identity.appendChild(dashboardElement("p", "", `$${launch.symbol}`));
+    identity.appendChild(dashboardElement("h3", "", launch.name));
+    tokenMeta.appendChild(identity);
+    tokenMeta.appendChild(dashboardElement("span", "verified-label", "Factory launch"));
+    card.appendChild(tokenMeta);
+    card.appendChild(dashboardElement("p", "", launch.metadata?.description || KNOWN_TOKEN_DESCRIPTIONS[launch.token.toLowerCase()] || "Fixed one-billion supply with direct, permanently locked TOKEN / RWI liquidity."));
+    card.appendChild(dashboardElement("code", "token-address", launch.token));
+
+    const stats = dashboardElement("div", "mini-stats");
+    const pair = dashboardElement("span", "", "Pair ");
+    pair.appendChild(dashboardElement("strong", "", "RWI · 1%"));
+    const lp = dashboardElement("span", "", "LP ");
+    lp.appendChild(dashboardElement("strong", "", "Locked"));
+    stats.appendChild(pair);
+    stats.appendChild(lp);
+    card.appendChild(stats);
+    enableTokenCard(card, launch.token);
+    grid.appendChild(card);
+  }
+}
+
+async function loadRecentLaunches() {
+  if (!window.ethers || !configuredFactoryAddress()) return;
+  try {
+    const provider = new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
+    const factory = new window.ethers.Contract(configuredFactoryAddress(), FACTORY_ABI, provider);
+    const logs = await queryRecentLaunchLogs(factory, provider);
+    const launches = await Promise.all(logs.map((log) => readDiscoverLaunch(log, provider, factory)));
+    renderDiscoverLaunches(launches);
+  } catch {
+    // The verified TESTCOIN card remains usable when a public RPC is temporarily unavailable.
+  }
 }
 
 function feeLabel(amount, symbol) {
@@ -1034,6 +1469,7 @@ async function launchOnUniswap() {
     if (state.lastTokenAddress && state.imageFile) {
       saveLogoAsset(`token:${String(state.lastTokenAddress).toLowerCase()}`, state.imageFile).catch(() => {});
     }
+    if (state.lastTokenAddress) saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolAddress);
     $("#modalTitle").textContent = "Your token is live.";
     $("#modalCopy").textContent = "The pool is registered onchain and the standardized logo is saved in this browser. Download the metadata kit for the public listing workflow. GeckoTerminal may keep the page hidden until real swaps bring priced RWI into the zero-RWI pool.";
     $("#modalNote").textContent = launchEvent
@@ -1042,6 +1478,7 @@ async function launchOnUniswap() {
     if (state.lastPoolAddress) $("#geckoTerminalButton").hidden = false;
     toast("Token launched directly into $RWI liquidity on Uniswap.");
     await readRwiBalance();
+    loadRecentLaunches();
   } catch (error) {
     const message = readableWalletError(error);
     $("#modalNote").textContent = message;
@@ -1312,6 +1749,8 @@ $("#dashboardConnect").addEventListener("click", connectWallet);
 $("#refreshRevenue").addEventListener("click", () => loadCreatorDashboard());
 $("#creatorProfileForm").addEventListener("submit", saveCreatorProfile);
 $("#profileImage").addEventListener("change", (event) => processProfileImage(event.target.files[0]));
+$("#removeProfileImage").addEventListener("click", clearProfileImage);
+$("#deployProfileRegistry").addEventListener("click", deployProfileRegistry);
 $("#creatorName").addEventListener("input", renderProfileAvatar);
 $("#creatorBio").addEventListener("input", () => {
   $("#creatorBioCount").textContent = `${$("#creatorBio").value.length} / 160`;
@@ -1383,6 +1822,13 @@ restoreDraftLogo();
 renderIntegrationStatus();
 updatePreview();
 renderDashboardAccess();
+$$('#tokenGrid [data-token-address]').forEach((card) => enableTokenCard(card, card.dataset.tokenAddress));
+loadRecentLaunches();
 syncWallet();
 
-window.RWILaunchpad = { RWI_ADDRESS, ROBINHOOD_CHAIN, LIQUIDITY_MODEL, FACTORY_CONFIG };
+window.addEventListener?.("beforeunload", () => {
+  for (const imageUrl of state.discoverImageUrls) URL.revokeObjectURL(imageUrl);
+  releaseProfileAvatarObjectUrl();
+});
+
+window.RWILaunchpad = { RWI_ADDRESS, ROBINHOOD_CHAIN, LIQUIDITY_MODEL, FACTORY_CONFIG, PROFILE_REGISTRY_CONFIG };
