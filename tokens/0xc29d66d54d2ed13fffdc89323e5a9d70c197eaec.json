@@ -1,0 +1,15 @@
+{
+  "name": "Test",
+  "symbol": "TESTCOIN",
+  "chain": "Robinhood Chain",
+  "chainId": 4663,
+  "tokenAddress": "0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC",
+  "poolAddress": "0x2350d77331F5290227133a27f0786473862Cb381",
+  "pairAsset": "RWI",
+  "pairAssetAddress": "0x2286397228be256529BE1ae9ed8D7d16549e9C6A",
+  "image": "/assets/testcoin.png",
+  "description": "Standard one-billion-supply test launch from the RWI Launchpad factory.",
+  "sourceVerified": true,
+  "liquidityPermanentlyLocked": true,
+  "graduation": false
+}
