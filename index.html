@@ -28,6 +28,7 @@
       <nav class="desktop-nav" aria-label="Primary navigation">
         <a class="active" href="#launch">Launch</a>
         <a href="#discover">Discover</a>
+        <a href="#dashboard">Dashboard</a>
         <a href="#mechanism">How it works</a>
       </nav>
 
@@ -81,15 +82,19 @@
               <div class="form-panel is-active one-click-form">
                 <div class="identity-grid">
                   <div class="upload-wrap">
-                    <label class="field-label" for="tokenImage">Token image <small>Optional</small></label>
-                    <label class="upload-zone" for="tokenImage" id="uploadZone">
-                      <input id="tokenImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                    <label class="field-label" for="tokenImage">Token image <small>Required</small></label>
+                    <label class="upload-zone" for="tokenImage" id="uploadZone" tabindex="0">
+                      <input id="tokenImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-required="true" />
                       <span class="upload-art" id="uploadArt">+</span>
                       <span class="upload-title">Drop image or browse</span>
-                      <span class="field-hint">PNG, JPG, WEBP, GIF · max 5MB · used in your listing workflow</span>
+                      <span class="field-hint">PNG, JPG, WEBP, GIF · max 5MB · crop after upload</span>
                     </label>
-                    <p class="listing-note">Images are local previews until submitted to GeckoTerminal after real swaps bring priced RWI into the pool.</p>
-                    <button class="remove-image" id="removeImage" type="button" hidden>Remove image</button>
+                    <p class="listing-note" id="logoStatus">Every logo is standardized to a square 512×512 PNG and saved with the draft.</p>
+                    <div class="image-actions">
+                      <button class="remove-image" id="editImage" type="button" hidden>Adjust crop</button>
+                      <button class="remove-image" id="downloadLogo" type="button" hidden>Download logo</button>
+                      <button class="remove-image" id="removeImage" type="button" hidden>Remove image</button>
+                    </div>
                   </div>
 
                   <div class="identity-fields">
@@ -200,7 +205,7 @@
                   </div>
                   <span class="status-badge">Direct pool</span>
                 </div>
-                <p class="preview-description" id="previewDescription">Description optional · launch with only a name and ticker.</p>
+                <p class="preview-description" id="previewDescription">Description optional · name, ticker, and cropped logo required.</p>
 
                 <div class="preview-stats">
                   <div><span>Pair</span><strong id="previewPair">TOKEN / RWI</strong></div>
@@ -245,6 +250,63 @@
           <article class="token-card"><div class="token-art art-two">BARK</div><div class="token-meta"><div><p>$BARK</p><h3>Good Dog Club</h3></div><span>18m ago</span></div><p>The internet's goodest community on Robinhood Chain.</p><div class="mini-stats"><span>Liquidity <strong>31K RWI</strong></span><span>Holders <strong>84</strong></span></div></article>
         </div>
       </section>
+
+      <section class="creator-dashboard" id="dashboard">
+        <div class="dashboard-heading">
+          <div>
+            <p class="eyebrow">04 — Creator dashboard</p>
+            <h2>Your launches.<br /><em>Your revenue.</em></h2>
+          </div>
+          <p>Manage your creator identity and claim 100% of collectible LP fees from every token you launched.</p>
+        </div>
+
+        <div class="dashboard-gate" id="dashboardGate">
+          <div><span>Wallet required</span><strong>Connect the creator wallet to load its tokens and fee positions.</strong></div>
+          <button class="button button-lime" id="dashboardConnect" type="button">Connect creator wallet</button>
+        </div>
+
+        <div class="dashboard-content" id="dashboardContent" hidden>
+          <aside class="profile-panel">
+            <div class="panel-kicker"><span>Creator profile</span><strong id="profileWallet">0x0000…0000</strong></div>
+            <form id="creatorProfileForm">
+              <div class="profile-avatar-row">
+                <label class="profile-avatar" id="profileAvatar" for="profileImage"><span id="profileAvatarText">?</span></label>
+                <div>
+                  <label class="profile-image-button" for="profileImage">Update profile picture</label>
+                  <input id="profileImage" type="file" accept="image/png,image/jpeg,image/webp" />
+                  <small>Automatically cropped to a 256×256 square.</small>
+                </div>
+              </div>
+              <label class="field">
+                <span class="field-label">Creator name</span>
+                <input id="creatorName" type="text" maxlength="40" placeholder="Your display name" />
+              </label>
+              <label class="field">
+                <span class="field-label-row"><span class="field-label">Short bio</span><span id="creatorBioCount">0 / 160</span></span>
+                <textarea id="creatorBio" maxlength="160" rows="4" placeholder="Tell token holders who you are."></textarea>
+              </label>
+              <button class="button button-lime profile-save" id="saveCreatorProfile" type="submit">Save profile</button>
+              <p class="profile-storage-note" id="profileStatus">Profile details are saved to this browser for the connected wallet.</p>
+            </form>
+          </aside>
+
+          <div class="revenue-panel">
+            <div class="revenue-header">
+              <div><span>Token revenue</span><strong id="creatorTokenCount">0 launches</strong></div>
+              <button id="refreshRevenue" type="button">Refresh ↻</button>
+            </div>
+            <div class="revenue-summary">
+              <div><span>Fee recipient</span><strong id="feeRecipient">Connected creator</strong></div>
+              <div><span>Creator share</span><strong>100%</strong></div>
+              <div><span>LP custody</span><strong>Locked forever</strong></div>
+            </div>
+            <div class="revenue-list" id="revenueList" aria-live="polite">
+              <div class="dashboard-empty">Connect your wallet to load creator revenue.</div>
+            </div>
+            <p class="revenue-note">Claims call the verified factory. Funds are sent directly to the permanent creator address recorded at launch; the launchpad never receives them.</p>
+          </div>
+        </div>
+      </section>
     </main>
 
     <footer>
@@ -270,6 +332,28 @@
           <button class="button button-outline" id="geckoTerminalButton" type="button" hidden>Check GeckoTerminal ↗</button>
         </div>
         <p class="modal-note" id="modalNote">The custom launch factory must be independently audited before mainnet deployment.</p>
+      </div>
+    </div>
+
+    <div class="modal-backdrop crop-backdrop" id="cropModal" role="dialog" aria-modal="true" aria-labelledby="cropTitle" hidden>
+      <div class="crop-modal">
+        <button class="modal-close" id="cropClose" type="button" aria-label="Cancel image crop">×</button>
+        <p class="eyebrow">Token artwork</p>
+        <h2 id="cropTitle">Crop your logo.</h2>
+        <p class="crop-intro">Drag to reposition. Use the slider to zoom. The saved logo is always a listing-ready 512×512 PNG.</p>
+        <div class="crop-stage" id="cropStage">
+          <canvas id="cropCanvas" width="512" height="512" aria-label="Token logo crop preview"></canvas>
+          <span class="crop-ring" aria-hidden="true"></span>
+        </div>
+        <div class="crop-controls">
+          <label for="cropZoom"><span>Zoom</span><input id="cropZoom" type="range" min="1" max="3" step="0.01" value="1" /></label>
+          <button id="cropReset" type="button">Reset</button>
+        </div>
+        <div class="crop-actions">
+          <button class="button button-outline" id="cropCancel" type="button">Cancel</button>
+          <button class="button button-lime" id="cropApply" type="button">Use this crop</button>
+        </div>
+        <p class="crop-note">Square PNG · 512×512 · transparent areas use the launchpad background</p>
       </div>
     </div>
 
