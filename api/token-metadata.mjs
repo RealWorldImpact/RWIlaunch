@@ -117,7 +117,10 @@ function decodeLogo(dataUrl, expectedHash) {
 }
 
 function blobConfigured() {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  const legacyToken = process.env.BLOB_READ_WRITE_TOKEN;
+  const oidcToken = process.env.VERCEL_OIDC_TOKEN;
+  const storeId = process.env.BLOB_STORE_ID;
+  return Boolean(legacyToken || (oidcToken && storeId));
 }
 
 async function findBlob(pathname) {
