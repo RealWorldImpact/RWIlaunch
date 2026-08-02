@@ -116,11 +116,14 @@ function decodeLogo(dataUrl, expectedHash) {
   return bytes;
 }
 
+function blobAuthMode() {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return "read-write-token";
+  if (process.env.BLOB_STORE_ID) return "oidc";
+  return "none";
+}
+
 function blobConfigured() {
-  const legacyToken = process.env.BLOB_READ_WRITE_TOKEN;
-  const oidcToken = process.env.VERCEL_OIDC_TOKEN;
-  const storeId = process.env.BLOB_STORE_ID;
-  return Boolean(legacyToken || (oidcToken && storeId));
+  return blobAuthMode() !== "none";
 }
 
 async function findBlob(pathname) {
@@ -279,6 +282,7 @@ export async function GET(request) {
   if (!token) {
     return json({
       configured: blobConfigured(),
+      authentication: blobAuthMode(),
       chainId: CHAIN_ID,
       factoryAddress: FACTORY_ADDRESS,
       tokenListPath: "/api/token-list",
