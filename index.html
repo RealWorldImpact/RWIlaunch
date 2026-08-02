@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ccfe06" />
+    <meta
+      name="description"
+      content="RWI Launchpad — create tokens on Robinhood Chain, paired with $RWI."
+    />
+    <title>RWI Launchpad · Robinhood Chain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="RWI Launchpad home">
+        <span class="brand-mark">RWI</span>
+        <span class="brand-divider">/</span>
+        <span>Launchpad</span>
+      </a>
+
+      <nav class="desktop-nav" aria-label="Primary navigation">
+        <a class="active" href="#launch">Launch</a>
+        <a href="#discover">Discover</a>
+        <a href="#mechanism">How it works</a>
+      </nav>
+
+      <div class="header-actions">
+        <span class="network-chip"><i></i> Robinhood Chain</span>
+        <button class="button button-dark wallet-button" id="walletButton" type="button">
+          Connect wallet
+        </button>
+      </div>
+    </header>
+
+    <main id="top">
+      <div class="ticker" aria-label="Launchpad information">
+        <span class="preview-label">Uniswap v3 integration</span>
+        <span>·</span>
+        <span>$RWI liquidity on Uniswap</span>
+        <span>·</span>
+        <span>Chain ID 4663</span>
+      </div>
+
+      <section class="hero" id="launch">
+        <div class="hero-copy">
+          <p class="eyebrow">01 — The launchpad</p>
+          <h1>Launch onchain.<br /><em>Pair with impact.</em></h1>
+          <p class="hero-intro">
+            Create a token on Robinhood Chain in minutes. Every launch opens against
+            <strong>$RWI on Uniswap</strong>, making impact the common currency of a new onchain economy.
+          </p>
+          <div class="direct-launch-note">
+            <strong>No graduation.</strong>
+            <span>Deploy token → create Uniswap pool → seed token-only liquidity. First buyers bring $RWI into that same pool.</span>
+          </div>
+        </div>
+
+        <div class="launch-shell">
+          <section class="builder" aria-labelledby="builderTitle">
+            <div class="builder-header">
+              <div>
+                <p class="eyebrow">One-click launch</p>
+                <h2 id="builderTitle">Name it. Launch it.</h2>
+              </div>
+              <div class="builder-meta">
+                <div class="draft-tools">
+                  <span id="draftStatus">Draft ready</span>
+                  <button id="resetDraft" type="button">Reset</button>
+                </div>
+              </div>
+            </div>
+
+            <form id="launchForm" novalidate>
+              <div class="form-panel is-active one-click-form">
+                <div class="identity-grid">
+                  <div class="upload-wrap">
+                    <label class="field-label" for="tokenImage">Token image <small>Optional</small></label>
+                    <label class="upload-zone" for="tokenImage" id="uploadZone">
+                      <input id="tokenImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                      <span class="upload-art" id="uploadArt">+</span>
+                      <span class="upload-title">Drop image or browse</span>
+                      <span class="field-hint">PNG, JPG, WEBP, GIF · max 5MB</span>
+                    </label>
+                    <button class="remove-image" id="removeImage" type="button" hidden>Remove image</button>
+                  </div>
+
+                  <div class="identity-fields">
+                    <label class="field">
+                      <span class="field-label">Token name <small>Required</small></span>
+                      <input id="tokenName" type="text" maxlength="32" placeholder="Real Good Coin" autocomplete="off" aria-required="true" />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">Ticker <small>Required</small></span>
+                      <span class="input-prefix-wrap"><span>$</span><input id="tokenTicker" type="text" maxlength="10" placeholder="GOOD" autocomplete="off" aria-required="true" /></span>
+                    </label>
+                  </div>
+                </div>
+
+                <label class="field">
+                  <span class="field-label-row"><span class="field-label">Description <small>Optional</small></span><span id="descriptionCount">0 / 280</span></span>
+                  <textarea id="tokenDescription" maxlength="280" rows="4" placeholder="What does your token stand for? Optional."></textarea>
+                </label>
+
+                <details class="optional-fields">
+                  <summary>Social links <span>Optional</span></summary>
+                  <div class="social-grid">
+                    <label class="field"><span class="field-label">Website</span><input id="website" type="url" placeholder="https://" /></label>
+                    <label class="field"><span class="field-label">X / Twitter</span><input id="twitter" type="text" placeholder="@handle" /></label>
+                    <label class="field"><span class="field-label">Telegram</span><input id="telegram" type="text" placeholder="t.me/community" /></label>
+                  </div>
+                </details>
+
+                <div class="one-click-heading">
+                  <span>Fixed launch rules</span>
+                  <strong>No liquidity settings. No allocation choices.</strong>
+                </div>
+
+                <div class="fixed-launch-grid" aria-label="Fixed launch rules">
+                  <div class="fixed-rule-card">
+                    <span>Total supply</span>
+                    <strong>1,000,000,000</strong>
+                    <small>Fixed forever. No future minting.</small>
+                  </div>
+                  <div class="fixed-rule-card pool-rule-card">
+                    <span>Locked pool inventory</span>
+                    <strong>100% allocation</strong>
+                    <small>Creator receives 0 launch tokens; rounding dust stays locked.</small>
+                  </div>
+                  <div class="zero-liquidity-card">
+                    <span>Creator-provided $RWI</span>
+                    <strong>0 RWI</strong>
+                    <small>First buyers bring $RWI through swaps.</small>
+                  </div>
+                  <div class="fixed-rule-card">
+                    <span>Token standard</span>
+                    <strong>ERC-20 · 18 decimals</strong>
+                    <small>Identical contract rules for every launch.</small>
+                  </div>
+                </div>
+
+                <div class="pair-box compact-pair-box">
+                  <div class="pair-token">
+                    <div class="rwi-symbol">RWI</div>
+                    <div><span>Permanent Uniswap pair</span><strong id="fixedPairLabel">TOKEN / $RWI</strong></div>
+                  </div>
+                  <div class="venue-mark"><span>Pool fee</span><strong>1%</strong></div>
+                  <div class="pair-links">
+                    <a href="https://robinhoodchain.blockscout.com/token/0x2286397228be256529BE1ae9ed8D7d16549e9C6A" target="_blank" rel="noreferrer">$RWI 0x2286…9C6A ↗</a>
+                    <button id="copyRwiAddress" type="button">Copy CA</button>
+                  </div>
+                  <div class="balance-row"><span>Wallet $RWI · not required to launch</span><strong id="rwiBalance">Connect wallet</strong></div>
+                </div>
+
+                <div class="integration-panel">
+                  <div class="integration-title"><span><i></i> Official Uniswap v3 deployment</span><strong>Robinhood Chain · 4663</strong></div>
+                  <div class="integration-links">
+                    <a href="https://robinhoodchain.blockscout.com/address/0x1f7d7550B1b028f7571E69A784071F0205FD2EfA" target="_blank" rel="noreferrer">Factory 0x1f7d…2EfA ↗</a>
+                    <a href="https://robinhoodchain.blockscout.com/address/0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3" target="_blank" rel="noreferrer">Position manager 0x7399…E0D3 ↗</a>
+                  </div>
+                  <p id="factoryIntegrationStatus">Launch factory compiled · ready for wallet deployment</p>
+                  <button class="factory-deploy-button" id="deployFactoryButton" type="button">Deploy launch factory →</button>
+                </div>
+
+                <label class="checkbox-row locked-rule">
+                  <input id="lockLiquidity" type="checkbox" checked disabled />
+                  <span class="fake-checkbox">✓</span>
+                  <span><strong>100% of supply is allocated to liquidity and the LP is locked forever</strong><small>Irreversible · creator receives 100% of collectible LP fees · no graduation</small></span>
+                </label>
+
+                <div class="launch-consent">
+                  Launching confirms the token does not impersonate another project and acknowledges that the initial liquidity can never be withdrawn. Network gas is shown in your wallet.
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <span class="form-message" id="formMessage" aria-live="polite"></span>
+                <span class="one-click-note">One click · then confirm in wallet</span>
+                <button class="button button-dark launch-button one-click-button" id="launchButton" type="submit">Launch token →</button>
+              </div>
+            </form>
+          </section>
+
+          <aside class="preview-card" aria-label="Live token preview">
+            <div class="preview-sticky">
+              <div class="preview-topline"><span>Live preview</span><span>Robinhood · 4663</span></div>
+              <div class="preview-image" id="previewImage"><span id="previewMonogram"><b id="previewMonogramText">?</b></span></div>
+              <div class="preview-content">
+                <div class="preview-name-row">
+                  <div>
+                    <p id="previewTicker">$TOKEN</p>
+                    <h3 id="previewName">Your token</h3>
+                  </div>
+                  <span class="status-badge">Direct pool</span>
+                </div>
+                <p class="preview-description" id="previewDescription">Description optional · launch with only a name and ticker.</p>
+
+                <div class="preview-stats">
+                  <div><span>Pair</span><strong id="previewPair">TOKEN / RWI</strong></div>
+                  <div><span>Upfront liquidity</span><strong id="previewLiquidity">0 RWI upfront</strong></div>
+                </div>
+
+                <div class="setup-head"><span>Launch readiness</span><strong id="setupValue">0%</strong></div>
+                <div class="setup-progress" id="setupProgress" role="progressbar" aria-label="Launch readiness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="setupBar"></i></div>
+                <p class="preview-footnote">TOKEN / RWI · 100% LP fees to creator · no graduation</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="mechanism" id="mechanism">
+        <div class="section-heading">
+          <p class="eyebrow">02 — The mechanism</p>
+          <h2>Straight to market.<br /><em>No graduation.</em></h2>
+        </div>
+        <div class="mechanism-grid">
+          <article><span>01</span><h3>Deploy</h3><p>Name it and describe it. A standard ERC-20 with exactly 1 billion tokens and no future minting is created on Robinhood Chain.</p></article>
+          <article><span>02</span><h3>Pool</h3><p>The launch creates and seeds a TOKEN / $RWI market directly on Uniswap—no interim bonding curve.</p></article>
+          <article><span>03</span><h3>Trade</h3><p>Trading starts from the Uniswap pool once confirmed. There is no threshold, migration, or graduation step.</p></article>
+        </div>
+      </section>
+
+      <section class="discover" id="discover">
+        <div class="discover-heading">
+          <div><p class="eyebrow">03 — Fresh launches <span class="sample-label">Sample data</span></p><h2>New on the chain.</h2></div>
+          <span class="filter-chip">Newest first ↓</span>
+        </div>
+        <div class="token-grid">
+          <article class="token-card"><div class="token-art art-one">SEED</div><div class="token-meta"><div><p>$SEED</p><h3>Common Ground</h3></div><span>2m ago</span></div><p>Backing local food systems, one block at a time.</p><div class="mini-stats"><span>Liquidity <strong>42K RWI</strong></span><span>Holders <strong>128</strong></span></div></article>
+          <article class="token-card"><div class="token-art art-two">BARK</div><div class="token-meta"><div><p>$BARK</p><h3>Good Dog Club</h3></div><span>18m ago</span></div><p>The internet's goodest community on Robinhood Chain.</p><div class="mini-stats"><span>Liquidity <strong>31K RWI</strong></span><span>Holders <strong>84</strong></span></div></article>
+          <article class="token-card"><div class="token-art art-three">SOL</div><div class="token-meta"><div><p>$SOL</p><h3>Small Sun</h3></div><span>1h ago</span></div><p>Community energy for overlooked neighborhoods.</p><div class="mini-stats"><span>Liquidity <strong>19K RWI</strong></span><span>Holders <strong>57</strong></span></div></article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-brand">RWI / LAUNCHPAD</div>
+      <p>Tokens launch directly into $RWI liquidity on Uniswap.</p>
+      <nav aria-label="Footer"><a href="https://rwihood.org/" target="_blank" rel="noreferrer">RWIhood.org ↗</a><a href="https://robinhoodchain.blockscout.com/token/0x2286397228be256529BE1ae9ed8D7d16549e9C6A" target="_blank" rel="noreferrer">$RWI Explorer ↗</a></nav>
+      <small>Experimental software. Tokens carry risk. Verify contracts and do your own research.</small>
+    </footer>
+
+    <div class="modal-backdrop" id="launchModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+      <div class="launch-modal">
+        <button class="modal-close" id="modalClose" type="button" aria-label="Close">×</button>
+        <p class="eyebrow">One-click launch</p>
+        <h2 id="modalTitle">Preparing your launch.</h2>
+        <div class="modal-token" id="modalToken">
+          <div class="modal-avatar" id="modalAvatar">?</div>
+          <div><span id="modalTicker">$TOKEN</span><strong id="modalName">Your token</strong></div>
+        </div>
+        <p class="modal-copy" id="modalCopy">One transaction deploys exactly 1 billion tokens and allocates 100% of the supply to a token-only TOKEN / $RWI position. You supply no $RWI; first buyers bring it through swaps. The LP position is locked forever.</p>
+        <div class="modal-actions">
+          <button class="button button-lime" id="modalWallet" type="button">Connect wallet</button>
+          <button class="button button-outline" id="downloadBrief" type="button">Download launch brief</button>
+        </div>
+        <p class="modal-note" id="modalNote">The custom launch factory must be independently audited before mainnet deployment.</p>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="vendor/ethers.umd.min.js"></script>
+    <script src="factory-config.js"></script>
+    <script src="factory-abi.js"></script>
+    <script src="factory-deployment.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
