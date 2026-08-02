@@ -46,6 +46,16 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "NoClaimableRewards",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoConvertibleRewards",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotPositionCreator",
     "type": "error"
   },
@@ -166,6 +176,31 @@ window.RWI_FACTORY_ABI = Object.freeze([
       {
         "indexed": false,
         "internalType": "uint256",
+        "name": "ethAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "EthRewardsClaimed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
         "name": "tokenFees",
         "type": "uint256"
       },
@@ -174,21 +209,40 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "internalType": "uint256",
         "name": "rwiFees",
         "type": "uint256"
+      }
+    ],
+    "name": "FeesCollectedForRevenue",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "rwiFromToken",
+        "name": "tokenAmount",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "ethAmount",
+        "name": "rwiAmount",
         "type": "uint256"
       }
     ],
-    "name": "FeesClaimedInEth",
+    "name": "InternalFeeMatch",
     "type": "event"
   },
   {
@@ -238,6 +292,43 @@ window.RWI_FACTORY_ABI = Object.freeze([
       }
     ],
     "name": "LaunchPriced",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "rwiAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "ethAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "totalClaimableEth",
+        "type": "uint256"
+      }
+    ],
+    "name": "RwiRewardsConvertedToEth",
     "type": "event"
   },
   {
@@ -744,13 +835,177 @@ window.RWI_FACTORY_ABI = Object.freeze([
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "currency0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "currency1",
+            "type": "address"
+          },
+          {
+            "internalType": "uint24",
+            "name": "fee",
+            "type": "uint24"
+          },
+          {
+            "internalType": "int24",
+            "name": "tickSpacing",
+            "type": "int24"
+          },
+          {
+            "internalType": "address",
+            "name": "hooks",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct V4PoolKey",
+        "name": "key",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "zeroForOne",
+            "type": "bool"
+          },
+          {
+            "internalType": "int256",
+            "name": "amountSpecified",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint160",
+            "name": "sqrtPriceLimitX96",
+            "type": "uint160"
+          }
+        ],
+        "internalType": "struct V4SwapParams",
+        "name": "params",
+        "type": "tuple"
+      },
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
+      }
+    ],
+    "name": "beforeSwap",
+    "outputs": [
+      {
+        "internalType": "bytes4",
+        "name": "selector",
+        "type": "bytes4"
+      },
+      {
+        "internalType": "int256",
+        "name": "beforeSwapDelta",
+        "type": "int256"
+      },
+      {
+        "internalType": "uint24",
+        "name": "lpFeeOverride",
+        "type": "uint24"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "positionTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimEthRewards",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "ethAmount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimableEthRewards",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "ethAmount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimableEthUsdValueE18",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "valueE18",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "collectFeesForRevenue",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenFees",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "minimumRwiFromToken",
+        "name": "rwiFees",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionTokenId",
         "type": "uint256"
       },
       {
@@ -764,21 +1019,11 @@ window.RWI_FACTORY_ABI = Object.freeze([
         "type": "uint256"
       }
     ],
-    "name": "claimFeesInEth",
+    "name": "convertRwiRewardsToEth",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "tokenFees",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "rwiFees",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "rwiFromToken",
+        "name": "rwiAmount",
         "type": "uint256"
       },
       {
@@ -788,6 +1033,38 @@ window.RWI_FACTORY_ABI = Object.freeze([
       }
     ],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "convertibleRwiRewards",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "rwiAmount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ethUsdPriceE18",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "priceE18",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -803,6 +1080,16 @@ window.RWI_FACTORY_ABI = Object.freeze([
             "internalType": "string",
             "name": "symbol",
             "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "devBuyRwiAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minimumDevBuyTokenOut",
+            "type": "uint256"
           }
         ],
         "internalType": "struct DirectRWIV4LaunchHook.LaunchParams",
@@ -825,6 +1112,11 @@ window.RWI_FACTORY_ABI = Object.freeze([
       {
         "internalType": "uint256",
         "name": "positionTokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "devBuyTokenAmount",
         "type": "uint256"
       }
     ],
@@ -1067,12 +1359,44 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "stateView",
+    "outputs": [
+      {
+        "internalType": "contract IUniswapV4StateViewMinimal",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "swapRouter",
     "outputs": [
       {
         "internalType": "contract ISwapRouter02Minimal",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionTokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "tokenFeeInventory",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenAmount",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
