@@ -5,6 +5,8 @@ window.RWI_FACTORY_CONFIG = Object.freeze({
   "sourceVerified": true,
   "independentAuditComplete": false,
   "unauditedRiskAccepted": true,
+  "launchesPaused": true,
+  "launchesPausedReason": "The first v4 deployment can initialize token-as-currency1 pools with zero reported active liquidity. Existing launches remain readable and directly tradable; new launches require the corrected immutable hook.",
   "allowBrowserDeployment": false,
   "factoryAddressStorageKey": "rwi-launchpad-factory-address-v4",
   "protocol": "Uniswap v4",

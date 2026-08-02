@@ -8,6 +8,12 @@ const PROFILE_REGISTRY_CONFIG = window.RWI_PROFILE_REGISTRY || Object.freeze({})
 const PROFILE_REGISTRY_ABI = window.RWI_PROFILE_REGISTRY_ABI || Object.freeze([]);
 const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 const EXPLORER_URL = "https://robinhoodchain.blockscout.com";
+const V4_QUOTER = "0x8dc178efb8111bb0973dd9d722ebeff267c98f94";
+const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+const V4_UNIVERSAL_ROUTER = FACTORY_CONFIG.uniswapV4UniversalRouter || "0x8876789976dEcBfCbBbe364623C63652db8C0904";
+const V4_STATE_VIEW = FACTORY_CONFIG.uniswapV4StateView || "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b";
+const DIRECT_TRADE_SLIPPAGE_BPS = 300n;
+const DIRECT_TRADE_DEADLINE_SECONDS = 10 * 60;
 const PROFILE_PREFIX = "rwi-creator-profile:";
 const TOKEN_METADATA_PREFIX = "rwi-token-metadata:";
 const LOGO_DATABASE = "rwi-launchpad-assets-v1";
@@ -33,7 +39,11 @@ const KNOWN_LAUNCHES = Object.freeze({
 });
 
 const $ = (selector) => document.querySelector(selector);
-const state = { token: null, creator: null, pool: null, poolId: null, positionTokenId: null, imageUrl: null, creatorImageUrl: null };
+const state = {
+  token: null, creator: null, pool: null, poolId: null, positionTokenId: null,
+  imageUrl: null, creatorImageUrl: null, tradeDirection: "buy", tradeSource: null,
+  tradeQuote: null, tradeQuoteRequest: 0, tradeInFlight: false,
+};
 
 function isAddress(value) {
   return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value);
@@ -57,7 +67,7 @@ function configuredFactoryAddresses() {
 }
 
 function factoryAbiForSource(source) {
-  return source.current ? FACTORY_ABI : LEGACY_FACTORY_ABI;
+  return source.protocol === "Uniswap v4" ? FACTORY_ABI : LEGACY_FACTORY_ABI;
 }
 
 function isPoolId(value) {
@@ -69,7 +79,8 @@ async function findFactoryLaunch(address, provider) {
     try {
       const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), provider);
       const launch = await factory.launches(address);
-      const hasPool = source.current ? isPoolId(String(launch.poolId)) : isAddress(launch.pool);
+      const isV4 = source.protocol === "Uniswap v4";
+      const hasPool = isV4 ? isPoolId(String(launch.poolId)) : isAddress(launch.pool);
       if (isAddress(launch.creator) && !sameAddress(launch.creator, window.ethers.ZeroAddress) && hasPool) {
         return { launch, factoryAddress: source.address, source };
       }
@@ -123,6 +134,235 @@ function toast(message) {
 function uniswapSwapUrl(inputCurrency, outputCurrency) {
   const query = new URLSearchParams({ chain: "robinhood", inputCurrency, outputCurrency });
   return `https://app.uniswap.org/swap?${query.toString()}`;
+}
+
+function setDirectTradeStatus(message, warning = false) {
+  const element = $("#directTradeStatus");
+  element.textContent = message;
+  element.classList.toggle("is-warning", warning);
+}
+
+function directTradePoolKey() {
+  if (!state.token || !state.tradeSource?.address) throw new Error("The v4 launch source is unavailable.");
+  const tokenIs0 = BigInt(state.token) < BigInt(RWI_ADDRESS);
+  return [
+    tokenIs0 ? state.token : RWI_ADDRESS,
+    tokenIs0 ? RWI_ADDRESS : state.token,
+    Number(FACTORY_CONFIG.poolFee || 10_000),
+    Number(FACTORY_CONFIG.poolTickSpacing || 200),
+    state.tradeSource.address,
+  ];
+}
+
+function directTradeCurrencies() {
+  const inputCurrency = state.tradeDirection === "buy" ? RWI_ADDRESS : state.token;
+  const outputCurrency = state.tradeDirection === "buy" ? state.token : RWI_ADDRESS;
+  const poolKey = directTradePoolKey();
+  return { inputCurrency, outputCurrency, poolKey, zeroForOne: sameAddress(inputCurrency, poolKey[0]) };
+}
+
+function formatTradeUnits(value, symbol) {
+  const raw = window.ethers.formatUnits(value, 18);
+  const [whole, fraction = ""] = raw.split(".");
+  const trimmed = fraction.slice(0, 8).replace(/0+$/, "");
+  if (BigInt(value) > 0n && whole === "0" && !trimmed) return `<0.00000001 ${symbol}`;
+  return `${BigInt(whole).toLocaleString("en-US")}${trimmed ? `.${trimmed}` : ""} ${symbol}`;
+}
+
+function readTradeAmount() {
+  const raw = $("#tradeAmount").value.trim();
+  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(raw)) throw new Error("Enter a valid amount.");
+  const amount = window.ethers.parseUnits(raw, 18);
+  if (amount <= 0n) throw new Error("Enter an amount greater than zero.");
+  if (amount > (1n << 128n) - 1n) throw new Error("That amount is too large.");
+  return amount;
+}
+
+async function quoteDirectTrade({ quiet = false } = {}) {
+  if (!state.tradeSource || state.tradeSource.protocol !== "Uniswap v4") return null;
+  const requestId = ++state.tradeQuoteRequest;
+  try {
+    const amountIn = readTradeAmount();
+    const { inputCurrency, outputCurrency, poolKey, zeroForOne } = directTradeCurrencies();
+    if (!quiet) $("#tradeQuote").textContent = "Reading v4 pool…";
+    const provider = new window.ethers.JsonRpcProvider(RPC_URL, 4663, { staticNetwork: true });
+    const quoter = new window.ethers.Contract(V4_QUOTER, [
+      "function quoteExactInputSingle(((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) params) returns (uint256 amountOut,uint256 gasEstimate)",
+    ], provider);
+    const [amountOut] = await quoter.quoteExactInputSingle.staticCall([poolKey, zeroForOne, amountIn, "0x"]);
+    if (requestId !== state.tradeQuoteRequest) return null;
+    if (amountOut <= 0n) throw new Error("The pool returned no output for that amount.");
+    const minimumAmountOut = amountOut * (10_000n - DIRECT_TRADE_SLIPPAGE_BPS) / 10_000n;
+    const outputSymbol = state.tradeDirection === "buy" ? document.querySelector("#detailSymbol").textContent.replace(/^\$/, "") : "RWI";
+    state.tradeQuote = { amountIn, amountOut, minimumAmountOut, inputCurrency, outputCurrency, poolKey, zeroForOne };
+    $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, outputSymbol);
+    setDirectTradeStatus("Direct route found. The displayed minimum includes a 3% price-movement buffer.");
+    return state.tradeQuote;
+  } catch (error) {
+    if (requestId !== state.tradeQuoteRequest) return null;
+    state.tradeQuote = null;
+    $("#tradeQuote").textContent = "No quote";
+    const message = state.tradeDirection === "sell"
+      ? "No RWI is available on the sell side yet. Complete the first direct buy, then selling becomes available."
+      : (error?.shortMessage || error?.message || "A direct quote is not available.");
+    setDirectTradeStatus(message, true);
+    if (!quiet && !$("#tradeAmount").value.trim()) {
+      $("#tradeQuote").textContent = "Enter an amount";
+      setDirectTradeStatus("Quotes and swaps use Uniswap's official v4 contracts on Robinhood Chain. A 3% minimum-output buffer is enforced.");
+    }
+    return null;
+  }
+}
+
+function scheduleDirectTradeQuote() {
+  clearTimeout(scheduleDirectTradeQuote.timer);
+  state.tradeQuote = null;
+  if (!$("#tradeAmount").value.trim()) {
+    $("#tradeQuote").textContent = "Enter an amount";
+    setDirectTradeStatus("Quotes and swaps use Uniswap's official v4 contracts on Robinhood Chain. A 3% minimum-output buffer is enforced.");
+    refreshPoolActivation();
+    return;
+  }
+  scheduleDirectTradeQuote.timer = setTimeout(() => quoteDirectTrade(), 350);
+}
+
+function selectTradeDirection(direction) {
+  state.tradeDirection = direction;
+  state.tradeQuote = null;
+  $("#tradeBuyTab").setAttribute("aria-selected", String(direction === "buy"));
+  $("#tradeSellTab").setAttribute("aria-selected", String(direction === "sell"));
+  $("#tradeDirectionLabel").textContent = direction === "buy" ? "Buy token" : "Sell token";
+  $("#tradeInputSymbol").textContent = direction === "buy"
+    ? "RWI"
+    : document.querySelector("#detailSymbol").textContent.replace(/^\$/, "");
+  $("#tradeAmount").placeholder = direction === "buy" ? "0.001" : "100";
+  scheduleDirectTradeQuote();
+}
+
+async function connectTradeWallet() {
+  if (!window.ethereum?.request) throw new Error("Open the HTTPS launchpad in a browser with an EVM wallet.");
+  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  if (!accounts?.length) throw new Error("Wallet connection was not approved.");
+  const expectedChainId = "0x1237";
+  const currentChainId = await window.ethereum.request({ method: "eth_chainId" });
+  if (String(currentChainId).toLowerCase() !== expectedChainId) {
+    try {
+      await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: expectedChainId }] });
+    } catch (error) {
+      if (Number(error?.code) !== 4902) throw error;
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: expectedChainId,
+          chainName: "Robinhood Chain",
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: [RPC_URL],
+          blockExplorerUrls: [EXPLORER_URL],
+        }],
+      });
+    }
+  }
+  return accounts[0];
+}
+
+function encodeDirectV4Swap(quote, deadline) {
+  const coder = window.ethers.AbiCoder.defaultAbiCoder();
+  const swapParams = coder.encode([
+    "tuple(tuple(address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 amountIn,uint128 amountOutMinimum,uint256 minHopPriceX36,bytes hookData)",
+  ], [[quote.poolKey, quote.zeroForOne, quote.amountIn, quote.minimumAmountOut, 0, "0x"]]);
+  const settleParams = coder.encode(["address", "uint256"], [quote.inputCurrency, quote.amountIn]);
+  const takeParams = coder.encode(["address", "uint256"], [quote.outputCurrency, quote.minimumAmountOut]);
+  const v4Input = coder.encode(["bytes", "bytes[]"], ["0x060c0f", [swapParams, settleParams, takeParams]]);
+  const router = new window.ethers.Interface(["function execute(bytes commands,bytes[] inputs,uint256 deadline) payable"]);
+  return router.encodeFunctionData("execute", ["0x10", [v4Input], deadline]);
+}
+
+async function refreshPoolActivation() {
+  if (!state.poolId || state.tradeSource?.protocol !== "Uniswap v4") return;
+  try {
+    const provider = new window.ethers.JsonRpcProvider(RPC_URL, 4663, { staticNetwork: true });
+    const view = new window.ethers.Contract(V4_STATE_VIEW, ["function getLiquidity(bytes32 poolId) view returns (uint128)"], provider);
+    const activeLiquidity = await view.getLiquidity(state.poolId);
+    if (activeLiquidity === 0n && !state.tradeQuote) {
+      setDirectTradeStatus("This launch is waiting for its first direct RWI buy. Even a very small buy activates the locked position for public route discovery.", true);
+    }
+  } catch {
+    // Trading remains available when the optional state read is unavailable.
+  }
+}
+
+async function executeDirectTrade() {
+  if (state.tradeInFlight) return;
+  const button = $("#directTradeButton");
+  state.tradeInFlight = true;
+  button.disabled = true;
+  try {
+    button.textContent = "Connecting wallet…";
+    const account = await connectTradeWallet();
+    const quote = await quoteDirectTrade({ quiet: true });
+    if (!quote) throw new Error("A valid direct v4 quote is required before trading.");
+    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const inputToken = new window.ethers.Contract(quote.inputCurrency, [
+      "function balanceOf(address owner) view returns (uint256)",
+      "function allowance(address owner,address spender) view returns (uint256)",
+      "function approve(address spender,uint256 amount) returns (bool)",
+    ], signer);
+    const balance = await inputToken.balanceOf(account);
+    if (balance < quote.amountIn) throw new Error("Your wallet does not have enough of the input token.");
+
+    if (await inputToken.allowance(account, PERMIT2) < quote.amountIn) {
+      button.textContent = "Approve token in wallet…";
+      setDirectTradeStatus("First-time setup: approve Uniswap Permit2 to transfer this input token.");
+      await (await inputToken.approve(PERMIT2, window.ethers.MaxUint256)).wait();
+    }
+
+    const permit2 = new window.ethers.Contract(PERMIT2, [
+      "function allowance(address owner,address token,address spender) view returns (uint160 amount,uint48 expiration,uint48 nonce)",
+      "function approve(address token,address spender,uint160 amount,uint48 expiration)",
+    ], signer);
+    const permitAllowance = await permit2.allowance(account, quote.inputCurrency, V4_UNIVERSAL_ROUTER);
+    const now = Math.floor(Date.now() / 1000);
+    if (BigInt(permitAllowance.amount) < quote.amountIn || Number(permitAllowance.expiration) <= now + DIRECT_TRADE_DEADLINE_SECONDS) {
+      button.textContent = "Authorize official router…";
+      setDirectTradeStatus("Authorize the official Uniswap router for only this amount and a short time window.");
+      await (await permit2.approve(quote.inputCurrency, V4_UNIVERSAL_ROUTER, quote.amountIn, now + 30 * 60)).wait();
+    }
+
+    const latestBlock = await provider.getBlock("latest");
+    const deadline = BigInt(Number(latestBlock.timestamp) + DIRECT_TRADE_DEADLINE_SECONDS);
+    const data = encodeDirectV4Swap(quote, deadline);
+    button.textContent = "Confirm swap in wallet…";
+    setDirectTradeStatus("Confirm the direct Uniswap v4 swap. The minimum output shown above is enforced onchain.");
+    const transaction = await signer.sendTransaction({ to: V4_UNIVERSAL_ROUTER, data });
+    button.textContent = "Swap submitted…";
+    setDirectTradeStatus(`Swap submitted: ${transaction.hash.slice(0, 10)}…`);
+    await transaction.wait();
+    toast("Direct Uniswap v4 trade confirmed.");
+    setDirectTradeStatus("Trade confirmed on Robinhood Chain. Public route discovery may take a short time to refresh.");
+    await quoteDirectTrade({ quiet: true });
+    await refreshPoolActivation();
+  } catch (error) {
+    const rejected = Number(error?.code) === 4001 || Number(error?.info?.error?.code) === 4001;
+    const message = rejected ? "The wallet request was cancelled." : (error?.shortMessage || error?.message || "The direct trade failed.");
+    setDirectTradeStatus(message, true);
+    toast(message);
+  } finally {
+    state.tradeInFlight = false;
+    button.disabled = false;
+    button.textContent = window.ethereum?.request ? "Trade through Uniswap v4" : "Connect wallet to trade";
+  }
+}
+
+function setupDirectTrade(launch) {
+  state.tradeSource = launch.protocol === "Uniswap v4"
+    ? { address: launch.factoryAddress, protocol: launch.protocol }
+    : null;
+  $("#directV4Trade").hidden = !state.tradeSource;
+  if (!state.tradeSource) return;
+  $("#directTradeButton").textContent = window.ethereum?.request ? "Trade through Uniswap v4" : "Connect wallet to trade";
+  selectTradeDirection("buy");
+  refreshPoolActivation();
 }
 
 function profileKey(address) {
@@ -356,6 +596,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
     $("#poolExplorer").href = `${EXPLORER_URL}/address/${FACTORY_CONFIG.uniswapV4PoolManager}`;
     $("#poolExplorer").textContent = "v4 PoolManager ↗";
   }
+  setupDirectTrade(launch);
   renderCreator(launch.creator, creatorProfile);
   $("#tokenPageStatus").hidden = true;
   $("#tokenDetail").hidden = false;
@@ -382,7 +623,7 @@ async function loadTokenPage() {
         symbol: knownLaunch.symbol,
         decimals: knownLaunch.decimals,
         supply: knownLaunch.supply,
-        launch: { creator: knownLaunch.creator, pool: knownLaunch.pool, poolId: null, protocol: "Uniswap v3", positionTokenId: knownLaunch.positionTokenId },
+        launch: { creator: knownLaunch.creator, pool: knownLaunch.pool, poolId: null, protocol: "Uniswap v3", positionTokenId: knownLaunch.positionTokenId, factoryAddress: null },
         metadata: cachedMetadata,
         creatorProfile: {
           profile: readLocalJson(profileKey(knownLaunch.creator)),
@@ -402,10 +643,10 @@ async function loadTokenPage() {
       findFactoryLaunch(address, provider), token.name(), token.symbol(), token.decimals(), token.totalSupply(), metadataPromise,
     ]), 12_000, "Robinhood Chain did not return token data within 12 seconds.");
     const launch = factoryLaunch.launch;
-    const current = factoryLaunch.source.current;
-    const pool = current ? null : String(launch.pool);
-    const poolId = current ? String(launch.poolId) : null;
-    if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !(current ? isPoolId(poolId) : isAddress(pool))) {
+    const isV4 = factoryLaunch.source.protocol === "Uniswap v4";
+    const pool = isV4 ? null : String(launch.pool);
+    const poolId = isV4 ? String(launch.poolId) : null;
+    if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !(isV4 ? isPoolId(poolId) : isAddress(pool))) {
       throw new Error("This token was not launched by the configured factory.");
     }
     const creatorProfile = await withTimeout(
@@ -419,7 +660,7 @@ async function loadTokenPage() {
       symbol,
       decimals: Number(decimals),
       supply,
-      launch: { creator: launch.creator, pool, poolId, protocol: factoryLaunch.source.protocol, positionTokenId: BigInt(launch.positionTokenId) },
+      launch: { creator: launch.creator, pool, poolId, protocol: factoryLaunch.source.protocol, positionTokenId: BigInt(launch.positionTokenId), factoryAddress: factoryLaunch.factoryAddress },
       metadata,
       creatorProfile,
     });
@@ -441,6 +682,10 @@ $("#copyTokenAddress").addEventListener("click", async () => {
     toast("Copy failed. Select the contract address manually.");
   }
 });
+$("#tradeBuyTab").addEventListener("click", () => selectTradeDirection("buy"));
+$("#tradeSellTab").addEventListener("click", () => selectTradeDirection("sell"));
+$("#tradeAmount").addEventListener("input", scheduleDirectTradeQuote);
+$("#directTradeButton").addEventListener("click", executeDirectTrade);
 
 window.addEventListener?.("beforeunload", () => {
   if (state.imageUrl) URL.revokeObjectURL(state.imageUrl);
@@ -448,4 +693,7 @@ window.addEventListener?.("beforeunload", () => {
 });
 if (!window.RWI_TOKEN_PAGE_TEST_MODE) window.RWI_TOKEN_PAGE_READY = loadTokenPage();
 
-window.RWITokenPage = { uniswapSwapUrl, isAddress, resolveAssetUrl, normalizeSocialUrl, loadTokenPage, withTimeout };
+window.RWITokenPage = {
+  uniswapSwapUrl, isAddress, resolveAssetUrl, normalizeSocialUrl, loadTokenPage, withTimeout,
+  directTradePoolKey, directTradeCurrencies, encodeDirectV4Swap,
+};

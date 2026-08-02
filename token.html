@@ -45,11 +45,28 @@
             <code id="detailAddress">0x0000000000000000000000000000000000000000</code>
             <button id="copyTokenAddress" type="button">Copy contract</button>
           </div>
+          <section class="direct-v4-trade" id="directV4Trade" hidden aria-label="Direct Uniswap v4 trade">
+            <div class="direct-v4-heading">
+              <div><span>Direct Uniswap v4 trade</span><strong id="tradeDirectionLabel">Buy token</strong></div>
+              <span class="direct-v4-badge">Official router</span>
+            </div>
+            <div class="trade-direction-tabs" role="tablist" aria-label="Trade direction">
+              <button id="tradeBuyTab" type="button" role="tab" aria-selected="true">Buy</button>
+              <button id="tradeSellTab" type="button" role="tab" aria-selected="false">Sell</button>
+            </div>
+            <label class="direct-trade-input" for="tradeAmount">
+              <span>You pay</span>
+              <span><input id="tradeAmount" inputmode="decimal" autocomplete="off" placeholder="0.001" /><strong id="tradeInputSymbol">RWI</strong></span>
+            </label>
+            <div class="direct-trade-quote"><span>You receive at least</span><strong id="tradeQuote">Enter an amount</strong></div>
+            <button class="button button-lime direct-trade-button" id="directTradeButton" type="button">Connect wallet to trade</button>
+            <p class="direct-trade-status" id="directTradeStatus">Quotes and swaps use Uniswap's official v4 contracts on Robinhood Chain. A 3% minimum-output buffer is enforced.</p>
+          </section>
           <div class="token-trade-actions">
-            <a class="button button-lime" id="buyOnUniswap" href="#" target="_blank" rel="noreferrer">Buy with RWI ↗</a>
-            <a class="button token-sell-button" id="sellOnUniswap" href="#" target="_blank" rel="noreferrer">Sell for RWI ↗</a>
+            <a class="button button-lime" id="buyOnUniswap" href="#" target="_blank" rel="noreferrer">Open buy in Uniswap App</a>
+            <a class="button token-sell-button" id="sellOnUniswap" href="#" target="_blank" rel="noreferrer">Open sell in Uniswap App</a>
           </div>
-          <p class="uniswap-route-note">Trades open on the official Uniswap interface with Robinhood Chain and both token addresses preselected.</p>
+          <p class="uniswap-route-note">The direct trader targets this exact v4 pool. The Uniswap App links remain available for pools already discovered by its route service.</p>
         </div>
       </section>
 

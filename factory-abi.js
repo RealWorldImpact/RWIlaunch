@@ -124,6 +124,11 @@ window.RWI_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "TokenAddressSearchFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "UnexpectedEther",
     "type": "error"
   },
@@ -540,6 +545,19 @@ window.RWI_FACTORY_ABI = Object.freeze([
   {
     "inputs": [],
     "name": "TARGET_MARKET_CAP_USD_E18",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TOKEN_ADDRESS_SEARCH_ATTEMPTS",
     "outputs": [
       {
         "internalType": "uint256",

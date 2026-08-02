@@ -255,7 +255,7 @@ function configuredFactorySources() {
 }
 
 function factoryAbiForSource(source) {
-  return source.current ? FACTORY_ABI : LEGACY_FACTORY_ABI;
+  return source.protocol === "Uniswap v4" ? FACTORY_ABI : LEGACY_FACTORY_ABI;
 }
 
 function configuredFactorySource(address) {
@@ -347,9 +347,11 @@ function renderIntegrationStatus() {
   const stateLabel = FACTORY_CONFIG.sourceVerified
     ? (FACTORY_CONFIG.independentAuditComplete ? "Source-verified audited factory live" : "Source-verified unaudited factory live")
     : "Launch factory active locally";
-  status.textContent = `${stateLabel} · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`;
-  status.classList.add("is-live");
-  status.parentElement?.classList.add("is-live");
+  status.textContent = FACTORY_CONFIG.launchesPaused
+    ? `New launches paused for corrected hook deployment · existing markets remain available · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`
+    : `${stateLabel} · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`;
+  status.classList.toggle("is-live", !FACTORY_CONFIG.launchesPaused);
+  status.parentElement?.classList.toggle("is-live", !FACTORY_CONFIG.launchesPaused);
   $("#deployFactoryButton").hidden = true;
 }
 
@@ -1135,8 +1137,9 @@ function splitCollectedFees(tokenAddress, amount0, amount1) {
 async function readCreatorLaunch(eventLog, provider, factory, source) {
   const args = eventLog.args || factory.interface.parseLog(eventLog)?.args;
   const token = String(args.token);
-  const pool = source.current ? null : String(args.pool);
-  const poolId = source.current ? String(args.poolId) : null;
+  const isV4 = source.protocol === "Uniswap v4";
+  const pool = isV4 ? null : String(args.pool);
+  const poolId = isV4 ? String(args.poolId) : null;
   const positionTokenId = BigInt(args.positionTokenId);
   const tokenContract = new window.ethers.Contract(token, ["function name() view returns (string)", "function symbol() view returns (string)"], provider);
   const ethOnly = source.feeMode === "eth";
@@ -1248,9 +1251,9 @@ async function readDiscoverLaunch(eventLog, provider, factory, source) {
   return {
     factoryAddress: factory.target,
     token,
-    pool: source.current ? null : String(args.pool),
-    poolId: source.current ? String(args.poolId) : null,
-    protocol: source.protocol || (source.current ? "Uniswap v4" : "Uniswap v3"),
+    pool: source.protocol === "Uniswap v4" ? null : String(args.pool),
+    poolId: source.protocol === "Uniswap v4" ? String(args.poolId) : null,
+    protocol: source.protocol || "Uniswap v3",
     creator: String(args.creator),
     positionTokenId: BigInt(args.positionTokenId),
     name: nameResult.status === "fulfilled" ? nameResult.value : "Factory token",
@@ -1697,6 +1700,15 @@ async function launchOnUniswap() {
   if (!factoryAddress) {
     if (FACTORY_CONFIG.allowBrowserDeployment) openFactoryDeploymentModal();
     toast("The $10,000 dual-TWAP v4 hook is pending deployment and source verification.");
+    return;
+  }
+  if (FACTORY_CONFIG.launchesPaused) {
+    const reason = FACTORY_CONFIG.launchesPausedReason
+      || "New launches are temporarily paused while the corrected immutable hook is deployed.";
+    $("#modalWallet").textContent = "Close";
+    $("#modalWallet").dataset.action = "close";
+    $("#modalNote").textContent = reason;
+    toast("New launches are paused; existing token markets remain available.");
     return;
   }
   if (!window.ethers || !FACTORY_ABI.length) {
