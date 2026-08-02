@@ -85,10 +85,24 @@ const state = {
   profileVersion: 0n,
   profileSaveInFlight: false,
   profileRegistryDeploymentInFlight: false,
+  walletProvider: null,
+  walletListenersAttachedTo: null,
+  walletConnectionInFlight: false,
   discoverImageUrls: [],
 };
+const discoveredWalletProviders = new Map();
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+window.addEventListener?.("eip6963:announceProvider", (event) => {
+  const detail = event?.detail;
+  if (!detail?.provider?.request) return;
+  const key = detail.info?.uuid || detail.info?.rdns || detail.info?.name || String(discoveredWalletProviders.size);
+  discoveredWalletProviders.set(key, detail);
+});
+if (typeof window.dispatchEvent === "function" && typeof Event === "function") {
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+}
 
 const fields = {
   name: $("#tokenName"), ticker: $("#tokenTicker"), description: $("#tokenDescription"),
@@ -540,15 +554,49 @@ function resetDraft() {
   toast("Draft reset.");
 }
 
+function currentWalletProvider() {
+  if (state.walletProvider?.request) return state.walletProvider;
+  if (window.ethereum?.request) return window.ethereum;
+  const announced = discoveredWalletProviders.values().next().value?.provider;
+  return announced?.request ? announced : null;
+}
+
+function walletUnavailableMessage() {
+  if (window.location?.protocol === "file:") {
+    return "Wallets cannot connect securely to this file preview. Open the launchpad from its HTTPS deployment, localhost, or Robinhood Wallet's Web3 browser.";
+  }
+  return "No injected EVM wallet was found. Open this dapp in Robinhood Wallet's Web3 browser or a browser with an EVM wallet extension.";
+}
+
+async function discoverWalletProvider() {
+  let provider = currentWalletProvider();
+  if (provider) {
+    state.walletProvider = provider;
+    attachWalletListeners(provider);
+    return provider;
+  }
+  if (typeof window.dispatchEvent === "function" && typeof Event === "function") {
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+    await new Promise((resolve) => setTimeout(resolve, 180));
+  }
+  provider = currentWalletProvider();
+  if (provider) {
+    state.walletProvider = provider;
+    attachWalletListeners(provider);
+  }
+  return provider;
+}
+
 async function ensureRobinhoodChain() {
-  if (!window.ethereum) throw new Error("No browser wallet found");
-  const current = await window.ethereum.request({ method: "eth_chainId" });
+  const wallet = currentWalletProvider() || await discoverWalletProvider();
+  if (!wallet) throw new Error(walletUnavailableMessage());
+  const current = await wallet.request({ method: "eth_chainId" });
   if (current.toLowerCase() === ROBINHOOD_CHAIN.chainId) return;
   try {
-    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: ROBINHOOD_CHAIN.chainId }] });
+    await wallet.request({ method: "wallet_switchEthereumChain", params: [{ chainId: ROBINHOOD_CHAIN.chainId }] });
   } catch (error) {
     if (error.code !== 4902) throw error;
-    await window.ethereum.request({ method: "wallet_addEthereumChain", params: [ROBINHOOD_CHAIN] });
+    await wallet.request({ method: "wallet_addEthereumChain", params: [ROBINHOOD_CHAIN] });
   }
 }
 
@@ -579,14 +627,47 @@ function renderAccount() {
   }
 }
 
+async function handleWalletAccountsChanged(accounts) {
+  state.account = accounts[0] || null;
+  state.rwiBalance = null;
+  renderAccount();
+  if (state.account) {
+    await readRwiBalance();
+    await loadCreatorDashboard();
+  }
+}
+
+async function handleWalletChainChanged(chainId) {
+  state.rwiBalance = null;
+  updateBalanceState();
+  if (String(chainId).toLowerCase() === ROBINHOOD_CHAIN.chainId && state.account) {
+    await readRwiBalance();
+    await loadCreatorDashboard();
+  } else if (state.account) {
+    setRevenueMessage("Switch the wallet to Robinhood Chain to load creator revenue.");
+  }
+  toast("Wallet network changed.");
+}
+
+function attachWalletListeners(provider) {
+  if (!provider?.on || state.walletListenersAttachedTo === provider) return;
+  const previous = state.walletListenersAttachedTo;
+  previous?.removeListener?.("accountsChanged", handleWalletAccountsChanged);
+  previous?.removeListener?.("chainChanged", handleWalletChainChanged);
+  provider.on("accountsChanged", handleWalletAccountsChanged);
+  provider.on("chainChanged", handleWalletChainChanged);
+  state.walletListenersAttachedTo = provider;
+}
+
 async function readRwiBalance() {
-  if (!state.account || !window.ethereum) return;
+  const wallet = currentWalletProvider();
+  if (!state.account || !wallet) return;
   $("#rwiBalance").textContent = "Reading…";
   try {
     const paddedAccount = state.account.toLowerCase().replace(/^0x/, "").padStart(64, "0");
     const [balanceHex, decimalsHex] = await Promise.all([
-      window.ethereum.request({ method: "eth_call", params: [{ to: RWI_ADDRESS, data: `0x70a08231${paddedAccount}` }, "latest"] }),
-      window.ethereum.request({ method: "eth_call", params: [{ to: RWI_ADDRESS, data: "0x313ce567" }, "latest"] }),
+      wallet.request({ method: "eth_call", params: [{ to: RWI_ADDRESS, data: `0x70a08231${paddedAccount}` }, "latest"] }),
+      wallet.request({ method: "eth_call", params: [{ to: RWI_ADDRESS, data: "0x313ce567" }, "latest"] }),
     ]);
     state.rwiBalance = balanceHex && balanceHex !== "0x" ? BigInt(balanceHex) : 0n;
     state.rwiDecimals = decimalsHex && decimalsHex !== "0x" ? Number(BigInt(decimalsHex)) : 18;
@@ -597,12 +678,15 @@ async function readRwiBalance() {
 }
 
 async function connectWallet() {
-  if (!window.ethereum) {
-    toast("No EVM browser wallet found. Install Robinhood Wallet or MetaMask.");
+  if (state.walletConnectionInFlight) return false;
+  const wallet = await discoverWalletProvider();
+  if (!wallet) {
+    toast(walletUnavailableMessage());
     return false;
   }
+  state.walletConnectionInFlight = true;
   try {
-    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+    const accounts = await wallet.request({ method: "eth_requestAccounts" });
     state.account = accounts[0] || null;
     await ensureRobinhoodChain();
     renderAccount();
@@ -611,8 +695,17 @@ async function connectWallet() {
     toast("Connected to Robinhood Chain.");
     return Boolean(state.account);
   } catch (error) {
-    toast(error?.message ? `Wallet: ${error.message}` : "Wallet connection was cancelled.");
+    const message = String(error?.message || "Wallet connection was cancelled.");
+    if (error?.code === -32002 || /already pending|request is pending/i.test(message)) {
+      toast("A wallet connection request is already open. Approve or reject it in your wallet, then try again.");
+    } else if (error?.code === 4001 || /rejected|denied/i.test(message)) {
+      toast("Wallet connection was cancelled.");
+    } else {
+      toast(`Wallet connection failed: ${message.slice(0, 170)}`);
+    }
     return false;
+  } finally {
+    state.walletConnectionInFlight = false;
   }
 }
 
@@ -905,7 +998,7 @@ async function saveCreatorProfile(event) {
   button.disabled = true;
   try {
     await ensureRobinhoodChain();
-    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const provider = new window.ethers.BrowserProvider(currentWalletProvider());
     await validateProfileRegistryDeployment(provider, registryAddress);
     const signer = await provider.getSigner();
     if (!sameAddress(await signer.getAddress(), state.account)) throw new Error("Connected wallet changed. Reload the creator dashboard.");
@@ -931,7 +1024,7 @@ async function saveCreatorProfile(event) {
 
 async function deployProfileRegistry() {
   if (state.profileRegistryDeploymentInFlight) return;
-  if (!window.ethereum || !window.ethers || !PROFILE_REGISTRY_ABI.length || !PROFILE_REGISTRY_DEPLOYMENT.bytecode) {
+  if (!window.ethers || !PROFILE_REGISTRY_ABI.length || !PROFILE_REGISTRY_DEPLOYMENT.bytecode) {
     return toast("Connect an EVM wallet and refresh before deploying the registry.");
   }
   if (!state.account && !(await connectWallet())) return;
@@ -940,7 +1033,7 @@ async function deployProfileRegistry() {
   button.disabled = true;
   try {
     await ensureRobinhoodChain();
-    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const provider = new window.ethers.BrowserProvider(currentWalletProvider());
     const signer = await provider.getSigner();
     button.textContent = "Confirm in wallet…";
     const contractFactory = new window.ethers.ContractFactory(PROFILE_REGISTRY_ABI, PROFILE_REGISTRY_DEPLOYMENT.bytecode, signer);
@@ -1217,7 +1310,7 @@ async function loadCreatorDashboard({ silent = false } = {}) {
   $("#refreshRevenue").disabled = true;
   if (!silent) setRevenueMessage("Reading creator launches and collectible fees…");
   try {
-    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const provider = new window.ethers.BrowserProvider(currentWalletProvider());
     const network = await provider.getNetwork();
     if (network.chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain to load creator revenue.");
     const factory = new window.ethers.Contract(configuredFactoryAddress(), FACTORY_ABI, provider);
@@ -1246,7 +1339,7 @@ async function claimCreatorRevenue(launch, button) {
   button.textContent = "Confirm in wallet…";
   try {
     await ensureRobinhoodChain();
-    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const provider = new window.ethers.BrowserProvider(currentWalletProvider());
     await validateFactoryDeployment(provider, configuredFactoryAddress());
     const signer = await provider.getSigner();
     const signerAddress = await signer.getAddress();
@@ -1358,7 +1451,7 @@ async function deployFactoryWithWallet() {
   button.disabled = true;
   try {
     await ensureRobinhoodChain();
-    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const provider = new window.ethers.BrowserProvider(currentWalletProvider());
     const signer = await provider.getSigner();
     state.account = await signer.getAddress();
     renderAccount();
@@ -1432,7 +1525,7 @@ async function launchOnUniswap() {
   button.disabled = true;
   try {
     await ensureRobinhoodChain();
-    const provider = new ethers.BrowserProvider(window.ethereum);
+    const provider = new ethers.BrowserProvider(currentWalletProvider());
     const signer = await provider.getSigner();
     const signerAddress = await signer.getAddress();
     state.account = signerAddress;
@@ -1511,13 +1604,14 @@ async function handleModalPrimary() {
 }
 
 async function syncWallet() {
-  if (!window.ethereum) return;
+  const wallet = await discoverWalletProvider();
+  if (!wallet) return;
   try {
-    const accounts = await window.ethereum.request({ method: "eth_accounts" });
+    const accounts = await wallet.request({ method: "eth_accounts" });
     state.account = accounts[0] || null;
     renderAccount();
     if (state.account) {
-      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      const chainId = await wallet.request({ method: "eth_chainId" });
       if (chainId.toLowerCase() === ROBINHOOD_CHAIN.chainId) {
         await readRwiBalance();
         await loadCreatorDashboard();
@@ -1794,34 +1888,12 @@ document.addEventListener("keydown", (event) => {
   else if (!$("#launchModal").hidden) closeModal();
 });
 
-if (window.ethereum?.on) {
-  window.ethereum.on("accountsChanged", async (accounts) => {
-    state.account = accounts[0] || null;
-    state.rwiBalance = null;
-    renderAccount();
-    if (state.account) {
-      await readRwiBalance();
-      await loadCreatorDashboard();
-    }
-  });
-  window.ethereum.on("chainChanged", async (chainId) => {
-    state.rwiBalance = null;
-    updateBalanceState();
-    if (chainId.toLowerCase() === ROBINHOOD_CHAIN.chainId && state.account) {
-      await readRwiBalance();
-      await loadCreatorDashboard();
-    } else if (state.account) {
-      setRevenueMessage("Switch the wallet to Robinhood Chain to load creator revenue.");
-    }
-    toast("Wallet network changed.");
-  });
-}
-
 restoreDraft();
 restoreDraftLogo();
 renderIntegrationStatus();
 updatePreview();
 renderDashboardAccess();
+$("#walletOriginWarning").hidden = window.location?.protocol !== "file:";
 $$('#tokenGrid [data-token-address]').forEach((card) => enableTokenCard(card, card.dataset.tokenAddress));
 loadRecentLaunches();
 syncWallet();

@@ -48,6 +48,9 @@
         <span>·</span>
         <span>Chain ID 4663</span>
       </div>
+      <div class="wallet-origin-warning" id="walletOriginWarning" hidden>
+        Wallet connection is disabled in file previews. Open this launchpad from localhost, its HTTPS deployment, or Robinhood Wallet's Web3 browser.
+      </div>
 
       <section class="hero" id="launch">
         <div class="hero-copy">
@@ -235,19 +238,17 @@
 
       <section class="discover" id="discover">
         <div class="discover-heading">
-          <div><p class="eyebrow">03 — Fresh launches <span class="sample-label">Live + sample data</span></p><h2>New on the chain.</h2></div>
+          <div><p class="eyebrow">03 — Fresh launches <span class="sample-label">Live factory data</span></p><h2>New on the chain.</h2></div>
           <span class="filter-chip">Newest first ↓</span>
         </div>
-        <div class="token-grid">
-          <article class="token-card live-token-card">
-            <a href="https://robinhoodchain.blockscout.com/token/0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC" target="_blank" rel="noreferrer" aria-label="View TESTCOIN on Blockscout"><img class="token-art token-art-image" src="assets/testcoin.png" alt="TESTCOIN token artwork" /></a>
+        <div class="token-grid" id="tokenGrid">
+          <article class="token-card live-token-card token-card-clickable" data-token-address="0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC" tabindex="0" role="link">
+            <a class="token-card-link" href="token.html?address=0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC" aria-label="Open TESTCOIN token page"><img class="token-art token-art-image" src="assets/testcoin.png" alt="TESTCOIN token artwork" /></a>
             <div class="token-meta"><div><p>$TESTCOIN</p><h3>Test</h3></div><span class="verified-label">Source verified</span></div>
             <p>Standard one-billion-supply test launch from the RWI Launchpad factory.</p>
             <code class="token-address">0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC</code>
             <div class="mini-stats"><span>Pair <strong>RWI · 1%</strong></span><span>LP <strong>Locked</strong></span></div>
           </article>
-          <article class="token-card"><div class="token-art art-one">SEED</div><div class="token-meta"><div><p>$SEED</p><h3>Common Ground</h3></div><span>2m ago</span></div><p>Backing local food systems, one block at a time.</p><div class="mini-stats"><span>Liquidity <strong>42K RWI</strong></span><span>Holders <strong>128</strong></span></div></article>
-          <article class="token-card"><div class="token-art art-two">BARK</div><div class="token-meta"><div><p>$BARK</p><h3>Good Dog Club</h3></div><span>18m ago</span></div><p>The internet's goodest community on Robinhood Chain.</p><div class="mini-stats"><span>Liquidity <strong>31K RWI</strong></span><span>Holders <strong>84</strong></span></div></article>
         </div>
       </section>
 
@@ -268,13 +269,18 @@
         <div class="dashboard-content" id="dashboardContent" hidden>
           <aside class="profile-panel">
             <div class="panel-kicker"><span>Creator profile</span><strong id="profileWallet">0x0000…0000</strong></div>
+            <div class="profile-registry-status" id="profileRegistryStatus">
+              <div><span>Shared profile registry</span><strong id="profileRegistryIndicator">Checking deployment…</strong></div>
+              <button id="deployProfileRegistry" type="button" hidden>Deploy registry</button>
+            </div>
             <form id="creatorProfileForm">
               <div class="profile-avatar-row">
                 <label class="profile-avatar" id="profileAvatar" for="profileImage"><span id="profileAvatarText">?</span></label>
                 <div>
                   <label class="profile-image-button" for="profileImage">Update profile picture</label>
+                  <button class="profile-image-remove" id="removeProfileImage" type="button">Remove picture</button>
                   <input id="profileImage" type="file" accept="image/png,image/jpeg,image/webp" />
-                  <small>Automatically cropped to a 256×256 square.</small>
+                  <small>Auto-cropped and compressed for permanent onchain availability.</small>
                 </div>
               </div>
               <label class="field">
@@ -285,8 +291,8 @@
                 <span class="field-label-row"><span class="field-label">Short bio</span><span id="creatorBioCount">0 / 160</span></span>
                 <textarea id="creatorBio" maxlength="160" rows="4" placeholder="Tell token holders who you are."></textarea>
               </label>
-              <button class="button button-lime profile-save" id="saveCreatorProfile" type="submit">Save profile</button>
-              <p class="profile-storage-note" id="profileStatus">Profile details are saved to this browser for the connected wallet.</p>
+              <button class="button button-lime profile-save" id="saveCreatorProfile" type="submit">Publish profile onchain</button>
+              <p class="profile-storage-note" id="profileStatus">Connect the shared registry to publish a globally visible profile.</p>
             </form>
           </aside>
 
@@ -362,6 +368,9 @@
     <script src="factory-config.js"></script>
     <script src="factory-abi.js"></script>
     <script src="factory-deployment.js"></script>
+    <script src="profile-registry-config.js"></script>
+    <script src="profile-registry-abi.js"></script>
+    <script src="profile-registry-deployment.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
