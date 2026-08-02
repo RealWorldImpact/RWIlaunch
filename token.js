@@ -1,6 +1,10 @@
 const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
+const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
+const LEGACY_V4_FACTORY_ABI = Object.freeze([
+  "function launches(address token) view returns (address creator,bytes32 poolId,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount,int24 tickLower,int24 tickUpper)",
+]);
 const LEGACY_FACTORY_ABI = Object.freeze([
   "function launches(address token) view returns (address creator,address pool,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount)",
 ]);
@@ -54,9 +58,29 @@ function sameAddress(left, right) {
   return String(left).toLowerCase() === String(right).toLowerCase();
 }
 
+function locallyDeployedFactoryAddress() {
+  if (!FACTORY_CONFIG.allowBrowserDeployment || !FACTORY_CONFIG.factoryAddressStorageKey) return null;
+  try {
+    const address = localStorage.getItem(FACTORY_CONFIG.factoryAddressStorageKey);
+    return isAddress(address) ? address : null;
+  } catch {
+    return null;
+  }
+}
+
 function configuredFactorySources() {
   const sources = [];
-  if (isAddress(FACTORY_CONFIG.factoryAddress)) sources.push({ address: FACTORY_CONFIG.factoryAddress, current: true, protocol: "Uniswap v4" });
+  const localReplacement = locallyDeployedFactoryAddress();
+  const currentAddress = localReplacement || (isAddress(FACTORY_CONFIG.factoryAddress) ? FACTORY_CONFIG.factoryAddress : null);
+  if (currentAddress) sources.push({
+    address: currentAddress,
+    current: true,
+    protocol: "Uniswap v4",
+    feeMode: localReplacement ? INTERNAL_MATCH_FEE_MODE : (FACTORY_CONFIG.rewardMode || FACTORY_CONFIG.feeMode || "eth"),
+  });
+  if (localReplacement && isAddress(FACTORY_CONFIG.factoryAddress) && !sameAddress(localReplacement, FACTORY_CONFIG.factoryAddress)) {
+    sources.push({ address: FACTORY_CONFIG.factoryAddress, current: false, protocol: "Uniswap v4", feeMode: FACTORY_CONFIG.rewardMode || FACTORY_CONFIG.feeMode || "eth" });
+  }
   for (const entry of FACTORY_CONFIG.legacyFactories || []) {
     if (isAddress(entry?.address) && !sources.some((source) => sameAddress(source.address, entry.address))) sources.push({ ...entry, current: false });
   }
@@ -68,7 +92,8 @@ function configuredFactoryAddresses() {
 }
 
 function factoryAbiForSource(source) {
-  return source.protocol === "Uniswap v4" ? FACTORY_ABI : LEGACY_FACTORY_ABI;
+  if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
 }
 
 function isPoolId(value) {
@@ -582,7 +607,7 @@ function renderCreator(creator, resolvedProfile) {
   const shortAddress = `${creator.slice(0, 8)}…${creator.slice(-6)}`;
   $("#creatorAddress").textContent = shortAddress;
   $("#creatorDisplayName").textContent = profile?.name || "Launch creator";
-  $("#creatorBioText").textContent = profile?.bio || "This wallet created the token and permanently receives its collectible LP revenue; new-factory claims are paid in ETH.";
+  $("#creatorBioText").textContent = profile?.bio || "This wallet created the token and permanently receives its LP revenue; internal-match launches escrow native ETH before a chart-neutral claim.";
   $("#creatorProfileSource").textContent = resolvedProfile?.source || "Recorded onchain";
   $("#creatorExplorer").href = `${EXPLORER_URL}/address/${creator}`;
   const registryAddress = resolvedProfile?.registryAddress;
