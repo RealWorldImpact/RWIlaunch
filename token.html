@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ccfe06" />
+    <meta name="description" content="RWI Launchpad token details and Uniswap trading." />
+    <title>Token · RWI Launchpad</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="token-page-body">
+    <header class="site-header token-site-header">
+      <a class="brand" href="index.html#discover" aria-label="Back to RWI Launchpad">
+        <span class="brand-mark">RWI</span><span class="brand-divider">/</span><span>Launchpad</span>
+      </a>
+      <nav class="desktop-nav" aria-label="Token navigation">
+        <a href="index.html#discover">All tokens</a>
+        <a href="index.html#launch">Launch</a>
+        <a href="index.html#dashboard">Creator dashboard</a>
+      </nav>
+      <div class="header-actions"><span class="network-chip"><i></i> Robinhood Chain</span></div>
+    </header>
+
+    <main class="token-page-main">
+      <div class="token-page-status" id="tokenPageStatus"><strong>Opening token market</strong><span>Reading verified launch data from Robinhood Chain…</span></div>
+
+      <section class="token-detail-hero" id="tokenDetail" hidden>
+        <div class="token-detail-art" id="detailArt"><span id="detailMonogram">?</span></div>
+        <div class="token-detail-copy">
+          <p class="eyebrow">Direct TOKEN / RWI market</p>
+          <div class="token-detail-title-row">
+            <div><p id="detailSymbol">$TOKEN</p><h1 id="detailName">Token</h1></div>
+            <span class="status-badge">LP locked forever</span>
+          </div>
+          <p class="token-detail-description" id="detailDescription">Loading token information…</p>
+          <div class="token-social-links" id="tokenSocialLinks" hidden>
+            <a id="tokenWebsite" href="#" target="_blank" rel="noreferrer">Website ↗</a>
+            <a id="tokenTwitter" href="#" target="_blank" rel="noreferrer">X / Twitter ↗</a>
+            <a id="tokenTelegram" href="#" target="_blank" rel="noreferrer">Telegram ↗</a>
+          </div>
+          <div class="token-contract-row">
+            <code id="detailAddress">0x0000000000000000000000000000000000000000</code>
+            <button id="copyTokenAddress" type="button">Copy contract</button>
+          </div>
+          <div class="token-trade-actions">
+            <a class="button button-lime" id="buyOnUniswap" href="#" target="_blank" rel="noreferrer">Buy with RWI ↗</a>
+            <a class="button token-sell-button" id="sellOnUniswap" href="#" target="_blank" rel="noreferrer">Sell for RWI ↗</a>
+          </div>
+          <p class="uniswap-route-note">Trades open on the official Uniswap interface with Robinhood Chain and both token addresses preselected.</p>
+        </div>
+      </section>
+
+      <section class="token-facts" id="tokenFacts" hidden>
+        <article><span>Total supply</span><strong id="detailSupply">1,000,000,000</strong><small>Fixed · no future minting</small></article>
+        <article><span>Uniswap pair</span><strong id="detailPair">TOKEN / RWI</strong><small>1% pool fee</small></article>
+        <article><span>LP position</span><strong id="detailPosition">#0</strong><small>Custodied by verified factory</small></article>
+        <article><span>Launch path</span><strong>Direct pool</strong><small>No bonding curve or graduation</small></article>
+      </section>
+
+      <section class="token-page-grid" id="tokenPageGrid" hidden>
+        <article class="creator-card">
+          <div class="creator-card-heading"><span>Token creator</span><strong id="creatorProfileSource">Recorded onchain</strong></div>
+          <div class="creator-identity">
+            <div class="creator-page-avatar" id="creatorPageAvatar"><span id="creatorPageInitial">?</span></div>
+            <div><p id="creatorDisplayName">Launch creator</p><code id="creatorAddress">0x0000…0000</code></div>
+          </div>
+          <p class="creator-page-bio" id="creatorBioText">This wallet created the token and permanently receives 100% of collectible LP fees.</p>
+          <div class="creator-card-links">
+            <a class="creator-explorer-link" id="creatorExplorer" href="#" target="_blank" rel="noreferrer">View creator on Blockscout ↗</a>
+            <a class="creator-explorer-link" id="profileRegistryExplorer" href="#" target="_blank" rel="noreferrer" hidden>Profile registry ↗</a>
+          </div>
+        </article>
+
+        <article class="market-card">
+          <div class="creator-card-heading"><span>Uniswap market</span><strong>RWI paired</strong></div>
+          <div class="market-address-row"><span>Pool</span><code id="detailPool">0x0000…0000</code></div>
+          <div class="market-address-row"><span>Pair asset</span><code>0x2286397228be256529BE1ae9ed8D7d16549e9C6A</code></div>
+          <div class="market-links">
+            <a id="uniswapTokenPage" href="#" target="_blank" rel="noreferrer">View on Uniswap ↗</a>
+            <a id="poolExplorer" href="#" target="_blank" rel="noreferrer">Pool explorer ↗</a>
+          </div>
+          <p>Always verify both contract addresses in Uniswap before confirming a transaction. Price impact may be high in pools with little RWI.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="token-page-footer">
+      <div class="footer-brand">RWI / LAUNCHPAD</div>
+      <p>Permissionless markets paired with Real World Impact.</p>
+      <nav><a href="index.html#discover">All launches</a><a href="index.html#dashboard">Creator dashboard</a></nav>
+      <small>Experimental software. Confirm token addresses, price impact, and wallet prompts before trading.</small>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="vendor/ethers.umd.min.js"></script>
+    <script src="factory-config.js"></script>
+    <script src="factory-abi.js"></script>
+    <script src="profile-registry-config.js"></script>
+    <script src="profile-registry-abi.js"></script>
+    <script src="token.js"></script>
+  </body>
+</html>
