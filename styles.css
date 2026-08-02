@@ -186,6 +186,9 @@ input::placeholder, textarea::placeholder { color: rgba(11,11,9,.35); }
 .fixed-rule-card, .zero-liquidity-card { min-height: 88px; border: 1px solid var(--ink); padding: 12px 14px; display: flex; flex-direction: column; justify-content: center; gap: 5px; font-family: var(--mono); }
 .fixed-rule-card { background: rgba(11,11,9,.055); }
 .zero-liquidity-card { background: var(--lime); }
+.dev-buy-card .input-suffix-wrap { width: 100%; min-height: 36px; background: rgba(255,255,255,.72); }
+.dev-buy-card .input-suffix-wrap input { height: 34px; padding: 7px 10px; font-family: var(--mono); font-size: 13px; }
+.dev-buy-card .input-suffix-wrap > span { color: var(--ink); font-size: 9px; opacity: .58; }
 .fixed-rule-card > span, .zero-liquidity-card > span { color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .06em; }
 .fixed-rule-card strong, .zero-liquidity-card strong { font-size: 13px; text-transform: uppercase; }
 .fixed-rule-card small, .zero-liquidity-card small { color: var(--muted); font-size: 8px; line-height: 1.35; }
@@ -380,7 +383,9 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 17px; heigh
 .revenue-fees strong { overflow: hidden; font-family: var(--mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .claim-revenue { min-height: 39px; border: 1px solid var(--lime); background: var(--lime); color: var(--ink); padding: 0 13px; font-family: var(--mono); font-size: 8px; text-transform: uppercase; letter-spacing: .06em; cursor: pointer; }
 .claim-revenue:disabled { cursor: not-allowed; opacity: .42; }
+.claim-revenue.revenue-secondary { background: transparent; color: var(--lime); }
 .revenue-actions { display: flex !important; flex-direction: column; gap: 7px !important; }
+.revenue-token.is-internal-match .revenue-fees { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; }
 .publish-token-logo { min-height: 35px; border: 1px solid rgba(204,254,6,.7); background: transparent; color: var(--lime); padding: 0 12px; font-family: var(--mono); font-size: 8px; text-transform: uppercase; letter-spacing: .06em; cursor: pointer; }
 .publish-token-logo:disabled { cursor: wait; opacity: .55; }
 .revenue-note { margin: 0; border-top: 1px solid rgba(204,254,6,.22); padding: 13px 17px 16px; color: rgba(244,241,231,.42); font-family: var(--mono); font-size: 8px; line-height: 1.5; text-transform: uppercase; }
@@ -721,6 +726,7 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .revenue-token-top { grid-template-columns: 45px 1fr; }
   .position-chip { grid-column: 1 / -1; justify-self: start; }
   .revenue-fees { grid-template-columns: 1fr 1fr; }
+  .revenue-token.is-internal-match .revenue-fees { grid-template-columns: 1fr 1fr; }
   .revenue-actions { grid-column: 1 / -1; }
   .token-page-main { padding: 48px 16px 75px; }
   .token-detail-hero { box-shadow: 7px 7px 0 var(--ink); }
