@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260803-discover-modal" />
   </head>
   <body class="home-page-body">
     <header class="site-header">
@@ -27,13 +27,14 @@
 
       <nav class="desktop-nav" aria-label="Primary navigation">
         <a class="active" href="#launch">Launch</a>
-        <a href="#discover">Discover</a>
+        <a href="#discover" data-discover-open aria-haspopup="dialog" aria-controls="discoverModal" aria-expanded="false">Discover</a>
         <a href="#dashboard" data-dashboard-open aria-haspopup="dialog" aria-controls="dashboardModal" aria-expanded="false">Dashboard</a>
         <a href="#mechanism">How it works</a>
       </nav>
 
       <div class="header-actions">
         <span class="network-chip"><i></i> Robinhood Chain</span>
+        <button class="discover-header-button" type="button" data-discover-open aria-haspopup="dialog" aria-controls="discoverModal" aria-expanded="false">Discover</button>
         <button class="dashboard-header-button" type="button" data-dashboard-open aria-haspopup="dialog" aria-controls="dashboardModal" aria-expanded="false">Dashboard</button>
         <button class="button button-dark wallet-button" id="walletButton" type="button">
           Connect wallet
@@ -241,21 +242,43 @@
         </div>
       </section>
 
-      <section class="discover" id="discover">
-        <div class="discover-heading">
-          <div><p class="eyebrow">03 — Fresh launches <span class="sample-label">Live factory data</span></p><h2>New on the chain.</h2></div>
-          <span class="filter-chip">Newest first ↓</span>
-        </div>
-        <div class="token-grid" id="tokenGrid">
-          <article class="token-card live-token-card token-card-clickable" data-token-address="0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC" tabindex="0" role="link">
-            <a class="token-card-link" href="token.html?address=0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC" aria-label="Open TESTCOIN token page"><img class="token-art token-art-image" src="assets/testcoin.png" alt="TESTCOIN token artwork" /></a>
-            <div class="token-meta"><div><p>$TESTCOIN</p><h3>Test</h3></div><span class="verified-label">Source verified</span></div>
-            <p>Standard one-billion-supply test launch from the RWI Launchpad factory.</p>
-            <code class="token-address">0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC</code>
-            <div class="mini-stats"><span>Pair <strong>RWI · 1%</strong></span><span>LP <strong>Locked</strong></span></div>
-          </article>
-        </div>
-      </section>
+      <div class="modal-backdrop discover-backdrop" id="discoverModal" role="dialog" aria-modal="true" aria-labelledby="discoverTitle" hidden>
+        <section class="discover-modal" id="discover">
+          <button class="discover-close" id="discoverClose" type="button" aria-label="Close Discover Tokens">×</button>
+          <header class="discover-modal-heading">
+            <div>
+              <p class="eyebrow">03 — Live launch directory</p>
+              <h2 id="discoverTitle">Discover Tokens</h2>
+            </div>
+            <p>Explore every launch in one place. Compare current market caps, find the latest tokens, and open any market for details or trading.</p>
+          </header>
+
+          <div class="discover-toolbar">
+            <span id="discoverSummary" role="status" aria-live="polite">Loading live launches…</span>
+            <button id="refreshDiscover" type="button">Refresh markets ↻</button>
+          </div>
+
+          <section class="discover-group" aria-labelledby="marketCapTitle">
+            <div class="discover-group-heading">
+              <div><span>Leaderboard</span><h3 id="marketCapTitle">Highest market cap</h3></div>
+              <p>Live USD estimates from each token’s TOKEN / RWI Uniswap market.</p>
+            </div>
+            <div class="token-grid discover-token-grid" id="marketCapTokenGrid" aria-live="polite">
+              <div class="discover-loading">Ranking live markets…</div>
+            </div>
+          </section>
+
+          <section class="discover-group" aria-labelledby="newestTitle">
+            <div class="discover-group-heading">
+              <div><span>Recent activity</span><h3 id="newestTitle">Newest launched tokens</h3></div>
+              <p>Fresh launches are ordered directly from confirmed factory events.</p>
+            </div>
+            <div class="token-grid discover-token-grid" id="newestTokenGrid" aria-live="polite">
+              <div class="discover-loading">Reading Robinhood Chain…</div>
+            </div>
+          </section>
+        </section>
+      </div>
 
       <div class="modal-backdrop creator-dashboard-backdrop" id="dashboardModal" role="dialog" aria-modal="true" aria-labelledby="dashboardTitle" hidden>
       <section class="creator-dashboard creator-dashboard-modal" id="dashboard">
@@ -379,6 +402,6 @@
     <script src="profile-registry-config.js"></script>
     <script src="profile-registry-abi.js"></script>
     <script src="profile-registry-deployment.js"></script>
-    <script src="app.js?v=20260802-liquidity-proof"></script>
+    <script src="app.js?v=20260803-discover-modal"></script>
   </body>
 </html>

@@ -119,6 +119,13 @@ const state = {
   walletListenersAttachedTo: null,
   walletConnectionInFlight: false,
   discoverImageUrls: [],
+  discoverLaunches: [],
+  discoverLoading: false,
+  discoverLoadedAt: 0,
+  discoverReturnFocus: null,
+  discoverProvider: null,
+  discoverRwiUsdPrice: null,
+  discoverRwiUsdPromise: null,
 };
 const discoveredWalletProviders = new Map();
 const $ = (selector) => document.querySelector(selector);
@@ -774,7 +781,7 @@ function drawCrop() {
 }
 
 function syncModalScrollLock() {
-  const modalOpen = ["#cropModal", "#launchModal", "#dashboardModal"]
+  const modalOpen = ["#cropModal", "#launchModal", "#discoverModal", "#dashboardModal"]
     .some((selector) => {
       const modal = $(selector);
       return modal && !modal.hidden;
@@ -1331,6 +1338,55 @@ function renderDashboardAccess() {
   loadCreatorProfile();
 }
 
+function setDiscoverOpenerState(expanded) {
+  $$('[data-discover-open]').forEach((opener) => opener.setAttribute("aria-expanded", String(expanded)));
+}
+
+function openDiscover(trigger = null, { updateHash = true } = {}) {
+  const modal = $("#discoverModal");
+  if (!modal || !modal.hidden) return;
+  if ($("#dashboardModal") && !$("#dashboardModal").hidden) closeCreatorDashboard({ clearHash: false, restoreFocus: false });
+  state.discoverReturnFocus = trigger || (document.activeElement !== document.body ? document.activeElement : null);
+  modal.hidden = false;
+  setDiscoverOpenerState(true);
+  syncModalScrollLock();
+  if (updateHash && window.location.hash !== "#discover") {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#discover`);
+  }
+  window.requestAnimationFrame(() => $("#discoverClose").focus());
+  loadRecentLaunches();
+}
+
+function closeDiscover({ clearHash = true, restoreFocus = true } = {}) {
+  const modal = $("#discoverModal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  setDiscoverOpenerState(false);
+  syncModalScrollLock();
+  if (clearHash && window.location.hash === "#discover") {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  }
+  if (restoreFocus && state.discoverReturnFocus?.focus) state.discoverReturnFocus.focus();
+  state.discoverReturnFocus = null;
+}
+
+function trapDiscoverFocus(event) {
+  const modal = $("#discoverModal");
+  if (event.key !== "Tab" || !modal || modal.hidden) return;
+  const focusable = $$('#discoverModal a[href], #discoverModal button, #discoverModal [tabindex]:not([tabindex="-1"])')
+    .filter((element) => !element.hidden && !element.disabled && element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function setDashboardOpenerState(expanded) {
   $$('[data-dashboard-open]').forEach((opener) => opener.setAttribute("aria-expanded", String(expanded)));
 }
@@ -1338,6 +1394,7 @@ function setDashboardOpenerState(expanded) {
 function openCreatorDashboard(trigger = null, { updateHash = true } = {}) {
   const modal = $("#dashboardModal");
   if (!modal || !modal.hidden) return;
+  if ($("#discoverModal") && !$("#discoverModal").hidden) closeDiscover({ clearHash: false, restoreFocus: false });
   state.dashboardReturnFocus = trigger || (document.activeElement !== document.body ? document.activeElement : null);
   modal.hidden = false;
   setDashboardOpenerState(true);
@@ -1728,10 +1785,8 @@ async function readDiscoverLaunch(eventLog, provider, factory, source) {
   };
 }
 
-function appendTokenArtwork(card, launch, href) {
-  const artLink = dashboardElement("a", "token-card-link");
-  artLink.href = href;
-  artLink.setAttribute("aria-label", `Open ${launch.symbol} token page`);
+function appendTokenArtwork(card, launch) {
+  const artLink = dashboardElement("div", "token-card-link");
   let imageUrl = launch.metadata?.image || launch.metadata?.imageUrl || KNOWN_TOKEN_IMAGES[launch.token.toLowerCase()] || null;
   if (launch.logo?.blob) {
     imageUrl = URL.createObjectURL(launch.logo.blob);
@@ -1742,6 +1797,11 @@ function appendTokenArtwork(card, launch, href) {
     const image = dashboardElement("img", "token-art token-art-image");
     image.src = imageUrl;
     image.alt = `${launch.name} token artwork`;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.addEventListener("error", () => {
+      image.replaceWith(dashboardElement("div", "token-art art-one", launch.symbol.charAt(0) || "?"));
+    }, { once: true });
     artLink.appendChild(image);
   } else {
     artLink.appendChild(dashboardElement("div", "token-art art-one", launch.symbol.charAt(0) || "?"));
@@ -1749,54 +1809,295 @@ function appendTokenArtwork(card, launch, href) {
   card.appendChild(artLink);
 }
 
-function renderDiscoverLaunches(launches) {
-  const grid = $("#tokenGrid");
-  if (!grid || !launches.length) return;
-  for (const imageUrl of state.discoverImageUrls) URL.revokeObjectURL(imageUrl);
-  state.discoverImageUrls = [];
-  grid.textContent = "";
-  for (const launch of launches) {
-    const href = tokenDetailHref(launch.token);
-    const card = dashboardElement("article", "token-card live-token-card");
-    appendTokenArtwork(card, launch, href);
+function discoverFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
 
-    const tokenMeta = dashboardElement("div", "token-meta");
-    const identity = dashboardElement("div", "");
-    identity.appendChild(dashboardElement("p", "", `$${launch.symbol}`));
-    identity.appendChild(dashboardElement("h3", "", launch.name));
-    tokenMeta.appendChild(identity);
-    tokenMeta.appendChild(dashboardElement("span", "verified-label", launch.protocol === "Uniswap v4" ? "v4 hook launch" : "Factory launch"));
-    card.appendChild(tokenMeta);
-    card.appendChild(dashboardElement("p", "", launch.metadata?.description || KNOWN_TOKEN_DESCRIPTIONS[launch.token.toLowerCase()] || "Fixed one-billion supply with direct, permanently locked TOKEN / RWI liquidity."));
-    card.appendChild(dashboardElement("code", "token-address", launch.token));
+function discoverPairTokens(pair) {
+  return {
+    base: String(pair?.baseToken?.address || ""),
+    quote: String(pair?.quoteToken?.address || ""),
+  };
+}
 
-    const stats = dashboardElement("div", "mini-stats");
-    const pair = dashboardElement("span", "", "Pair ");
-    pair.appendChild(dashboardElement("strong", "", "RWI · 1%"));
-    const lp = dashboardElement("span", "", "LP ");
-    lp.appendChild(dashboardElement("strong", "", "Locked"));
-    stats.appendChild(pair);
-    stats.appendChild(lp);
-    card.appendChild(stats);
-    enableTokenCard(card, launch.token);
-    grid.appendChild(card);
+function isDiscoverRwiPair(pair, tokenAddress) {
+  const { base, quote } = discoverPairTokens(pair);
+  return (sameAddress(base, tokenAddress) && sameAddress(quote, RWI_ADDRESS))
+    || (sameAddress(quote, tokenAddress) && sameAddress(base, RWI_ADDRESS));
+}
+
+function selectDiscoverPair(pairs, launch) {
+  const expectedPool = String(launch.poolId || launch.pool || "").toLowerCase();
+  return (Array.isArray(pairs) ? pairs : [])
+    .filter((pair) => pair?.chainId === "robinhood" && pair?.dexId === "uniswap" && isDiscoverRwiPair(pair, launch.token))
+    .sort((left, right) => {
+      const leftExact = expectedPool && String(left?.pairAddress || "").toLowerCase() === expectedPool ? 1 : 0;
+      const rightExact = expectedPool && String(right?.pairAddress || "").toLowerCase() === expectedPool ? 1 : 0;
+      if (leftExact !== rightExact) return rightExact - leftExact;
+      return (discoverFiniteNumber(right?.liquidity?.usd) || 0) - (discoverFiniteNumber(left?.liquidity?.usd) || 0);
+    })[0] || null;
+}
+
+function discoverTokenUsdPrice(pair, tokenAddress) {
+  if (!pair) return null;
+  const { base, quote } = discoverPairTokens(pair);
+  const baseUsd = discoverFiniteNumber(pair.priceUsd);
+  const native = discoverFiniteNumber(pair.priceNative);
+  if (sameAddress(base, tokenAddress)) return baseUsd;
+  if (sameAddress(quote, tokenAddress) && sameAddress(base, RWI_ADDRESS) && baseUsd && native && native > 0) return baseUsd / native;
+  return null;
+}
+
+function discoverQuoteFromSqrtPrice(sqrtPriceX96, baseIsToken0) {
+  const sqrtPrice = Number(sqrtPriceX96) / (2 ** 96);
+  const token1PerToken0 = sqrtPrice * sqrtPrice;
+  const quote = baseIsToken0 ? token1PerToken0 : 1 / token1PerToken0;
+  return Number.isFinite(quote) && quote > 0 ? quote : null;
+}
+
+async function fetchDiscoverPairs(tokenAddress) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch(`/api/dexscreener-market?token=${encodeURIComponent(tokenAddress)}`, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("Market feed unavailable");
+    const pairs = await response.json();
+    return Array.isArray(pairs) ? pairs : [];
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-async function loadRecentLaunches() {
-  const sources = configuredFactorySources();
-  if (!window.ethers || !sources.length) return;
+async function readDiscoverV3Quote(poolAddress, baseToken, provider) {
+  const pool = new window.ethers.Contract(poolAddress, [
+    "function token0() view returns (address)",
+    "function slot0() view returns (uint160 sqrtPriceX96,int24 tick,uint16 observationIndex,uint16 observationCardinality,uint16 observationCardinalityNext,uint8 feeProtocol,bool unlocked)",
+  ], provider);
+  const [token0, slot0] = await Promise.all([pool.token0(), pool.slot0()]);
+  return discoverQuoteFromSqrtPrice(slot0.sqrtPriceX96 ?? slot0[0], sameAddress(token0, baseToken));
+}
+
+async function readDiscoverTokenRwiPrice(launch, provider) {
+  if (launch.poolId) {
+    const view = new window.ethers.Contract(LIQUIDITY_MODEL.uniswapV4StateView, [
+      "function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96,int24 tick,uint24 protocolFee,uint24 lpFee)",
+    ], provider);
+    const slot0 = await view.getSlot0(launch.poolId);
+    return discoverQuoteFromSqrtPrice(slot0.sqrtPriceX96 ?? slot0[0], BigInt(launch.token) < BigInt(RWI_ADDRESS));
+  }
+  if (launch.pool) return readDiscoverV3Quote(launch.pool, launch.token, provider);
+  return null;
+}
+
+function discoverRwiUsdFromPairs(pairs) {
+  return (Array.isArray(pairs) ? pairs : [])
+    .map((pair) => {
+      const { base, quote } = discoverPairTokens(pair);
+      const baseUsd = discoverFiniteNumber(pair?.priceUsd);
+      const native = discoverFiniteNumber(pair?.priceNative);
+      let price = null;
+      if (sameAddress(base, RWI_ADDRESS)) price = baseUsd;
+      if (sameAddress(quote, RWI_ADDRESS) && native && native > 0) price = baseUsd === null ? null : baseUsd / native;
+      return { price, liquidity: discoverFiniteNumber(pair?.liquidity?.usd) || 0 };
+    })
+    .filter((entry) => entry.price && entry.price > 0)
+    .sort((left, right) => right.liquidity - left.liquidity)[0]?.price || null;
+}
+
+async function readDiscoverRwiUsdPrice(provider) {
+  if (state.discoverRwiUsdPrice) return state.discoverRwiUsdPrice;
+  if (state.discoverRwiUsdPromise) return state.discoverRwiUsdPromise;
+  state.discoverRwiUsdPromise = (async () => {
+    try {
+      const factory = new window.ethers.Contract(configuredFactoryAddress(), ["function ethUsdPriceE18() view returns (uint256)"], provider);
+      const [ethUsdRaw, wethPerRwi] = await Promise.all([
+        factory.ethUsdPriceE18(),
+        readDiscoverV3Quote(FACTORY_CONFIG.rwiWethOraclePool, RWI_ADDRESS, provider),
+      ]);
+      const price = Number(window.ethers.formatUnits(ethUsdRaw, 18)) * wethPerRwi;
+      if (Number.isFinite(price) && price > 0) return price;
+    } catch {
+      // Fall back to the strongest indexed RWI market below.
+    }
+    const price = discoverRwiUsdFromPairs(await fetchDiscoverPairs(RWI_ADDRESS));
+    if (!price) throw new Error("RWI/USD price unavailable");
+    return price;
+  })();
   try {
-    const provider = new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
-    const launchGroups = await Promise.all(sources.map(async (source) => {
+    state.discoverRwiUsdPrice = await state.discoverRwiUsdPromise;
+    return state.discoverRwiUsdPrice;
+  } finally {
+    state.discoverRwiUsdPromise = null;
+  }
+}
+
+async function readDiscoverMarketCap(launch, provider) {
+  try {
+    const pair = selectDiscoverPair(await fetchDiscoverPairs(launch.token), launch);
+    const tokenUsd = discoverTokenUsdPrice(pair, launch.token);
+    if (tokenUsd && tokenUsd > 0) return tokenUsd * Number(FIXED_TOKEN_SUPPLY);
+  } catch {
+    // Custom v4 markets may not yet be indexed, so use their live onchain pool price.
+  }
+  const [tokenRwi, rwiUsd] = await Promise.all([
+    readDiscoverTokenRwiPrice(launch, provider),
+    readDiscoverRwiUsdPrice(provider),
+  ]);
+  const marketCap = tokenRwi * rwiUsd * Number(FIXED_TOKEN_SUPPLY);
+  if (!Number.isFinite(marketCap) || marketCap <= 0) throw new Error("Market cap unavailable");
+  return marketCap;
+}
+
+function formatDiscoverMarketCap(value) {
+  const number = discoverFiniteNumber(value);
+  if (!number || number <= 0) return "Unavailable";
+  if (number < 0.01) return "<$0.01";
+  if (number < 1_000) return `$${number.toLocaleString("en-US", { minimumFractionDigits: number < 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 }).format(number);
+}
+
+function createDiscoverTokenCard(launch, rank, mode) {
+  const card = dashboardElement("article", "token-card live-token-card");
+  appendTokenArtwork(card, launch);
+  card.setAttribute("aria-label", `Open ${launch.name} token page`);
+
+  const tokenMeta = dashboardElement("div", "token-meta");
+  const identity = dashboardElement("div", "");
+  identity.appendChild(dashboardElement("p", "", `$${launch.symbol}`));
+  identity.appendChild(dashboardElement("h3", "", launch.name));
+  tokenMeta.appendChild(identity);
+  tokenMeta.appendChild(dashboardElement("span", `discover-rank${mode === "newest" ? " is-new" : ""}`, mode === "newest" ? `Newest #${rank}` : `#${rank} by cap`));
+  card.appendChild(tokenMeta);
+  card.appendChild(dashboardElement("p", "", launch.metadata?.description || KNOWN_TOKEN_DESCRIPTIONS[launch.token.toLowerCase()] || "Fixed one-billion supply with direct, permanently locked TOKEN / RWI liquidity."));
+  card.appendChild(dashboardElement("code", "token-address", launch.token));
+
+  const stats = dashboardElement("div", "discover-market-stats");
+  const marketCap = dashboardElement("span", "", "Market cap");
+  marketCap.appendChild(dashboardElement("strong", "", launch.marketCapLoading ? "Updating…" : formatDiscoverMarketCap(launch.marketCapUsd)));
+  const pair = dashboardElement("span", "", "Pair");
+  pair.appendChild(dashboardElement("strong", "", "RWI · 1%"));
+  const lp = dashboardElement("span", "", "Liquidity");
+  lp.appendChild(dashboardElement("strong", "", "Locked"));
+  stats.appendChild(marketCap);
+  stats.appendChild(pair);
+  stats.appendChild(lp);
+  card.appendChild(stats);
+  enableTokenCard(card, launch.token);
+  return card;
+}
+
+function renderDiscoverGrid(grid, launches, mode) {
+  if (!grid) return;
+  grid.textContent = "";
+  if (!launches.length) {
+    grid.appendChild(dashboardElement("div", "discover-empty", "No launches are available yet. Check back after the next confirmed token launch."));
+    return;
+  }
+  launches.forEach((launch, index) => grid.appendChild(createDiscoverTokenCard(launch, index + 1, mode)));
+}
+
+function renderDiscoverLaunches(launches, message = "") {
+  const marketGrid = $("#marketCapTokenGrid");
+  const newestGrid = $("#newestTokenGrid");
+  if (!marketGrid || !newestGrid) return;
+  for (const imageUrl of state.discoverImageUrls) URL.revokeObjectURL(imageUrl);
+  state.discoverImageUrls = [];
+  const newest = [...launches].sort((left, right) => right.blockNumber - left.blockNumber).slice(0, 12);
+  const ranked = [...launches].sort((left, right) => {
+    const leftCap = discoverFiniteNumber(left.marketCapUsd) || -1;
+    const rightCap = discoverFiniteNumber(right.marketCapUsd) || -1;
+    return rightCap - leftCap || right.blockNumber - left.blockNumber;
+  }).slice(0, 9);
+  renderDiscoverGrid(marketGrid, ranked, "market");
+  renderDiscoverGrid(newestGrid, newest, "newest");
+  const priced = launches.filter((launch) => discoverFiniteNumber(launch.marketCapUsd) > 0).length;
+  $("#discoverSummary").textContent = message || `${launches.length} launch${launches.length === 1 ? "" : "es"} found · ${priced} live market cap${priced === 1 ? "" : "s"}`;
+}
+
+function discoverFallbackLaunches() {
+  return [{
+    factoryAddress: null,
+    token: "0xC29D66d54D2eD13fFFdc89323E5A9d70C197EaEC",
+    pool: null,
+    poolId: null,
+    protocol: "Uniswap v3",
+    creator: "",
+    positionTokenId: 0n,
+    name: "Test",
+    symbol: "TESTCOIN",
+    metadata: { description: KNOWN_TOKEN_DESCRIPTIONS["0xc29d66d54d2ed13fffdc89323e5a9d70c197eaec"], image: KNOWN_TOKEN_IMAGES["0xc29d66d54d2ed13fffdc89323e5a9d70c197eaec"] },
+    logo: null,
+    blockNumber: 0,
+    marketCapUsd: null,
+    marketCapLoading: false,
+  }];
+}
+
+async function loadRecentLaunches({ force = false } = {}) {
+  const sources = configuredFactorySources();
+  if (!window.ethers || !sources.length || state.discoverLoading) return;
+  if (!force && state.discoverLaunches.length && Date.now() - state.discoverLoadedAt < 45_000) {
+    renderDiscoverLaunches(state.discoverLaunches);
+    return;
+  }
+  state.discoverLoading = true;
+  if (force) state.discoverRwiUsdPrice = null;
+  const refreshButton = $("#refreshDiscover");
+  if (refreshButton) refreshButton.disabled = true;
+  if (!state.discoverLaunches.length) {
+    $("#discoverSummary").textContent = "Reading confirmed factory launches…";
+    $("#marketCapTokenGrid").innerHTML = '<div class="discover-loading">Ranking live markets…</div>';
+    $("#newestTokenGrid").innerHTML = '<div class="discover-loading">Reading Robinhood Chain…</div>';
+  }
+  try {
+    const provider = state.discoverProvider || new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
+    state.discoverProvider = provider;
+    const sourceResults = await Promise.allSettled(sources.map(async (source) => {
       const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), provider);
       const logs = await queryRecentLaunchLogs(factory, provider, source.deploymentBlock);
-      return Promise.all(logs.map((log) => readDiscoverLaunch(log, provider, factory, source)));
+      const launchResults = await Promise.allSettled(logs.map((log) => readDiscoverLaunch(log, provider, factory, source)));
+      return launchResults.filter((result) => result.status === "fulfilled").map((result) => result.value);
     }));
-    const launches = launchGroups.flat().sort((left, right) => right.blockNumber - left.blockNumber).slice(0, 18);
+    const unique = new Map();
+    sourceResults
+      .filter((result) => result.status === "fulfilled")
+      .flatMap((result) => result.value)
+      .sort((left, right) => right.blockNumber - left.blockNumber)
+      .forEach((launch) => {
+        const key = launch.token.toLowerCase();
+        if (!unique.has(key)) unique.set(key, launch);
+      });
+    const launches = [...unique.values()].slice(0, 18);
+    if (!launches.length) throw new Error("No factory launches returned");
+    launches.forEach((launch) => {
+      launch.marketCapUsd = null;
+      launch.marketCapLoading = true;
+    });
+    state.discoverLaunches = launches;
+    renderDiscoverLaunches(launches, `${launches.length} launch${launches.length === 1 ? "" : "es"} found · updating live market caps…`);
+    await Promise.allSettled(launches.map(async (launch) => {
+      try {
+        launch.marketCapUsd = await readDiscoverMarketCap(launch, provider);
+      } finally {
+        launch.marketCapLoading = false;
+      }
+    }));
+    state.discoverLoadedAt = Date.now();
     renderDiscoverLaunches(launches);
   } catch {
-    // The verified TESTCOIN card remains usable when a public RPC is temporarily unavailable.
+    if (state.discoverLaunches.length) {
+      renderDiscoverLaunches(state.discoverLaunches, "Live refresh was interrupted · showing the last successful results");
+    } else {
+      state.discoverLaunches = discoverFallbackLaunches();
+      renderDiscoverLaunches(state.discoverLaunches, "Live chain data is temporarily unavailable · showing a known launch");
+    }
+  } finally {
+    state.discoverLoading = false;
+    if (refreshButton) refreshButton.disabled = false;
   }
 }
 
@@ -2857,6 +3158,15 @@ cropCanvas.addEventListener("pointercancel", stopCropDrag);
 $("#walletButton").addEventListener("click", connectWallet);
 $("#modalWallet").addEventListener("click", handleModalPrimary);
 $("#dashboardConnect").addEventListener("click", connectWallet);
+$$('[data-discover-open]').forEach((opener) => opener.addEventListener("click", (event) => {
+  event.preventDefault();
+  openDiscover(event.currentTarget);
+}));
+$("#discoverClose")?.addEventListener("click", () => closeDiscover());
+$("#discoverModal")?.addEventListener("click", (event) => {
+  if (event.target === $("#discoverModal")) closeDiscover();
+});
+$("#refreshDiscover")?.addEventListener("click", () => loadRecentLaunches({ force: true }));
 $$('[data-dashboard-open]').forEach((opener) => opener.addEventListener("click", (event) => {
   event.preventDefault();
   openCreatorDashboard(event.currentTarget);
@@ -2866,8 +3176,16 @@ $("#dashboardModal")?.addEventListener("click", (event) => {
   if (event.target === $("#dashboardModal")) closeCreatorDashboard();
 });
 window.addEventListener?.("hashchange", () => {
-  if (window.location.hash === "#dashboard") openCreatorDashboard(null, { updateHash: false });
-  else closeCreatorDashboard({ clearHash: false, restoreFocus: false });
+  if (window.location.hash === "#discover") {
+    closeCreatorDashboard({ clearHash: false, restoreFocus: false });
+    openDiscover(null, { updateHash: false });
+  } else if (window.location.hash === "#dashboard") {
+    closeDiscover({ clearHash: false, restoreFocus: false });
+    openCreatorDashboard(null, { updateHash: false });
+  } else {
+    closeDiscover({ clearHash: false, restoreFocus: false });
+    closeCreatorDashboard({ clearHash: false, restoreFocus: false });
+  }
 });
 $("#refreshRevenue").addEventListener("click", () => loadCreatorDashboard());
 $("#creatorProfileForm").addEventListener("submit", saveCreatorProfile);
@@ -2914,10 +3232,12 @@ function closeModal() {
 $("#modalClose").addEventListener("click", closeModal);
 $("#launchModal").addEventListener("click", (event) => { if (event.target === $("#launchModal")) closeModal(); });
 document.addEventListener("keydown", (event) => {
+  trapDiscoverFocus(event);
   trapDashboardFocus(event);
   if (event.key !== "Escape") return;
   if (!$("#cropModal").hidden) closeCropper();
   else if (!$("#launchModal").hidden) closeModal();
+  else if ($("#discoverModal") && !$("#discoverModal").hidden) closeDiscover();
   else if ($("#dashboardModal") && !$("#dashboardModal").hidden) closeCreatorDashboard();
 });
 
@@ -2926,10 +3246,9 @@ restoreDraftLogo();
 renderIntegrationStatus();
 updatePreview();
 renderDashboardAccess();
-if (window.location.hash === "#dashboard") openCreatorDashboard(null, { updateHash: false });
+if (window.location.hash === "#discover") openDiscover(null, { updateHash: false });
+else if (window.location.hash === "#dashboard") openCreatorDashboard(null, { updateHash: false });
 $("#walletOriginWarning").hidden = window.location?.protocol !== "file:";
-$$('#tokenGrid [data-token-address]').forEach((card) => enableTokenCard(card, card.dataset.tokenAddress));
-loadRecentLaunches();
 syncWallet();
 
 window.addEventListener?.("beforeunload", () => {
