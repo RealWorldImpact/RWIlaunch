@@ -2,12 +2,15 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
+const RELEASE_VERSION = "20260803-site-audit";
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
 const ETH_CLAIM_DEADLINE_SECONDS = 10 * 60;
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
-const FACTORY_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || Object.freeze({});
+let FACTORY_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || Object.freeze({});
+let factoryDeploymentBundlePromise = null;
+let ethersLibraryPromise = null;
 const HOOK_DEPLOYER_DEPLOYMENT = window.RWI_HOOK_DEPLOYER_DEPLOYMENT || Object.freeze({});
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
 const LEGACY_V4_FACTORY_ABI = Object.freeze([
@@ -34,6 +37,8 @@ const LOGO_DATABASE = "rwi-launchpad-assets-v1";
 const LOGO_STORE = "logos";
 const DRAFT_LOGO_KEY = "current-draft-logo";
 const TOKEN_METADATA_PREFIX = "rwi-token-metadata:";
+const DISCOVER_SESSION_KEY = "rwi-launchpad-discover-v1";
+const DISCOVER_SESSION_TTL_MS = 5 * 60 * 1_000;
 const PROFILE_REGISTRY_LOCAL_ADDRESS_KEY = "rwi-profile-registry-address";
 const PROFILE_REGISTRY_LOCAL_BLOCK_KEY = "rwi-profile-registry-block";
 const FACTORY_LOCAL_BLOCK_KEY = `${FACTORY_CONFIG.factoryAddressStorageKey || "rwi-launchpad-factory-address-v4"}-deployment-block`;
@@ -153,6 +158,44 @@ const fields = {
 
 function cleanTicker(value) {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10);
+}
+
+async function ensureFactoryDeploymentBundle() {
+  if (FACTORY_DEPLOYMENT.bytecode && FACTORY_DEPLOYMENT.deployedBytecode) return FACTORY_DEPLOYMENT;
+  if (factoryDeploymentBundlePromise) return factoryDeploymentBundlePromise;
+  factoryDeploymentBundlePromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `factory-deployment.js?v=${RELEASE_VERSION}`;
+    script.async = true;
+    script.onload = () => {
+      FACTORY_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || Object.freeze({});
+      if (FACTORY_DEPLOYMENT.bytecode && FACTORY_DEPLOYMENT.deployedBytecode) resolve(FACTORY_DEPLOYMENT);
+      else reject(new Error("The v4 deployment bundle is incomplete."));
+    };
+    script.onerror = () => reject(new Error("The v4 deployment bundle could not be loaded."));
+    document.head.appendChild(script);
+  }).catch((error) => {
+    factoryDeploymentBundlePromise = null;
+    throw error;
+  });
+  return factoryDeploymentBundlePromise;
+}
+
+async function ensureEthersLibrary() {
+  if (window.ethers) return window.ethers;
+  if (ethersLibraryPromise) return ethersLibraryPromise;
+  ethersLibraryPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `vendor/ethers.umd.min.js?v=${RELEASE_VERSION}`;
+    script.async = true;
+    script.onload = () => window.ethers ? resolve(window.ethers) : reject(new Error("The wallet library is incomplete."));
+    script.onerror = () => reject(new Error("The wallet library could not be loaded."));
+    document.head.appendChild(script);
+  }).catch((error) => {
+    ethersLibraryPromise = null;
+    throw error;
+  });
+  return ethersLibraryPromise;
 }
 
 function parseDecimalAmount(value, decimals = 18) {
@@ -1068,7 +1111,9 @@ async function connectWallet() {
   }
   state.walletConnectionInFlight = true;
   try {
+    const ethersReady = ensureEthersLibrary();
     const accounts = await wallet.request({ method: "eth_requestAccounts" });
+    await ethersReady;
     state.account = accounts[0] || null;
     await ensureRobinhoodChain();
     renderAccount();
@@ -1742,15 +1787,21 @@ function enableTokenCard(card, address) {
   });
 }
 
-async function queryRecentLaunchLogs(factory, provider, deploymentBlock = 0) {
-  const latestBlock = await provider.getBlockNumber();
+async function queryRecentLaunchLogs(factory, provider, deploymentBlock = 0, latestBlock = null) {
+  const chainHead = latestBlock ?? await provider.getBlockNumber();
   const firstBlock = Number(deploymentBlock || 0);
   const filter = factory.filters.TokenLaunched(null, null, null);
   const logs = [];
   const chunkSize = 50_000;
-  for (let fromBlock = firstBlock; fromBlock <= latestBlock; fromBlock += chunkSize) {
-    const toBlock = Math.min(latestBlock, fromBlock + chunkSize - 1);
-    logs.push(...await factory.queryFilter(filter, fromBlock, toBlock));
+  const ranges = [];
+  for (let fromBlock = firstBlock; fromBlock <= chainHead; fromBlock += chunkSize) {
+    ranges.push([fromBlock, Math.min(chainHead, fromBlock + chunkSize - 1)]);
+  }
+  ranges.reverse();
+  for (let index = 0; index < ranges.length && logs.length < 18; index += 3) {
+    const batch = ranges.slice(index, index + 3);
+    const results = await Promise.all(batch.map(([fromBlock, toBlock]) => factory.queryFilter(filter, fromBlock, toBlock)));
+    results.forEach((result) => logs.push(...result));
   }
   return logs.sort((left, right) => Number(right.blockNumber || 0) - Number(left.blockNumber || 0)).slice(0, 18);
 }
@@ -2050,9 +2101,55 @@ function discoverFallbackLaunches() {
   }];
 }
 
+function readDiscoverSessionCache() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(DISCOVER_SESSION_KEY) || "null");
+    if (!cached || Date.now() - Number(cached.savedAt || 0) > DISCOVER_SESSION_TTL_MS || !Array.isArray(cached.launches)) return null;
+    const launches = cached.launches.filter((launch) => isAddress(launch.token)).map((launch) => ({
+      ...launch,
+      positionTokenId: BigInt(launch.positionTokenId || 0),
+      logo: null,
+      marketCapLoading: false,
+    }));
+    return launches.length ? { launches, savedAt: Number(cached.savedAt) } : null;
+  } catch {
+    sessionStorage.removeItem(DISCOVER_SESSION_KEY);
+    return null;
+  }
+}
+
+function writeDiscoverSessionCache(launches) {
+  try {
+    const serializable = launches.map(({ logo, ...launch }) => ({
+      ...launch,
+      positionTokenId: String(launch.positionTokenId || 0),
+      marketCapLoading: false,
+    }));
+    sessionStorage.setItem(DISCOVER_SESSION_KEY, JSON.stringify({ savedAt: Date.now(), launches: serializable }));
+  } catch {
+    // The directory remains fully functional when private browsing blocks session storage.
+  }
+}
+
 async function loadRecentLaunches({ force = false } = {}) {
   const sources = configuredFactorySources();
-  if (!window.ethers || !sources.length || state.discoverLoading) return;
+  if (!sources.length || state.discoverLoading) return;
+  if (!force && !state.discoverLaunches.length) {
+    const cached = readDiscoverSessionCache();
+    if (cached) {
+      state.discoverLaunches = cached.launches;
+      state.discoverLoadedAt = cached.savedAt;
+      renderDiscoverLaunches(cached.launches);
+      return;
+    }
+  }
+  try {
+    await ensureEthersLibrary();
+  } catch {
+    state.discoverLaunches = discoverFallbackLaunches();
+    renderDiscoverLaunches(state.discoverLaunches, "Live market services are temporarily unavailable · showing a known launch");
+    return;
+  }
   if (!force && state.discoverLaunches.length && Date.now() - state.discoverLoadedAt < 45_000) {
     renderDiscoverLaunches(state.discoverLaunches);
     return;
@@ -2068,9 +2165,10 @@ async function loadRecentLaunches({ force = false } = {}) {
   try {
     const provider = state.discoverProvider || new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
     state.discoverProvider = provider;
+    const latestBlock = await provider.getBlockNumber();
     const sourceResults = await Promise.allSettled(sources.map(async (source) => {
       const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), provider);
-      const logs = await queryRecentLaunchLogs(factory, provider, source.deploymentBlock);
+      const logs = await queryRecentLaunchLogs(factory, provider, source.deploymentBlock, latestBlock);
       const launchResults = await Promise.allSettled(logs.map((log) => readDiscoverLaunch(log, provider, factory, source)));
       return launchResults.filter((result) => result.status === "fulfilled").map((result) => result.value);
     }));
@@ -2099,6 +2197,7 @@ async function loadRecentLaunches({ force = false } = {}) {
       }
     }));
     state.discoverLoadedAt = Date.now();
+    writeDiscoverSessionCache(launches);
     renderDiscoverLaunches(launches);
   } catch {
     if (state.discoverLaunches.length) {
@@ -2276,7 +2375,13 @@ async function loadCreatorDashboard({ silent = false } = {}) {
   renderDashboardAccess();
   if (!state.account) return;
   const sources = configuredFactorySources();
-  if (!window.ethers || !sources.length) {
+  try {
+    await ensureEthersLibrary();
+  } catch {
+    setRevenueMessage("The wallet library could not be loaded. Refresh and try again.");
+    return;
+  }
+  if (!sources.length) {
     setRevenueMessage("The verified factory integration is unavailable.");
     return;
   }
@@ -2478,6 +2583,7 @@ async function verifyNewLaunchLiquidity(provider, launchFactory, tokenAddress, e
 }
 
 async function validateFactoryDeployment(provider, address) {
+  await ensureFactoryDeploymentBundle();
   const ethers = window.ethers;
   const network = await provider.getNetwork();
   if (network.chainId !== 4663n) throw new Error("Factory was not deployed on Robinhood Chain.");
@@ -2605,6 +2711,11 @@ function restoreLaunchModal() {
 async function deployFactoryWithWallet() {
   const button = $("#modalWallet");
   if (!FACTORY_CONFIG.allowBrowserDeployment) return toast("Browser factory deployment is available only from the local launchpad.");
+  try {
+    await ensureFactoryDeploymentBundle();
+  } catch (error) {
+    return toast(error?.message || "The v4 deployment bundle did not load. Refresh and try again.");
+  }
   if (!window.ethers || !FACTORY_ABI.length || !FACTORY_DEPLOYMENT.bytecode || !HOOK_DEPLOYER_DEPLOYMENT.bytecode || !HOOK_DEPLOYER_DEPLOYMENT.abi?.length) {
     return toast("The v4 deployment bundle did not load. Refresh and try again.");
   }
@@ -2685,6 +2796,12 @@ async function launchOnUniswap() {
     $("#modalWallet").dataset.action = "close";
     $("#modalNote").textContent = reason;
     toast("New launches are paused; existing token markets remain available.");
+    return;
+  }
+  try {
+    await ensureEthersLibrary();
+  } catch (error) {
+    toast(error?.message || "The wallet library did not load. Refresh and try again.");
     return;
   }
   if (!window.ethers || !FACTORY_ABI.length) {
@@ -2904,6 +3021,7 @@ async function syncWallet() {
   try {
     const accounts = await wallet.request({ method: "eth_accounts" });
     state.account = accounts[0] || null;
+    if (state.account) await ensureEthersLibrary();
     renderAccount();
     if (state.account) {
       const chainId = await wallet.request({ method: "eth_chainId" });
