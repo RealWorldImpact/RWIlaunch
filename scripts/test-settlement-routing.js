@@ -122,4 +122,11 @@ assert.strictEqual(decodeRouted(v3Quote("sell", "USDG")).commands, "0x00");
 const usdgBuyPath = page.v3BridgeExactInputPath("USDG", "buy").toLowerCase();
 assert.ok(usdgBuyPath.startsWith("0x5fc5360d0400a0fd4f2af552add042d716f1d168000064"));
 assert.ok(usdgBuyPath.endsWith("0027102286397228be256529be1ae9ed8d7d16549e9c6a"));
-console.log("Settlement routing command and path tests passed.");
+
+const legacyTruncatedDescription = `${"x".repeat(275)} perf`;
+assert.strictEqual(legacyTruncatedDescription.length, 280);
+assert.ok(page.displayedTokenDescription(legacyTruncatedDescription).endsWith("…"));
+assert.ok(!page.displayedTokenDescription(legacyTruncatedDescription).endsWith("perf"));
+const completeDescription = "A complete description with punctuation.";
+assert.strictEqual(page.displayedTokenDescription(completeDescription), completeDescription);
+console.log("Settlement routing, description rendering, and path tests passed.");
