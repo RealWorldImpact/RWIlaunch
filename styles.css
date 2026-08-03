@@ -514,15 +514,22 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 17px; heigh
 .trade-direction-tabs button + button { border-left: 1px solid var(--ink); }
 .trade-direction-tabs button[aria-selected="true"] { background: var(--ink); color: var(--white); }
 .direct-trade-input { display: grid; gap: 7px; border: 1px solid var(--ink); background: var(--white); padding: 11px 12px; }
-.direct-trade-input > span:last-child { display: flex; align-items: center; gap: 12px; }
+.direct-trade-value { display: flex; align-items: center; gap: 10px; }
+.direct-trade-value b { font-family: var(--serif); font-size: 28px; font-weight: 500; line-height: 1; }
 .direct-trade-input input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font-family: var(--serif); font-size: 28px; }
 .direct-trade-input strong { font-family: var(--mono); font-size: 13px; }
+.direct-trade-input small { min-height: 16px; color: rgba(11,11,9,.62); font-family: var(--mono); font-size: 11px; line-height: 1.4; }
+.trade-quick-amounts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 9px; }
+.trade-quick-amounts button { min-height: 34px; border: 1px solid var(--ink); background: transparent; color: var(--ink); font-family: var(--mono); font-size: 11px; font-weight: 600; cursor: pointer; }
+.trade-quick-amounts button:hover, .trade-quick-amounts button[aria-pressed="true"] { background: var(--ink); color: var(--lime); }
 .direct-trade-quote { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 43px; padding: 8px 2px 0; }
 .direct-trade-quote strong { font-family: var(--mono); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
 .direct-trade-button { width: 100%; margin-top: 9px; }
 .direct-trade-button:disabled { cursor: wait; opacity: .58; }
 .direct-trade-status { min-height: 31px; margin: 9px 0 0; color: rgba(11,11,9,.62); font-family: var(--mono); font-size: 11px; line-height: 1.45; }
 .direct-trade-status.is-warning { border-left: 3px solid #ff6838; padding-left: 9px; color: var(--ink); }
+.trade-alternative-label { display: flex; align-items: center; gap: 10px; margin: 18px 0 0; color: rgba(11,11,9,.52); font-family: var(--mono); font-size: 10px; letter-spacing: .055em; text-transform: uppercase; }
+.trade-alternative-label::after { height: 1px; flex: 1; background: rgba(11,11,9,.25); content: ""; }
 .uniswap-route-note { margin: 10px 0 0; color: rgba(11,11,9,.47); font-family: var(--mono); font-size: 8px; line-height: 1.45; text-transform: uppercase; }
 .token-market-stack { width: min(100%, 780px); margin: 26px auto 0; }
 .token-facts { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 30px; border: 1px solid var(--ink); box-shadow: 4px 4px 0 rgba(11,11,9,.2); }
