@@ -2,7 +2,8 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260803-empty-ticker";
+const RELEASE_VERSION = "20260803-description-fix";
+const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
 const ETH_CLAIM_DEADLINE_SECONDS = 10 * 60;
@@ -272,7 +273,7 @@ function updatePreview() {
     devBuyLabel = "Check dev buy amount";
   }
   $("#previewLiquidity").textContent = devBuyLabel;
-  $("#descriptionCount").textContent = `${fields.description.value.length} / 280`;
+  $("#descriptionCount").textContent = `${fields.description.value.length} / ${TOKEN_DESCRIPTION_MAX_LENGTH}`;
 
   $("#modalName").textContent = name;
   $("#modalTicker").textContent = `$${ticker}`;

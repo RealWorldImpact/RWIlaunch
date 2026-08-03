@@ -925,6 +925,7 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
 
 .token-dashboard .token-page-grid { grid-area: info; min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-columns: .92fr 1.08fr; gap: 10px; margin: 0; }
 .token-dashboard .creator-card, .token-dashboard .market-card { min-height: 0; overflow: hidden; padding: 10px 12px; }
+.token-dashboard .creator-card { display: flex; flex-direction: column; }
 .creator-card-clickable { cursor: pointer; transition: background .16s ease, box-shadow .16s ease, transform .16s ease; }
 .creator-card-clickable:hover, .creator-card-clickable:focus-visible { outline: none; background: rgba(204,254,6,.12); box-shadow: inset 0 0 0 2px var(--lime); }
 .token-dashboard .creator-card-heading { gap: 8px; padding-bottom: 5px; }
@@ -934,8 +935,7 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
 .token-dashboard .creator-page-avatar span { font-size: 20px; }
 .token-dashboard .creator-identity p { overflow: hidden; margin: 0 0 1px; font-size: 16px; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
 .token-dashboard .creator-identity code { max-width: 150px; font-size: 10px; }
-.token-dashboard .creator-page-bio { min-height: 0; display: -webkit-box; overflow: hidden; margin: 6px 0; font-size: 12px; line-height: 1.3; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.token-dashboard .creator-card-links { gap: 5px 12px; }
+.token-dashboard .creator-card-links { gap: 6px 12px; margin-top: auto; padding-top: 10px; }
 .token-dashboard .creator-explorer-link, .token-dashboard .creator-profile-open { font-size: 10px; }
 .creator-profile-open { border-bottom: 1px solid var(--ink); font-family: var(--mono); font-weight: 600; text-transform: uppercase; }
 .token-dashboard .market-address-row { grid-template-columns: 70px 1fr; gap: 7px; padding: 5px 0; }

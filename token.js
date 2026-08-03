@@ -180,6 +180,17 @@ function formatSupply(raw, decimals) {
   return trimmed ? `${grouped}.${trimmed}` : grouped;
 }
 
+function displayedTokenDescription(value) {
+  const text = String(value || "").trim();
+  if (!text) return "A fixed-supply token launched directly into permanently locked TOKEN / RWI liquidity.";
+  if (text.length === 280 && !/[.!?\u2026][\"')\]]?$/.test(text)) {
+    const finalSpace = text.lastIndexOf(" ");
+    const completeText = finalSpace > text.length - 32 ? text.slice(0, finalSpace) : text;
+    return `${completeText.trimEnd()}\u2026`;
+  }
+  return text;
+}
+
 function toast(message) {
   const element = $("#toast");
   element.textContent = message;
@@ -1355,7 +1366,6 @@ function renderCreator(creator, resolvedProfile) {
   const shortAddress = `${creator.slice(0, 8)}…${creator.slice(-6)}`;
   $("#creatorAddress").textContent = shortAddress;
   $("#creatorDisplayName").textContent = profile?.name || "Launch creator";
-  $("#creatorBioText").textContent = profile?.bio || "This wallet created the token and permanently receives its LP revenue; internal-match launches escrow native ETH before a chart-neutral claim.";
   $("#creatorProfileSource").textContent = resolvedProfile?.source || "Recorded onchain";
   $("#creatorCard").setAttribute("aria-label", `Open ${profile?.name || "creator"} profile and market activity`);
   $("#creatorProfileLink").href = `creator.html?address=${encodeURIComponent(creator)}`;
@@ -1388,7 +1398,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   const detailArt = $("#detailArt");
   detailArt.setAttribute("role", "img");
   detailArt.setAttribute("aria-label", `${name} ($${symbol}) token artwork`);
-  $("#detailDescription").textContent = metadata.description || "A fixed-supply token launched directly into permanently locked TOKEN / RWI liquidity.";
+  $("#detailDescription").textContent = displayedTokenDescription(metadata.description);
   renderTokenLinks(metadata.links);
   $("#detailAddress").textContent = address;
   $("#detailMonogram").textContent = symbol.charAt(0) || "?";
@@ -1538,7 +1548,7 @@ window.addEventListener?.("beforeunload", () => {
 if (!window.RWI_TOKEN_PAGE_TEST_MODE) window.RWI_TOKEN_PAGE_READY = loadTokenPage();
 
 window.RWITokenPage = {
-  uniswapSwapUrl, isAddress, resolveAssetUrl, normalizeSocialUrl, loadTokenPage, withTimeout,
+  uniswapSwapUrl, isAddress, resolveAssetUrl, normalizeSocialUrl, loadTokenPage, withTimeout, displayedTokenDescription,
   directTradePoolKey, directTradeCurrencies, encodeV4SwapCommand, encodeRoutedTrade, validateDirectTradeIntegrations,
   v3BridgeExactInputPath, v3BridgeExactOutputPath, legacyV3TradePath, settlementAssetConfig, selectSettlementAsset,
   readTradeUsdValue, tradeInputAsset, parseTradeAssetUnits, readTradeAmount, quoteDirectTrade,
