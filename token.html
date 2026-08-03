@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260803-site-audit" />
+    <link rel="stylesheet" href="styles.css?v=20260803-dextools-restored" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -47,7 +47,7 @@
           </div>
         </section>
 
-        <section class="compact-market-chart" id="tokenMarketLive" hidden aria-label="Live onchain token market">
+        <section class="compact-market-chart" id="tokenMarketLive" hidden aria-label="Live DEXTools token chart">
           <header class="compact-market-header">
             <div class="compact-market-price">
               <span><i></i> Live token price</span>
@@ -60,16 +60,8 @@
             </div>
           </header>
           <div class="dextools-chart-shell">
-            <svg class="live-price-chart" id="dextoolsChart" viewBox="0 0 800 260" role="img" aria-labelledby="liveChartTitle liveChartDescription" preserveAspectRatio="none">
-              <title id="liveChartTitle">Live onchain token price trace</title>
-              <desc id="liveChartDescription">A live trace built from verified TOKEN / RWI Uniswap pool price samples collected while this page is open.</desc>
-              <defs><linearGradient id="livePriceFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ccfe06" stop-opacity="0.34"/><stop offset="1" stop-color="#ccfe06" stop-opacity="0"/></linearGradient></defs>
-              <g class="live-price-grid" aria-hidden="true"><path d="M0 52H800M0 104H800M0 156H800M0 208H800"/><path d="M160 0V260M320 0V260M480 0V260M640 0V260"/></g>
-              <path class="live-price-area" id="livePriceArea" aria-hidden="true" />
-              <path class="live-price-line" id="livePricePath" aria-hidden="true" />
-              <circle class="live-price-dot" id="livePriceDot" r="5" cx="400" cy="130" aria-hidden="true" />
-            </svg>
-            <div class="live-price-chart-label"><strong>Live onchain trace</strong><span id="liveChartSampleCount">Collecting the first verified price sample…</span></div>
+            <iframe id="dextoolsChart" title="Live DEXTools token price chart" loading="eager" referrerpolicy="strict-origin-when-cross-origin" allow="clipboard-write; fullscreen" allowfullscreen hidden></iframe>
+            <div class="dextools-chart-status" id="dextoolsChartStatus" role="status"><strong>Loading DEXTools chart</strong><span>Connecting to this token’s live RWI market.</span></div>
           </div>
           <footer class="compact-market-footer" id="dexMarketUpdated" aria-live="polite">Connecting to live market data…</footer>
         </section>
@@ -158,11 +150,11 @@
     </footer>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="vendor/ethers.umd.min.js?v=20260803-site-audit"></script>
-    <script src="factory-config.js?v=20260803-site-audit"></script>
-    <script src="factory-abi.js?v=20260803-site-audit"></script>
-    <script src="profile-registry-config.js?v=20260803-site-audit"></script>
-    <script src="profile-registry-abi.js?v=20260803-site-audit"></script>
-    <script src="token.js?v=20260803-site-audit"></script>
+    <script src="vendor/ethers.umd.min.js?v=20260803-dextools-restored"></script>
+    <script src="factory-config.js?v=20260803-dextools-restored"></script>
+    <script src="factory-abi.js?v=20260803-dextools-restored"></script>
+    <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
+    <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
+    <script src="token.js?v=20260803-dextools-restored"></script>
   </body>
 </html>

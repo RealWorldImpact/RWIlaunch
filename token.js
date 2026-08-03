@@ -77,7 +77,6 @@ const state = {
   directTradeIntegrationsValidated: false,
   dexScreenerPair: null, dexScreenerRefreshTimer: null, dexScreenerRequest: 0,
   dexScreenerToken: null, dexScreenerLaunch: null,
-  livePriceSamples: [],
   marketProvider: null, rwiUsdPrice: null, ethUsdPrice: null, rwiUsdUpdatedAt: 0,
   tokenRwiPrice: null, tokenUsdPrice: null,
 };
@@ -366,43 +365,15 @@ function dextoolsPairUrl(pairId) {
 
 function renderDextoolsChart(pairId) {
   if (!/^0x(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(String(pairId || ""))) return;
+  const chartUrl = `https://www.dextools.io/widget-chart/en/robinhood/pe-light/${encodeURIComponent(pairId)}?theme=dark&chartType=1&chartResolution=30&drawingToolbars=false&chartInUsd=true&showTradeHistory=false&headerColor=0b0b09&tvPlatformColor=1f2b3d&tvPaneColor=1f2b3d`;
+  const chart = $("#dextoolsChart");
+  if (!chart) return;
+  if (chart.src !== chartUrl) chart.src = chartUrl;
+  chart.hidden = false;
+  const status = $("#dextoolsChartStatus");
+  if (status) status.hidden = true;
   const link = $("#dextoolsMarketLink");
   if (link) link.href = dextoolsPairUrl(pairId);
-}
-
-function renderLivePriceTrace(value) {
-  const price = finiteNumber(value);
-  if (!price || price <= 0) return;
-  const now = Date.now();
-  const last = state.livePriceSamples.at(-1);
-  if (!last || now - last.time >= 5_000) state.livePriceSamples.push({ time: now, price });
-  else last.price = price;
-  state.livePriceSamples = state.livePriceSamples.slice(-60);
-
-  const samples = state.livePriceSamples;
-  const prices = samples.map((sample) => sample.price);
-  const low = Math.min(...prices);
-  const high = Math.max(...prices);
-  const spread = Math.max(high - low, high * 0.002);
-  const floor = low - spread * 0.15;
-  const ceiling = high + spread * 0.15;
-  const width = 800;
-  const height = 260;
-  const points = samples.length === 1
-    ? [[0, height / 2], [width, height / 2]]
-    : samples.map((sample, index) => [
-      (index / (samples.length - 1)) * width,
-      height - ((sample.price - floor) / (ceiling - floor)) * height,
-    ]);
-  const line = points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
-  $("#livePricePath").setAttribute("d", line);
-  $("#livePriceArea").setAttribute("d", `${line} L${width} ${height} L0 ${height} Z`);
-  const [dotX, dotY] = points.at(-1);
-  $("#livePriceDot").setAttribute("cx", dotX.toFixed(2));
-  $("#livePriceDot").setAttribute("cy", dotY.toFixed(2));
-  $("#liveChartSampleCount").textContent = samples.length === 1
-    ? "First sample verified · trace updates every 30 seconds"
-    : `${samples.length} verified sample${samples.length === 1 ? "" : "s"} · latest ${new Date(now).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
 }
 
 function showDexScreenerWaiting(tokenAddress, message = "Reading the token/RWI spot price directly from its Uniswap pool.") {
@@ -424,7 +395,6 @@ function renderOnchainMarketPrice(values, pair, tokenAddress) {
   $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} RWI per token`;
   setDexMarketChange(pair ? tokenMarketChange24h(pair, tokenAddress) : null);
   if (pair?.pairAddress) renderDextoolsChart(String(pair.pairAddress));
-  renderLivePriceTrace(values.usd || values.rwi);
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Onchain Uniswap spot price · updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
   if ($("#tradeAmount")?.value.trim()) scheduleDirectTradeQuote();
@@ -441,7 +411,6 @@ function renderDexScreenerPair(pair, tokenAddress) {
   setDexMarketChange(tokenMarketChange24h(pair, tokenAddress));
   const pairAddress = String(pair.pairAddress || "");
   renderDextoolsChart(pairAddress);
-  renderLivePriceTrace(values.usd || values.rwi);
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Live feed updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
   if ($("#tradeAmount")?.value.trim()) scheduleDirectTradeQuote();
