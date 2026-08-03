@@ -1357,6 +1357,8 @@ function renderCreator(creator, resolvedProfile) {
   $("#creatorDisplayName").textContent = profile?.name || "Launch creator";
   $("#creatorBioText").textContent = profile?.bio || "This wallet created the token and permanently receives its LP revenue; internal-match launches escrow native ETH before a chart-neutral claim.";
   $("#creatorProfileSource").textContent = resolvedProfile?.source || "Recorded onchain";
+  $("#creatorCard").setAttribute("aria-label", `Open ${profile?.name || "creator"} profile and market activity`);
+  $("#creatorProfileLink").href = `creator.html?address=${encodeURIComponent(creator)}`;
   $("#creatorExplorer").href = `${EXPLORER_URL}/address/${creator}`;
   const registryAddress = resolvedProfile?.registryAddress;
   $("#profileRegistryExplorer").hidden = !registryAddress;
@@ -1517,6 +1519,15 @@ document.querySelectorAll("[data-settlement-asset]").forEach((button) => button.
 $("#tradeAmount").addEventListener("input", scheduleDirectTradeQuote);
 document.querySelectorAll("[data-trade-usd]").forEach((button) => button.addEventListener("click", () => setQuickTradeAmount(button.dataset.tradeUsd)));
 $("#directTradeButton").addEventListener("click", executeDirectTrade);
+$("#creatorCard").addEventListener("click", (event) => {
+  if (!state.creator || event.target.closest?.("a, button")) return;
+  window.location.href = `creator.html?address=${encodeURIComponent(state.creator)}`;
+});
+$("#creatorCard").addEventListener("keydown", (event) => {
+  if (!state.creator || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  window.location.href = `creator.html?address=${encodeURIComponent(state.creator)}`;
+});
 document.addEventListener?.("visibilitychange", handleMarketVisibilityChange);
 
 window.addEventListener?.("beforeunload", () => {

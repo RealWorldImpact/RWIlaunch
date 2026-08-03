@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260803-dextools-restored" />
+    <link rel="stylesheet" href="styles.css?v=20260803-creator-pages" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -112,7 +112,7 @@
         </section>
 
         <section class="token-page-grid" id="tokenPageGrid" hidden aria-label="Creator and market details">
-          <article class="creator-card">
+          <article class="creator-card creator-card-clickable" id="creatorCard" role="link" tabindex="0">
             <div class="creator-card-heading"><span>Creator</span><strong id="creatorProfileSource">Recorded onchain</strong></div>
             <div class="creator-identity">
               <div class="creator-page-avatar" id="creatorPageAvatar"><span id="creatorPageInitial">?</span></div>
@@ -120,7 +120,8 @@
             </div>
             <p class="creator-page-bio" id="creatorBioText">This wallet created the token and receives its LP revenue.</p>
             <div class="creator-card-links">
-              <a class="creator-explorer-link" id="creatorExplorer" href="#" target="_blank" rel="noreferrer">Creator ↗</a>
+              <a class="creator-profile-open" id="creatorProfileLink" href="#">Open profile →</a>
+              <a class="creator-explorer-link" id="creatorExplorer" href="#" target="_blank" rel="noreferrer">Wallet ↗</a>
               <a class="creator-explorer-link" id="profileRegistryExplorer" href="#" target="_blank" rel="noreferrer" hidden>Profile registry ↗</a>
             </div>
           </article>
@@ -155,6 +156,6 @@
     <script src="factory-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
-    <script src="token.js?v=20260803-dextools-restored"></script>
+    <script src="token.js?v=20260803-creator-pages"></script>
   </body>
 </html>
