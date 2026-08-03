@@ -2,7 +2,7 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260803-eth-dev-buy";
+const RELEASE_VERSION = "20260803-crop-controls";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
@@ -901,7 +901,16 @@ function constrainCropOffsets() {
   return { width, height };
 }
 
+function syncCropZoomDisplay() {
+  const control = $("#cropZoom");
+  const percentage = Math.round((Number(control.value) || 1) * 100);
+  const label = `${percentage}%`;
+  $("#cropZoomValue").textContent = label;
+  control.setAttribute("aria-valuetext", label);
+}
+
 function drawCrop() {
+  syncCropZoomDisplay();
   const canvas = $("#cropCanvas");
   const context = canvas.getContext("2d");
   const dimensions = constrainCropOffsets();

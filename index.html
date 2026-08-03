@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260803-eth-dev-buy" />
+    <link rel="stylesheet" href="styles.css?v=20260803-crop-controls" />
   </head>
   <body class="home-page-body">
     <header class="site-header">
@@ -377,7 +377,14 @@
           <span class="crop-ring" aria-hidden="true"></span>
         </div>
         <div class="crop-controls">
-          <label for="cropZoom"><span>Zoom</span><input id="cropZoom" type="range" min="1" max="3" step="0.01" value="1" /></label>
+          <label for="cropZoom">
+            <span class="crop-control-head"><span>Zoom</span><output id="cropZoomValue" for="cropZoom">100%</output></span>
+            <span class="crop-zoom-row">
+              <span aria-hidden="true">−</span>
+              <input id="cropZoom" type="range" min="1" max="3" step="0.01" value="1" aria-valuetext="100%" />
+              <span aria-hidden="true">+</span>
+            </span>
+          </label>
           <button id="cropReset" type="button">Reset</button>
         </div>
         <div class="crop-actions">
@@ -394,6 +401,6 @@
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-deployment.js?v=20260803-dextools-restored"></script>
-    <script src="app.js?v=20260803-eth-dev-buy"></script>
+    <script src="app.js?v=20260803-crop-controls"></script>
   </body>
 </html>
