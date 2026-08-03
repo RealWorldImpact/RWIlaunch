@@ -584,8 +584,8 @@ function selectTradeDirection(direction) {
   state.tradeQuote = null;
   $("#tradeBuyTab").setAttribute("aria-selected", String(direction === "buy"));
   $("#tradeSellTab").setAttribute("aria-selected", String(direction === "sell"));
-  $("#tradeBuyTab").textContent = `Buy $${symbol}`;
-  $("#tradeSellTab").textContent = `Sell $${symbol}`;
+  $("#tradeBuyTab").textContent = "BUY";
+  $("#tradeSellTab").textContent = "SELL";
   $("#tradeDirectionLabel").textContent = direction === "buy" ? `Buy $${symbol}` : `Sell $${symbol}`;
   $("#tradeInputLabel").textContent = direction === "buy" ? "USD amount to spend" : "USD value to sell";
   $("#tradeInputSymbol").textContent = "USD";
