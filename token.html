@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260803-clean-trade-panel" />
+    <link rel="stylesheet" href="styles.css?v=20260803-simplified-facts" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -85,7 +85,7 @@
             </div>
             <label class="direct-trade-input" for="tradeAmount">
               <span id="tradeInputLabel">USD amount to spend</span>
-              <span class="direct-trade-value"><b aria-hidden="true">$</b><input id="tradeAmount" inputmode="decimal" autocomplete="off" placeholder="25.00" aria-describedby="tradeInputConversion directTradeStatus" /><strong id="tradeInputSymbol">USD</strong></span>
+              <span class="direct-trade-value"><b aria-hidden="true">$</b><input id="tradeAmount" inputmode="decimal" autocomplete="off" aria-describedby="tradeInputConversion directTradeStatus" /><strong id="tradeInputSymbol">USD</strong></span>
               <small id="tradeInputConversion" aria-live="polite">Converted to ETH at the live spot price</small>
             </label>
             <div class="trade-quick-amounts" aria-label="Quick USD amounts">
@@ -102,8 +102,6 @@
         <section class="token-facts" id="tokenFacts" hidden aria-label="Token facts">
           <article><span>Total supply</span><strong id="detailSupply">1,000,000,000</strong><small>Fixed forever</small></article>
           <article><span>Uniswap pair</span><strong id="detailPair">TOKEN / RWI</strong><small>1% pool fee</small></article>
-          <article><span>Locked position</span><strong id="detailPosition">#0</strong><small id="detailLiquidityStatus">Checking onchain</small></article>
-          <article><span>Launch path</span><strong>Direct pool</strong><small>No graduation</small></article>
         </section>
 
         <section class="token-page-grid" id="tokenPageGrid" hidden aria-label="Creator and market details">
@@ -150,6 +148,6 @@
     <script src="factory-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
-    <script src="token.js?v=20260803-clean-trade-panel"></script>
+    <script src="token.js?v=20260803-blank-buy-placeholder"></script>
   </body>
 </html>

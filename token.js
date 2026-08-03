@@ -812,7 +812,7 @@ function selectTradeDirection(direction) {
   $("#tradeDirectionLabel").textContent = direction === "buy" ? `Buy $${symbol}` : `Sell $${symbol}`;
   $("#tradeInputLabel").textContent = direction === "buy" ? "USD amount to spend" : "USD value to sell";
   $("#tradeInputSymbol").textContent = "USD";
-  $("#tradeAmount").placeholder = "25.00";
+  $("#tradeAmount").placeholder = direction === "buy" ? "" : "25.00";
   $("#tradeSettlementLabel").textContent = direction === "buy" ? "Pay with" : "Receive in";
   $("#tradeQuoteLabel").textContent = direction === "buy" ? `$${symbol} received at least` : `${settlement.symbol} received at least`;
   if (!state.tradeInFlight) $("#directTradeButton").textContent = directTradeButtonText();
@@ -1004,14 +1004,13 @@ async function refreshPoolActivation() {
 }
 
 async function verifyDisplayedLiquidity(launch) {
-  const status = $("#detailLiquidityStatus");
   const badge = $("#liquidityStatusBadge");
   if (launch.protocol !== "Uniswap v4" || !launch.poolId) {
-    status.textContent = "Permanent lock recorded by the launch factory";
+    badge.textContent = launch.liquidityPermanentlyLocked ? "LP lock recorded" : "Check LP status";
     return;
   }
   if (!launch.factoryAddress || launch.tickLower === null || launch.tickUpper === null || launch.liquidity === null) {
-    status.textContent = launch.liquidityPermanentlyLocked ? "Permanent lock recorded onchain" : "Lock record unavailable";
+    badge.textContent = launch.liquidityPermanentlyLocked ? "LP lock recorded" : "Check LP status";
     return;
   }
   try {
@@ -1040,15 +1039,11 @@ async function verifyDisplayedLiquidity(launch) {
       && inRange
     ) {
       badge.textContent = "LP lock verified live";
-      status.textContent = "Verified active · full position intact";
       return;
     }
     badge.textContent = "Check LP status";
-    status.textContent = "Live position does not match every launch guarantee";
   } catch {
-    status.textContent = launch.liquidityPermanentlyLocked
-      ? "Permanent lock recorded · live read unavailable"
-      : "Lock record unavailable";
+    badge.textContent = launch.liquidityPermanentlyLocked ? "LP lock recorded" : "Check LP status";
   }
 }
 
@@ -1402,7 +1397,6 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#detailMonogram").textContent = symbol.charAt(0) || "?";
   $("#detailSupply").textContent = formatSupply(supply, decimals);
   $("#detailPair").textContent = `${symbol} / RWI`;
-  $("#detailPosition").textContent = `#${launch.positionTokenId}`;
   $("#detailPool").textContent = launch.poolId || launch.pool;
   $("#detailPoolLabel").textContent = launch.poolId ? "v4 pool ID" : "Pool";
   if (metadata.imageUrl) {
