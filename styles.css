@@ -340,7 +340,10 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 17px; heigh
 .discover-modal-heading > p { max-width: 430px; margin: 0; color: var(--muted); font-size: 16px; line-height: 1.45; }
 .discover-toolbar { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); padding: 8px 0; }
 .discover-toolbar span { color: var(--muted); font-family: var(--mono); font-size: 10px; line-height: 1.4; text-transform: uppercase; letter-spacing: .06em; }
+.discover-toolbar-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .discover-toolbar button { flex: 0 0 auto; min-height: 34px; border: 1px solid var(--ink); background: var(--ink); color: var(--lime); padding: 0 12px; font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; cursor: pointer; }
+.discover-toolbar .discover-view-toggle { background: transparent; color: var(--ink); }
+.discover-toolbar .discover-view-toggle:hover { background: var(--lime); }
 .discover-toolbar button:disabled { cursor: wait; opacity: .55; }
 .discover-group { padding-top: 42px; }
 .discover-group + .discover-group { margin-top: 48px; border-top: 1px solid var(--ink); }
@@ -775,6 +778,7 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .discover-modal-heading { margin-right: 48px; padding-bottom: 22px; }
   .discover-modal-heading h2 { font-size: 48px; }
   .discover-toolbar { align-items: stretch; flex-direction: column; padding: 11px 0; }
+  .discover-toolbar-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
   .discover-toolbar button { width: 100%; }
   .discover-group { padding-top: 32px; }
   .discover-group + .discover-group { margin-top: 38px; }

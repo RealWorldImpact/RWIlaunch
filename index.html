@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260803-discover-modal" />
+    <link rel="stylesheet" href="styles.css?v=20260803-discover-toggle" />
   </head>
   <body class="home-page-body">
     <header class="site-header">
@@ -255,26 +255,19 @@
 
           <div class="discover-toolbar">
             <span id="discoverSummary" role="status" aria-live="polite">Loading live launches…</span>
-            <button id="refreshDiscover" type="button">Refresh markets ↻</button>
+            <div class="discover-toolbar-actions">
+              <button class="discover-view-toggle" id="discoverViewToggle" type="button" aria-controls="discoverTokenGrid" aria-pressed="false">Show newest launches →</button>
+              <button id="refreshDiscover" type="button">Refresh markets ↻</button>
+            </div>
           </div>
 
-          <section class="discover-group" aria-labelledby="marketCapTitle">
+          <section class="discover-group" aria-labelledby="discoverViewTitle">
             <div class="discover-group-heading">
-              <div><span>Leaderboard</span><h3 id="marketCapTitle">Highest market cap</h3></div>
-              <p>Live USD estimates from each token’s TOKEN / RWI Uniswap market.</p>
+              <div><span id="discoverViewKicker">Leaderboard</span><h3 id="discoverViewTitle">Highest market cap</h3></div>
+              <p id="discoverViewDescription">Live USD estimates from each token’s TOKEN / RWI Uniswap market.</p>
             </div>
-            <div class="token-grid discover-token-grid" id="marketCapTokenGrid" aria-live="polite">
+            <div class="token-grid discover-token-grid" id="discoverTokenGrid" aria-live="polite">
               <div class="discover-loading">Ranking live markets…</div>
-            </div>
-          </section>
-
-          <section class="discover-group" aria-labelledby="newestTitle">
-            <div class="discover-group-heading">
-              <div><span>Recent activity</span><h3 id="newestTitle">Newest launched tokens</h3></div>
-              <p>Fresh launches are ordered directly from confirmed factory events.</p>
-            </div>
-            <div class="token-grid discover-token-grid" id="newestTokenGrid" aria-live="polite">
-              <div class="discover-loading">Reading Robinhood Chain…</div>
             </div>
           </section>
         </section>
@@ -402,6 +395,6 @@
     <script src="profile-registry-config.js"></script>
     <script src="profile-registry-abi.js"></script>
     <script src="profile-registry-deployment.js"></script>
-    <script src="app.js?v=20260803-discover-modal"></script>
+    <script src="app.js?v=20260803-discover-toggle"></script>
   </body>
 </html>

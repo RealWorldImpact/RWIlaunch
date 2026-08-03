@@ -126,6 +126,7 @@ const state = {
   discoverProvider: null,
   discoverRwiUsdPrice: null,
   discoverRwiUsdPromise: null,
+  discoverView: "market",
 };
 const discoveredWalletProviders = new Map();
 const $ = (selector) => document.querySelector(selector);
@@ -2001,9 +2002,8 @@ function renderDiscoverGrid(grid, launches, mode) {
 }
 
 function renderDiscoverLaunches(launches, message = "") {
-  const marketGrid = $("#marketCapTokenGrid");
-  const newestGrid = $("#newestTokenGrid");
-  if (!marketGrid || !newestGrid) return;
+  const grid = $("#discoverTokenGrid");
+  if (!grid) return;
   for (const imageUrl of state.discoverImageUrls) URL.revokeObjectURL(imageUrl);
   state.discoverImageUrls = [];
   const newest = [...launches].sort((left, right) => right.blockNumber - left.blockNumber).slice(0, 12);
@@ -2012,10 +2012,23 @@ function renderDiscoverLaunches(launches, message = "") {
     const rightCap = discoverFiniteNumber(right.marketCapUsd) || -1;
     return rightCap - leftCap || right.blockNumber - left.blockNumber;
   }).slice(0, 9);
-  renderDiscoverGrid(marketGrid, ranked, "market");
-  renderDiscoverGrid(newestGrid, newest, "newest");
+  const showingNewest = state.discoverView === "newest";
+  $("#discoverViewKicker").textContent = showingNewest ? "Recent activity" : "Leaderboard";
+  $("#discoverViewTitle").textContent = showingNewest ? "Newest launched tokens" : "Highest market cap";
+  $("#discoverViewDescription").textContent = showingNewest
+    ? "Fresh launches are ordered directly from confirmed factory events."
+    : "Live USD estimates from each token’s TOKEN / RWI Uniswap market.";
+  const toggle = $("#discoverViewToggle");
+  toggle.textContent = showingNewest ? "Show highest market cap →" : "Show newest launches →";
+  toggle.setAttribute("aria-pressed", String(showingNewest));
+  renderDiscoverGrid(grid, showingNewest ? newest : ranked, showingNewest ? "newest" : "market");
   const priced = launches.filter((launch) => discoverFiniteNumber(launch.marketCapUsd) > 0).length;
   $("#discoverSummary").textContent = message || `${launches.length} launch${launches.length === 1 ? "" : "es"} found · ${priced} live market cap${priced === 1 ? "" : "s"}`;
+}
+
+function toggleDiscoverView() {
+  state.discoverView = state.discoverView === "market" ? "newest" : "market";
+  renderDiscoverLaunches(state.discoverLaunches);
 }
 
 function discoverFallbackLaunches() {
@@ -2050,8 +2063,7 @@ async function loadRecentLaunches({ force = false } = {}) {
   if (refreshButton) refreshButton.disabled = true;
   if (!state.discoverLaunches.length) {
     $("#discoverSummary").textContent = "Reading confirmed factory launches…";
-    $("#marketCapTokenGrid").innerHTML = '<div class="discover-loading">Ranking live markets…</div>';
-    $("#newestTokenGrid").innerHTML = '<div class="discover-loading">Reading Robinhood Chain…</div>';
+    $("#discoverTokenGrid").innerHTML = '<div class="discover-loading">Reading Robinhood Chain…</div>';
   }
   try {
     const provider = state.discoverProvider || new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
@@ -3166,6 +3178,7 @@ $("#discoverClose")?.addEventListener("click", () => closeDiscover());
 $("#discoverModal")?.addEventListener("click", (event) => {
   if (event.target === $("#discoverModal")) closeDiscover();
 });
+$("#discoverViewToggle")?.addEventListener("click", toggleDiscoverView);
 $("#refreshDiscover")?.addEventListener("click", () => loadRecentLaunches({ force: true }));
 $$('[data-dashboard-open]').forEach((opener) => opener.addEventListener("click", (event) => {
   event.preventDefault();
