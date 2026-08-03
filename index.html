@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260803-usd-dev-buy" />
+    <link rel="stylesheet" href="styles.css?v=20260803-eth-dev-buy" />
   </head>
   <body class="home-page-body">
     <header class="site-header">
@@ -350,12 +350,12 @@
           <div class="modal-avatar" id="modalAvatar">?</div>
           <div><span id="modalTicker">$TOKEN</span><strong id="modalName">Your token</strong></div>
         </div>
-        <p class="modal-copy" id="modalCopy">One launch transaction deploys exactly 1 billion tokens at a tick-rounded $10,000 dual-TWAP valuation and allocates 100% of the supply to a token-only TOKEN / $RWI v4 position. An optional dev buy executes only after the liquidity is locked forever.</p>
+        <p class="modal-copy" id="modalCopy">The token launches with exactly 1 billion tokens at a tick-rounded $10,000 valuation. An optional dev buy uses ETH to acquire the required RWI automatically, then buys through the locked TOKEN / RWI pool.</p>
         <div class="modal-dev-buy" id="modalDevBuy">
           <label for="devBuyUsd"><span>Optional dev buy</span><small>USD value</small></label>
           <div class="modal-dev-buy-input"><span aria-hidden="true">$</span><input id="devBuyUsd" type="text" inputmode="decimal" autocomplete="off" aria-label="Optional dev buy in USD" /><strong>USD</strong></div>
-          <p id="devBuyEstimate">Leave blank or enter 0 to skip the dev buy.</p>
-          <div class="modal-dev-buy-balance"><span>Wallet $RWI balance</span><strong id="rwiBalance">Connect wallet</strong></div>
+          <p id="devBuyEstimate">Leave blank or enter 0 to skip. ETH is converted to RWI automatically.</p>
+          <div class="modal-dev-buy-balance"><span>Wallet ETH balance</span><strong id="walletEthBalance">Connect wallet</strong></div>
         </div>
         <div class="modal-actions">
           <button class="button button-lime" id="modalWallet" type="button">Launch Token</button>
@@ -394,6 +394,6 @@
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-deployment.js?v=20260803-dextools-restored"></script>
-    <script src="app.js?v=20260803-usd-dev-buy"></script>
+    <script src="app.js?v=20260803-eth-dev-buy"></script>
   </body>
 </html>

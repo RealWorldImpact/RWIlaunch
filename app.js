@@ -2,10 +2,12 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260803-usd-dev-buy";
+const RELEASE_VERSION = "20260803-eth-dev-buy";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
+const DEV_BUY_ETH_INPUT_SLIPPAGE_BPS = 500n;
+const DEV_BUY_DEADLINE_SECONDS = 10 * 60;
 const ETH_CLAIM_DEADLINE_SECONDS = 10 * 60;
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
@@ -79,6 +81,9 @@ const LIQUIDITY_MODEL = Object.freeze({
   graduation: false,
   migration: false,
 });
+const V3_QUOTER = FACTORY_CONFIG.uniswapV3Quoter || "0x33e885eD0Ec9bF04EcfB19341582aADCb4c8A9E7";
+const ROUTER_MSG_SENDER = "0x0000000000000000000000000000000000000001";
+const ROUTER_ADDRESS_THIS = "0x0000000000000000000000000000000000000002";
 const ROBINHOOD_CHAIN = {
   chainId: "0x1237",
   chainName: "Robinhood Chain",
@@ -99,8 +104,7 @@ const state = {
   cropOffsetY: 0,
   cropDragging: null,
   cropCompletion: null,
-  rwiBalance: null,
-  rwiDecimals: 18,
+  ethBalance: null,
   saveTimer: null,
   launchInFlight: false,
   lastLaunchTx: null,
@@ -109,6 +113,8 @@ const state = {
   lastPoolId: null,
   lastDevBuyRwiAmount: 0n,
   lastDevBuyUsdAmount: "0",
+  lastDevBuyEthAmount: 0n,
+  pendingDevBuyRwiAmount: 0n,
   factoryDeploymentInFlight: false,
   lastFactoryAddress: null,
   creatorLaunches: [],
@@ -227,6 +233,47 @@ function rwiAmountForUsd(usdAmountE18, rwiUsdPrice) {
   return amount;
 }
 
+function devBuyExactOutputPath() {
+  return window.ethers.solidityPacked(
+    ["address", "uint24", "address"],
+    [RWI_ADDRESS, LIQUIDITY_MODEL.poolFee, FACTORY_CONFIG.wethAddress],
+  );
+}
+
+async function quoteEthForExactRwi(provider, rwiAmount) {
+  const quoter = new window.ethers.Contract(V3_QUOTER, [
+    "function quoteExactOutput(bytes path,uint256 amountOut) returns (uint256 amountIn,uint160[] sqrtPriceX96AfterList,uint32[] initializedTicksCrossedList,uint256 gasEstimate)",
+  ], provider);
+  const result = await quoter.quoteExactOutput.staticCall(devBuyExactOutputPath(), rwiAmount);
+  const amount = BigInt(result.amountIn ?? result[0]);
+  if (amount <= 0n) throw new Error("The ETH to RWI route returned no quote.");
+  return amount;
+}
+
+function maximumDevBuyEthInput(quotedEthAmount) {
+  return BigInt(quotedEthAmount) * (10_000n + DEV_BUY_ETH_INPUT_SLIPPAGE_BPS) / 10_000n;
+}
+
+function encodeEthToRwiPurchase(rwiAmount, maximumEthInput, deadline) {
+  const coder = window.ethers.AbiCoder.defaultAbiCoder();
+  const commands = window.ethers.hexlify(window.ethers.concat(["0x0b", "0x01", "0x0c"]));
+  const inputs = [
+    coder.encode(["address", "uint256"], [ROUTER_ADDRESS_THIS, maximumEthInput]),
+    coder.encode(
+      ["address", "uint256", "uint256", "bytes", "bool", "uint256[]"],
+      [ROUTER_MSG_SENDER, rwiAmount, maximumEthInput, devBuyExactOutputPath(), false, []],
+    ),
+    coder.encode(["address", "uint256"], [ROUTER_MSG_SENDER, 0]),
+  ];
+  const router = new window.ethers.Interface(["function execute(bytes commands,bytes[] inputs,uint256 deadline) payable"]);
+  return {
+    data: router.encodeFunctionData("execute", [commands, inputs, deadline]),
+    commands,
+    inputs,
+    nativeValue: maximumEthInput,
+  };
+}
+
 function getEconomics() {
   const supply = FIXED_TOKEN_SUPPLY;
   const pool = supply;
@@ -244,16 +291,16 @@ function formatUnits(raw, decimals, maximumFractionDigits = 2) {
 }
 
 function updateBalanceState() {
-  const balanceElement = $("#rwiBalance");
+  const balanceElement = $("#walletEthBalance");
   if (!state.account) {
     balanceElement.textContent = "Connect wallet";
     return;
   }
-  if (state.rwiBalance === null) {
+  if (state.ethBalance === null) {
     balanceElement.textContent = "Unavailable";
     return;
   }
-  balanceElement.textContent = `${formatUnits(state.rwiBalance, state.rwiDecimals)} RWI`;
+  balanceElement.textContent = `${formatUnits(state.ethBalance, 18, 6)} ETH`;
 }
 
 function computeSetupCompleteness() {
@@ -323,7 +370,7 @@ async function updateDevBuyEstimate() {
     return;
   }
   if (usdAmount === 0n) {
-    estimate.textContent = "Leave blank or enter 0 to skip the dev buy.";
+    estimate.textContent = "Leave blank or enter 0 to skip. ETH is converted to RWI automatically.";
     return;
   }
   estimate.textContent = "Estimating the RWI purchase amount…";
@@ -332,11 +379,13 @@ async function updateDevBuyEstimate() {
     const provider = new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
     const rwiUsdPrice = await readDiscoverRwiUsdPrice(provider);
     const rwiAmount = rwiAmountForUsd(usdAmount, rwiUsdPrice);
+    const quotedEthAmount = await quoteEthForExactRwi(provider, rwiAmount);
+    const maximumEthInput = maximumDevBuyEthInput(quotedEthAmount);
     if (requestId !== updateDevBuyEstimate.requestId) return;
-    estimate.textContent = `≈ ${formatUnits(rwiAmount, 18, 6)} RWI at $${Number(rwiUsdPrice).toLocaleString("en-US", { maximumFractionDigits: 8 })} per RWI`;
+    estimate.textContent = `≈ ${formatUnits(quotedEthAmount, 18, 8)} ETH → ${formatUnits(rwiAmount, 18, 6)} RWI · up to ${formatUnits(maximumEthInput, 18, 8)} ETH authorized`;
   } catch {
     if (requestId !== updateDevBuyEstimate.requestId) return;
-    estimate.textContent = "The exact RWI amount will be calculated from the live market price before launch.";
+    estimate.textContent = "The ETH → RWI route will be quoted again before launch.";
   }
 }
 
@@ -1104,19 +1153,19 @@ function renderAccount() {
 
 async function handleWalletAccountsChanged(accounts) {
   state.account = accounts[0] || null;
-  state.rwiBalance = null;
+  state.ethBalance = null;
   renderAccount();
   if (state.account) {
-    await readRwiBalance();
+    await readEthBalance();
     await loadCreatorDashboard();
   }
 }
 
 async function handleWalletChainChanged(chainId) {
-  state.rwiBalance = null;
+  state.ethBalance = null;
   updateBalanceState();
   if (String(chainId).toLowerCase() === ROBINHOOD_CHAIN.chainId && state.account) {
-    await readRwiBalance();
+    await readEthBalance();
     await loadCreatorDashboard();
   } else if (state.account) {
     setRevenueMessage("Switch the wallet to Robinhood Chain to load creator revenue.");
@@ -1134,20 +1183,15 @@ function attachWalletListeners(provider) {
   state.walletListenersAttachedTo = provider;
 }
 
-async function readRwiBalance() {
+async function readEthBalance() {
   const wallet = currentWalletProvider();
   if (!state.account || !wallet) return;
-  $("#rwiBalance").textContent = "Reading…";
+  $("#walletEthBalance").textContent = "Reading…";
   try {
-    const paddedAccount = state.account.toLowerCase().replace(/^0x/, "").padStart(64, "0");
-    const [balanceHex, decimalsHex] = await Promise.all([
-      wallet.request({ method: "eth_call", params: [{ to: RWI_ADDRESS, data: `0x70a08231${paddedAccount}` }, "latest"] }),
-      wallet.request({ method: "eth_call", params: [{ to: RWI_ADDRESS, data: "0x313ce567" }, "latest"] }),
-    ]);
-    state.rwiBalance = balanceHex && balanceHex !== "0x" ? BigInt(balanceHex) : 0n;
-    state.rwiDecimals = decimalsHex && decimalsHex !== "0x" ? Number(BigInt(decimalsHex)) : 18;
+    const balanceHex = await wallet.request({ method: "eth_getBalance", params: [state.account, "latest"] });
+    state.ethBalance = balanceHex && balanceHex !== "0x" ? BigInt(balanceHex) : 0n;
   } catch {
-    state.rwiBalance = null;
+    state.ethBalance = null;
   }
   updateBalanceState();
 }
@@ -1167,7 +1211,7 @@ async function connectWallet() {
     state.account = accounts[0] || null;
     await ensureRobinhoodChain();
     renderAccount();
-    await readRwiBalance();
+    await readEthBalance();
     await loadCreatorDashboard();
     toast("Connected to Robinhood Chain.");
     return Boolean(state.account);
@@ -2757,7 +2801,7 @@ function restoreLaunchModal() {
   $("#downloadBrief").textContent = state.imageFile ? "Download metadata kit" : "Download launch brief";
   delete $("#downloadBrief").dataset.action;
   $("#uniswapTradeButton").hidden = true;
-  $("#modalCopy").textContent = "One launch transaction deploys exactly 1 billion tokens at a tick-rounded $10,000 dual-TWAP valuation and allocates 100% of the supply to a token-only TOKEN / $RWI v4 position. An optional dev buy executes only after the LP is locked forever.";
+  $("#modalCopy").textContent = "The token launches with exactly 1 billion tokens at a tick-rounded $10,000 valuation. An optional dev buy uses ETH to acquire the required RWI automatically, then buys through the locked TOKEN / RWI pool.";
 }
 
 function openLaunchConfirmation() {
@@ -2765,10 +2809,12 @@ function openLaunchConfirmation() {
   state.lastLaunchTx = null;
   state.lastDevBuyRwiAmount = 0n;
   state.lastDevBuyUsdAmount = "0";
+  state.lastDevBuyEthAmount = 0n;
+  state.pendingDevBuyRwiAmount = 0n;
   fields.devBuy.value = "";
   fields.devBuy.removeAttribute("aria-invalid");
   $("#modalTitle").textContent = "Review your launch.";
-  $("#modalNote").textContent = "Enter an optional USD dev buy or leave it blank, then use the final Launch Token button.";
+  $("#modalNote").textContent = "Enter an optional USD dev buy or leave it blank. If used, ETH swaps to RWI first; no existing RWI balance is required.";
   $("#modalWallet").textContent = "Launch Token";
   $("#modalWallet").dataset.action = "confirm-launch";
   $("#launchModal").hidden = false;
@@ -2916,12 +2962,16 @@ async function launchOnUniswap() {
     const launchMetadataAuthorization = await prepareLaunchMetadataAuthorization(signerAddress);
     const devBuyUsdAmount = configuredDevBuyUsdAmount();
     let devBuyRwiAmount = 0n;
+    let quotedDevBuyEthAmount = 0n;
+    let maximumDevBuyEthAmount = 0n;
     if (devBuyUsdAmount > 0n) {
-      button.textContent = "Converting USD dev buy…";
-      $("#modalNote").textContent = "Calculating the RWI purchase amount from the live RWI/USD market price.";
+      button.textContent = "Quoting ETH dev buy…";
+      $("#modalNote").textContent = "Calculating the ETH → RWI route for the selected USD value.";
       state.discoverRwiUsdPrice = null;
       const rwiUsdPrice = await readDiscoverRwiUsdPrice(provider);
       devBuyRwiAmount = rwiAmountForUsd(devBuyUsdAmount, rwiUsdPrice);
+      quotedDevBuyEthAmount = await quoteEthForExactRwi(provider, devBuyRwiAmount);
+      maximumDevBuyEthAmount = maximumDevBuyEthInput(quotedDevBuyEthAmount);
     }
     let params = {
       name: fields.name.value.trim(),
@@ -2933,6 +2983,14 @@ async function launchOnUniswap() {
     button.textContent = "Reading onchain prices…";
     $("#modalNote").textContent = "Checking protected 30-minute RWI/WETH and WETH/USDG prices before opening your wallet. No oracle account or credentials are required.";
     await launchFactory.ORACLE_TWAP_WINDOW();
+    const zeroBuyPreflightParams = { ...params, devBuyRwiAmount: 0n, minimumDevBuyTokenOut: 0n };
+    const zeroBuyPreflightCalldata = launchFactory.interface.encodeFunctionData("launch", [zeroBuyPreflightParams]);
+    await provider.call({
+      from: signerAddress,
+      to: factoryAddress,
+      data: `${zeroBuyPreflightCalldata}${launchMetadataAuthorization.commitment.slice(2)}`,
+      gasLimit: 25_000_000,
+    });
     let devBuyTokenQuote = 0n;
     if (devBuyRwiAmount > 0n) {
       const rwiToken = new ethers.Contract(RWI_ADDRESS, [
@@ -2940,14 +2998,33 @@ async function launchOnUniswap() {
         "function allowance(address,address) view returns (uint256)",
         "function approve(address,uint256) returns (bool)",
       ], signer);
+      const existingRwiBalance = BigInt(await rwiToken.balanceOf(signerAddress));
+      const canReusePendingPurchase = state.pendingDevBuyRwiAmount === devBuyRwiAmount && existingRwiBalance >= devBuyRwiAmount;
+      if (!canReusePendingPurchase) {
+        const ethBalance = await provider.getBalance(signerAddress);
+        if (ethBalance <= maximumDevBuyEthAmount) throw new Error("This wallet does not have enough ETH for the selected dev buy and network gas.");
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + DEV_BUY_DEADLINE_SECONDS);
+        const ethToRwiPurchase = encodeEthToRwiPurchase(devBuyRwiAmount, maximumDevBuyEthAmount, deadline);
+        button.textContent = "Buy dev-buy RWI with ETH…";
+        $("#modalNote").textContent = `Confirm up to ${formatUnits(maximumDevBuyEthAmount, 18, 8)} ETH for the $${formatUnits(devBuyUsdAmount, 18, 2)} dev buy. Unused ETH is refunded by the Uniswap router.`;
+        const rwiPurchase = await signer.sendTransaction({
+          to: LIQUIDITY_MODEL.uniswapV4UniversalRouter,
+          data: ethToRwiPurchase.data,
+          value: ethToRwiPurchase.nativeValue,
+        });
+        button.textContent = "Confirming ETH → RWI…";
+        await rwiPurchase.wait();
+        state.pendingDevBuyRwiAmount = devBuyRwiAmount;
+      }
+
       const [rwiBalance, allowance] = await Promise.all([
         rwiToken.balanceOf(signerAddress),
         rwiToken.allowance(signerAddress, factoryAddress),
       ]);
-      if (BigInt(rwiBalance) < devBuyRwiAmount) throw new Error("The optional dev buy exceeds this wallet's RWI balance.");
+      if (BigInt(rwiBalance) < devBuyRwiAmount) throw new Error("The ETH → RWI purchase did not provide the required dev-buy amount.");
       if (BigInt(allowance) < devBuyRwiAmount) {
         button.textContent = "Approve dev-buy RWI…";
-        $("#modalNote").textContent = `Your $${formatUnits(devBuyUsdAmount, 18, 2)} dev buy is approximately ${formatUnits(devBuyRwiAmount, 18, 6)} RWI. Approve that exact RWI amount for the first purchase.`;
+        $("#modalNote").textContent = `The ETH swap delivered ${formatUnits(devBuyRwiAmount, 18, 6)} RWI. Approve that exact amount for the launch transaction.`;
         const approval = await rwiToken.approve(factoryAddress, devBuyRwiAmount);
         button.textContent = "Confirming RWI approval…";
         await approval.wait();
@@ -2965,9 +3042,11 @@ async function launchOnUniswap() {
     button.textContent = "Confirm launch in wallet…";
     $("#modalNote").textContent = FACTORY_CONFIG.independentAuditComplete
       ? (devBuyRwiAmount > 0n
-        ? `$10,000 opening valuation · Lock the LP, then buy at least ${formatUnits(params.minimumDevBuyTokenOut, 18, 6)} tokens with ${formatUnits(devBuyRwiAmount, 18, 6)} RWI.`
+        ? `$10,000 opening valuation · ETH funded ${formatUnits(devBuyRwiAmount, 18, 6)} RWI, then the launch buys at least ${formatUnits(params.minimumDevBuyTokenOut, 18, 6)} tokens.`
         : "$10,000 dual-TWAP launch · Deploy the token, seed token-only v4 liquidity, and lock it forever. No RWI is required.")
-      : "Source verified · Internal security review only; no independent audit. Confirm the immutable launch transaction only if you accept that risk.";
+      : (devBuyRwiAmount > 0n
+        ? `ETH has funded the $${formatUnits(devBuyUsdAmount, 18, 2)} dev buy. Source verified · internal review only; confirm the immutable launch transaction if you accept that risk.`
+        : "Source verified · Internal security review only; no independent audit. Confirm the immutable launch transaction only if you accept that risk.");
     const launchCalldata = launchFactory.interface.encodeFunctionData("launch", [params]);
     const authorizedLaunchCalldata = `${launchCalldata}${launchMetadataAuthorization.commitment.slice(2)}`;
     const transaction = await signer.sendTransaction({
@@ -2976,9 +3055,11 @@ async function launchOnUniswap() {
     });
     state.lastDevBuyRwiAmount = devBuyRwiAmount;
     state.lastDevBuyUsdAmount = formatUnits(devBuyUsdAmount, 18, 2);
+    state.lastDevBuyEthAmount = quotedDevBuyEthAmount;
     button.textContent = "Creating Uniswap v4 pool…";
     $("#modalNote").textContent = `Transaction submitted · ${transaction.hash.slice(0, 10)}…`;
     const receipt = await transaction.wait();
+    state.pendingDevBuyRwiAmount = 0n;
 
     let launchEvent = null;
     for (const log of receipt.logs) {
@@ -3056,14 +3137,14 @@ async function launchOnUniswap() {
         : "The token and v4 pool are live. Download the publish-ready metadata kit as a backup.") + liquidityCopy;
     $("#modalNote").textContent = launchEvent
       ? (BigInt(launchEvent.args.initialRwiAmount) > 0n
-        ? `Token ${launchEvent.args.token.slice(0, 8)}… launched with a $${state.lastDevBuyUsdAmount} dev buy (${formatUnits(BigInt(launchEvent.args.initialRwiAmount), 18, 6)} RWI). The LP is locked forever${liquidityVerification ? ", its live position was verified," : ""} and the pool already has real swap activity.`
+        ? `Token ${launchEvent.args.token.slice(0, 8)}… launched with a $${state.lastDevBuyUsdAmount} dev buy funded from approximately ${formatUnits(state.lastDevBuyEthAmount, 18, 8)} ETH (${formatUnits(BigInt(launchEvent.args.initialRwiAmount), 18, 6)} RWI). The LP is locked forever${liquidityVerification ? ", its live position was verified," : ""} and the pool already has real swap activity.`
         : `Token ${launchEvent.args.token.slice(0, 8)}… paired with $RWI in v4 pool ${launchEvent.args.poolId.slice(0, 10)}…. Liquidity is locked forever. One real swap is required before market indexers can report price and volume.`)
       : "Launch confirmed. The TOKEN / $RWI pool is live, its LP is locked forever, and there is no graduation step.";
     if (state.lastTokenAddress) $("#uniswapTradeButton").hidden = false;
     toast(publicMetadataPublication
       ? "Token launched and its public logo was verified."
       : "Token launched directly into $RWI liquidity on Uniswap.");
-    await readRwiBalance();
+    await readEthBalance();
     loadRecentLaunches();
   } catch (error) {
     const message = readableWalletError(error);
@@ -3121,7 +3202,7 @@ async function syncWallet() {
     if (state.account) {
       const chainId = await wallet.request({ method: "eth_chainId" });
       if (chainId.toLowerCase() === ROBINHOOD_CHAIN.chainId) {
-        await readRwiBalance();
+        await readEthBalance();
         await loadCreatorDashboard();
       }
     }
@@ -3270,7 +3351,7 @@ async function downloadLaunchBrief() {
     token: { address: state.lastTokenAddress, name: fields.name.value.trim(), ticker, description: fields.description.value.trim(), imageFileName: state.imageFile?.name || null, supply: FIXED_TOKEN_SUPPLY.toString(), decimals: 18, supplyPolicy: "fixed-one-billion-no-future-minting" },
     links: { website: fields.website.value.trim(), twitter: fields.twitter.value.trim(), telegram: fields.telegram.value.trim() },
     network: { name: ROBINHOOD_CHAIN.chainName, chainId: 4663, rpc: ROBINHOOD_CHAIN.rpcUrls[0], explorer: ROBINHOOD_CHAIN.blockExplorerUrls[0] },
-    pairing: { venue: "Uniswap v4", poolId: state.lastPoolId, hookAddress: configuredFactoryAddress(), poolManager: FACTORY_CONFIG.uniswapV4PoolManager, tradeUrl: state.lastTokenAddress ? uniswapSwapUrl(RWI_ADDRESS, state.lastTokenAddress) : null, poolFee: LIQUIDITY_MODEL.poolFee, asset: "$RWI", address: RWI_ADDRESS, initialRwiLiquidity: "0", initialLiquidityMode: "single-sided-token-position", optionalDevBuyUsd: state.lastDevBuyUsdAmount, optionalDevBuyRwi: state.lastDevBuyRwiAmount.toString(), devBuyMode: "usd-denominated-post-lock-exact-input-swap", firstBuyersSupplyRwi: true, poolAllocationPercent: 100, creatorTokenAllocationPercent: 0, tokensEnteringPool: economics.pool.toString(), targetMarketCapUsd: TARGET_MARKET_CAP_USD, openingPriceMode: "30-minute-uniswap-rwi-weth-plus-weth-usdg-dual-twap", liquidityLock: "permanent", liquidityWithdrawable: false, lpFeeRecipient: "token-creator-in-eth", creatorLpFeeShareBps: 10000, launchpadLpFeeShareBps: 0 },
+    pairing: { venue: "Uniswap v4", poolId: state.lastPoolId, hookAddress: configuredFactoryAddress(), poolManager: FACTORY_CONFIG.uniswapV4PoolManager, tradeUrl: state.lastTokenAddress ? uniswapSwapUrl(RWI_ADDRESS, state.lastTokenAddress) : null, poolFee: LIQUIDITY_MODEL.poolFee, asset: "$RWI", address: RWI_ADDRESS, initialRwiLiquidity: "0", initialLiquidityMode: "single-sided-token-position", optionalDevBuyUsd: state.lastDevBuyUsdAmount, optionalDevBuyEthQuoted: state.lastDevBuyEthAmount.toString(), optionalDevBuyRwi: state.lastDevBuyRwiAmount.toString(), devBuyMode: "eth-funded-rwi-bridge-plus-post-lock-exact-input-swap", firstBuyersSupplyRwi: true, poolAllocationPercent: 100, creatorTokenAllocationPercent: 0, tokensEnteringPool: economics.pool.toString(), targetMarketCapUsd: TARGET_MARKET_CAP_USD, openingPriceMode: "30-minute-uniswap-rwi-weth-plus-weth-usdg-dual-twap", liquidityLock: "permanent", liquidityWithdrawable: false, lpFeeRecipient: "token-creator-in-eth", creatorLpFeeShareBps: 10000, launchpadLpFeeShareBps: 0 },
     listing: { metadataVersion: 1, metadataReady: Boolean(state.imageFile), publicMetadataPath, publicLogoPath: state.imageFile ? publicLogoPath : null, logo: state.imageFile ? { fileName: state.imageFile.name, mimeType: "image/png", width: LOGO_SIZE, height: LOGO_SIZE, crop: "square-cover", bytes: state.imageFile.size, sha256: logoSha256, browserAssetKey: state.lastTokenAddress ? `token:${String(state.lastTokenAddress).toLowerCase()}` : DRAFT_LOGO_KEY } : null, imageRequiresPublicHosting: Boolean(state.imageFile), poolStartsWithPricedRwi: false, discoveryRequiresRealRwiSwaps: true },
     note: configuredFactoryAddress()
       ? "The hook enforces a tick-rounded $10,000 opening valuation from protected 30-minute RWI/WETH and WETH/USDG Uniswap TWAPs. The creator supplies no RWI, receives all claimable LP revenue only as ETH, and the v4 liquidity is locked forever with no migration or graduation state."
