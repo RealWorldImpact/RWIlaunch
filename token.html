@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260803-token-fontfix" />
+    <link rel="stylesheet" href="styles.css?v=20260803-settlement-routing" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -66,19 +66,26 @@
         </section>
 
         <section class="token-market-stack" id="tokenMarketStack" hidden aria-label="Token trading">
-          <section class="direct-v4-trade" id="directV4Trade" hidden aria-label="Direct Uniswap v4 trade">
+          <section class="direct-v4-trade" id="directV4Trade" hidden aria-label="Atomic Uniswap trade">
             <div class="direct-v4-heading">
-              <div><span>Direct Uniswap v4</span><strong id="tradeDirectionLabel">Buy $TOKEN</strong></div>
-              <span class="direct-v4-badge">Official router</span>
+              <div><span>RWI-routed Uniswap</span><strong id="tradeDirectionLabel">Buy $TOKEN</strong></div>
+              <span class="direct-v4-badge">ETH / USDG only</span>
             </div>
             <div class="trade-direction-tabs" role="tablist" aria-label="Trade direction">
               <button id="tradeBuyTab" type="button" role="tab" aria-selected="true">BUY</button>
               <button id="tradeSellTab" type="button" role="tab" aria-selected="false">SELL</button>
             </div>
+            <div class="trade-settlement-row">
+              <span id="tradeSettlementLabel">Pay with</span>
+              <div class="trade-settlement-options" role="radiogroup" aria-label="Trade settlement asset">
+                <button type="button" data-settlement-asset="ETH" aria-pressed="true">ETH</button>
+                <button type="button" data-settlement-asset="USDG" aria-pressed="false">USDG</button>
+              </div>
+            </div>
             <label class="direct-trade-input" for="tradeAmount">
               <span id="tradeInputLabel">USD amount to spend</span>
               <span class="direct-trade-value"><b aria-hidden="true">$</b><input id="tradeAmount" inputmode="decimal" autocomplete="off" placeholder="25.00" aria-describedby="tradeInputConversion directTradeStatus" /><strong id="tradeInputSymbol">USD</strong></span>
-              <small id="tradeInputConversion" aria-live="polite">Converted to RWI at the live spot price</small>
+              <small id="tradeInputConversion" aria-live="polite">Converted to ETH at the live spot price</small>
             </label>
             <div class="trade-quick-amounts" aria-label="Quick USD amounts">
               <button type="button" data-trade-usd="10" aria-pressed="false">$10</button>
@@ -87,16 +94,13 @@
             </div>
             <div class="direct-trade-quote"><span id="tradeQuoteLabel">$TOKEN received at least</span><strong id="tradeQuote" aria-live="polite">Enter a USD amount</strong></div>
             <button class="button button-lime direct-trade-button" id="directTradeButton" type="button">Connect wallet to buy $TOKEN</button>
-            <p class="direct-trade-status" id="directTradeStatus">Live USD conversion, direct pool routing, and a 3% minimum-output buffer.</p>
-          </section>
-          <div class="external-trade-card">
-            <p class="trade-alternative-label">Uniswap App</p>
-            <div class="token-trade-actions">
-              <a class="button button-lime" id="buyOnUniswap" href="#" target="_blank" rel="noreferrer">Buy $TOKEN on Uniswap</a>
-              <a class="button token-sell-button" id="sellOnUniswap" href="#" target="_blank" rel="noreferrer">Sell $TOKEN on Uniswap</a>
+            <p class="direct-trade-status" id="directTradeStatus">ETH and USDG settle atomically through RWI into this token pool.</p>
+            <div class="trade-route-summary" aria-label="Atomic trade route">
+              <span>Atomic path</span>
+              <strong id="tradeRouteText">ETH → WETH → RWI → $TOKEN</strong>
+              <small>One transaction · no RWI balance needed</small>
             </div>
-            <p class="uniswap-route-note">Direct trades target this exact v4 pool. App routing depends on Uniswap discovery.</p>
-          </div>
+          </section>
         </section>
 
         <section class="token-facts" id="tokenFacts" hidden aria-label="Token facts">
@@ -150,6 +154,6 @@
     <script src="factory-abi.js"></script>
     <script src="profile-registry-config.js"></script>
     <script src="profile-registry-abi.js"></script>
-    <script src="token.js?v=20260803-token-fontfix"></script>
+    <script src="token.js?v=20260803-settlement-routing"></script>
   </body>
 </html>
