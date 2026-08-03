@@ -321,6 +321,8 @@ function renderTrades(trades) {
 
 function showError(message) {
   const status = $("#creatorPageStatus");
+  $("#creatorPageContent").hidden = true;
+  status.hidden = false;
   status.textContent = "";
   const title = document.createElement("strong");
   title.textContent = "Creator profile could not load";
@@ -336,13 +338,24 @@ async function loadCreatorPage() {
   const creator = new URLSearchParams(window.location.search).get("address");
   if (!isAddress(creator) || !window.ethers) return showError("Choose a valid creator from a token page.");
   try {
+    const normalizedCreator = window.ethers.getAddress(creator);
+    let profile = { name: "Launch creator", bio: "This wallet creates tokens on RWI Launch.", avatar: null, source: "Creator wallet recorded onchain" };
+    let launches = [];
+    renderProfile(normalizedCreator, profile, launches);
     const provider = new window.ethers.JsonRpcProvider(RPC_URL, 4663, { staticNetwork: true });
     const latestBlock = await provider.getBlockNumber();
-    const [profile, launches] = await Promise.all([loadProfile(creator, provider, latestBlock), loadCreatorLaunches(creator, provider, latestBlock)]);
-    renderProfile(window.ethers.getAddress(creator), profile, launches);
+    const profilePromise = loadProfile(creator, provider, latestBlock).then((loadedProfile) => {
+      profile = loadedProfile;
+      renderProfile(normalizedCreator, profile, launches);
+      return profile;
+    }).catch(() => profile);
+    launches = await loadCreatorLaunches(creator, provider, latestBlock);
+    renderProfile(normalizedCreator, profile, launches);
     renderLaunches(launches);
     $("#creatorPageStatus").hidden = true;
     $("#creatorPageContent").hidden = false;
+    $("#creatorPageContent").setAttribute("aria-busy", "false");
+    profilePromise.catch(() => {});
     const trades = await loadRecentTrades(launches, provider, latestBlock);
     renderTrades(trades);
   } catch (error) {

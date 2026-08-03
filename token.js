@@ -158,6 +158,8 @@ function withTimeout(promise, milliseconds, message) {
 
 function showTokenPageError(message) {
   const status = $("#tokenPageStatus");
+  $("#tokenDashboard").hidden = true;
+  status.hidden = false;
   status.classList.add("is-error");
   status.textContent = "";
   const title = document.createElement("strong");
@@ -1391,18 +1393,13 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   const detailArt = $("#detailArt");
   detailArt.setAttribute("role", "img");
   detailArt.setAttribute("aria-label", `${name} ($${symbol}) token artwork`);
-  $("#detailDescription").textContent = displayedTokenDescription(metadata.description);
-  renderTokenLinks(metadata.links);
   $("#detailAddress").textContent = address;
   $("#detailMonogram").textContent = symbol.charAt(0) || "?";
   $("#detailSupply").textContent = formatSupply(supply, decimals);
   $("#detailPair").textContent = `${symbol} / RWI`;
   $("#detailPool").textContent = launch.poolId || launch.pool;
   $("#detailPoolLabel").textContent = launch.poolId ? "v4 pool ID" : "Pool";
-  if (metadata.imageUrl) {
-    detailArt.style.backgroundImage = `url("${metadata.imageUrl}")`;
-    $("#detailMonogram").textContent = "";
-  }
+  renderTokenMetadata(metadata);
   $("#uniswapTokenPage").href = `https://app.uniswap.org/explore/tokens/robinhood/${address}`;
   $("#dexScreenerPool").href = `https://dexscreener.com/robinhood/${launch.poolId || launch.pool}`;
   if (launch.pool) {
@@ -1419,11 +1416,21 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   renderCreator(launch.creator, creatorProfile);
   $("#tokenPageStatus").hidden = true;
   $("#tokenDashboard").hidden = false;
+  $("#tokenDashboard").setAttribute("aria-busy", "false");
   $("#tokenDetail").hidden = false;
   $("#tokenMarketStack").hidden = false;
   $("#tokenFacts").hidden = false;
   startDexScreenerFeed(address, launch);
   $("#tokenPageGrid").hidden = false;
+}
+
+function renderTokenMetadata(metadata = {}) {
+  $("#detailDescription").textContent = displayedTokenDescription(metadata.description);
+  renderTokenLinks(metadata.links);
+  if (metadata.imageUrl) {
+    $("#detailArt").style.backgroundImage = `url("${metadata.imageUrl}")`;
+    $("#detailMonogram").textContent = "";
+  }
 }
 
 async function loadTokenPage() {
@@ -1434,11 +1441,16 @@ async function loadTokenPage() {
   }
   const normalizedAddress = address.toLowerCase();
   const knownLaunch = KNOWN_LAUNCHES[normalizedAddress] || null;
-  const metadataPromise = resolveTokenMetadata(address).catch(() => KNOWN_METADATA[normalizedAddress] || {});
+  let resolvedMetadata = KNOWN_METADATA[normalizedAddress] || {};
+  const metadataPromise = resolveTokenMetadata(address).then((metadata) => {
+    resolvedMetadata = metadata || resolvedMetadata;
+    if (state.token && sameAddress(state.token, address)) renderTokenMetadata(resolvedMetadata);
+    return resolvedMetadata;
+  }).catch(() => resolvedMetadata);
   try {
     if (!window.ethers) throw new Error("The wallet library did not load. Refresh the page and try again.");
+    $("#detailAddress").textContent = window.ethers.getAddress(address);
     if (knownLaunch) {
-      const cachedMetadata = await withTimeout(metadataPromise, 2_500, "Cached token metadata timed out.").catch(() => KNOWN_METADATA[normalizedAddress] || {});
       renderToken({
         address: window.ethers.getAddress(address),
         name: knownLaunch.name,
@@ -1446,7 +1458,7 @@ async function loadTokenPage() {
         decimals: knownLaunch.decimals,
         supply: knownLaunch.supply,
         launch: { creator: knownLaunch.creator, pool: knownLaunch.pool, poolId: null, protocol: "Uniswap v3", positionTokenId: knownLaunch.positionTokenId, factoryAddress: null },
-        metadata: cachedMetadata,
+        metadata: resolvedMetadata,
         creatorProfile: {
           profile: readLocalJson(profileKey(knownLaunch.creator)),
           source: "Verified launch · refreshing live data",
@@ -1461,8 +1473,8 @@ async function loadTokenPage() {
       "function decimals() view returns (uint8)",
       "function totalSupply() view returns (uint256)",
     ], provider);
-    const [factoryLaunch, name, symbol, decimals, supply, metadata] = await withTimeout(Promise.all([
-      findFactoryLaunch(address, provider), token.name(), token.symbol(), token.decimals(), token.totalSupply(), metadataPromise,
+    const [factoryLaunch, name, symbol, decimals, supply] = await withTimeout(Promise.all([
+      findFactoryLaunch(address, provider), token.name(), token.symbol(), token.decimals(), token.totalSupply(),
     ]), 12_000, "Robinhood Chain did not return token data within 12 seconds.");
     const launch = factoryLaunch.launch;
     const isV4 = factoryLaunch.source.protocol === "Uniswap v4";
@@ -1471,11 +1483,7 @@ async function loadTokenPage() {
     if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !(isV4 ? isPoolId(poolId) : isAddress(pool))) {
       throw new Error("This token was not launched by the configured factory.");
     }
-    const creatorProfile = await withTimeout(
-      resolveCreatorProfile(launch.creator, provider),
-      10_000,
-      "The shared creator profile timed out.",
-    ).catch(() => ({ profile: readLocalJson(profileKey(launch.creator)), source: "Creator wallet recorded onchain", registryAddress: configuredProfileRegistryAddress() }));
+    const fallbackCreatorProfile = { profile: readLocalJson(profileKey(launch.creator)), source: "Creator wallet recorded onchain", registryAddress: configuredProfileRegistryAddress() };
     renderToken({
       address: window.ethers.getAddress(address),
       name,
@@ -1494,9 +1502,15 @@ async function loadTokenPage() {
         tickLower: isV4 ? Number(launch.tickLower) : null,
         tickUpper: isV4 ? Number(launch.tickUpper) : null,
       },
-      metadata,
-      creatorProfile,
+      metadata: resolvedMetadata,
+      creatorProfile: fallbackCreatorProfile,
     });
+    metadataPromise.catch(() => {});
+    withTimeout(resolveCreatorProfile(launch.creator, provider), 10_000, "The shared creator profile timed out.")
+      .then((creatorProfile) => {
+        if (state.creator && sameAddress(state.creator, launch.creator)) renderCreator(launch.creator, creatorProfile);
+      })
+      .catch(() => {});
   } catch (error) {
     if (knownLaunch && state.token) {
       $("#creatorProfileSource").textContent = "Verified launch · live refresh unavailable";
