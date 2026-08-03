@@ -2,7 +2,7 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260803-dextools-restored";
+const RELEASE_VERSION = "20260803-empty-ticker";
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
 const ETH_CLAIM_DEADLINE_SECONDS = 10 * 60;
@@ -252,12 +252,14 @@ function computeSetupCompleteness() {
 
 function updatePreview() {
   const name = fields.name.value.trim() || "Your token";
-  const ticker = cleanTicker(fields.ticker.value) || "TOKEN";
+  const enteredTicker = cleanTicker(fields.ticker.value);
+  const ticker = enteredTicker || "TOKEN";
   const description = fields.description.value.trim() || "Description optional · name, ticker, and cropped logo required.";
   fields.ticker.value = cleanTicker(fields.ticker.value);
 
   $("#previewName").textContent = name;
-  $("#previewTicker").textContent = `$${ticker}`;
+  $("#previewTicker").textContent = enteredTicker ? `$${enteredTicker}` : "";
+  $("#previewTicker").hidden = !enteredTicker;
   $("#previewMonogramText").textContent = ticker.charAt(0) || "?";
   $("#previewDescription").textContent = description;
   $("#previewPair").textContent = `${ticker} / RWI`;
