@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260802-dexscreener" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -77,6 +77,48 @@
         <article><span>Launch path</span><strong>Direct pool</strong><small>No bonding curve or graduation</small></article>
       </section>
 
+      <section class="token-market-live" id="tokenMarketLive" hidden aria-labelledby="liveMarketHeading">
+        <header class="live-market-header">
+          <div class="live-market-title">
+            <span class="live-market-kicker"><i></i> Live onchain market</span>
+            <h2 id="liveMarketHeading">Price &amp; chart</h2>
+          </div>
+          <div class="live-market-price">
+            <span>Live token price</span>
+            <strong id="dexPriceUsd">Waiting for market data</strong>
+            <small id="dexPriceRwi">— RWI per token</small>
+          </div>
+        </header>
+
+        <div class="live-market-stats" aria-label="Live token market statistics">
+          <article><span>24h change</span><strong id="dexChange24h">—</strong></article>
+          <article><span>24h volume</span><strong id="dexVolume24h">—</strong></article>
+          <article><span>Liquidity</span><strong id="dexLiquidity">—</strong></article>
+          <article><span>Market cap</span><strong id="dexMarketCap">—</strong></article>
+        </div>
+
+        <div class="dexscreener-chart-shell" id="dexscreenerChartShell">
+          <iframe
+            id="dexscreenerChart"
+            title="Live Dexscreener token price chart"
+            loading="lazy"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="clipboard-write; fullscreen"
+            allowfullscreen
+            hidden
+          ></iframe>
+          <div class="dexscreener-chart-status" id="dexscreenerChartStatus" role="status">
+            <strong>Finding the RWI market</strong>
+            <span>Checking Dexscreener for this token’s indexed Uniswap pool.</span>
+          </div>
+        </div>
+
+        <footer class="live-market-footer">
+          <span id="dexMarketUpdated" aria-live="polite">Connecting to live market data…</span>
+          <a id="dexscreenerMarketLink" href="#" target="_blank" rel="noreferrer">Open full Dexscreener chart ↗</a>
+        </footer>
+      </section>
+
       <section class="token-page-grid" id="tokenPageGrid" hidden>
         <article class="creator-card">
           <div class="creator-card-heading"><span>Token creator</span><strong id="creatorProfileSource">Recorded onchain</strong></div>
@@ -84,7 +126,7 @@
             <div class="creator-page-avatar" id="creatorPageAvatar"><span id="creatorPageInitial">?</span></div>
             <div><p id="creatorDisplayName">Launch creator</p><code id="creatorAddress">0x0000…0000</code></div>
           </div>
-          <p class="creator-page-bio" id="creatorBioText">This wallet created the token and permanently receives its collectible LP revenue; new-factory claims are paid in ETH.</p>
+          <p class="creator-page-bio" id="creatorBioText">This wallet created the token and permanently receives its LP revenue; internal-match launches escrow native ETH before a chart-neutral claim.</p>
           <div class="creator-card-links">
             <a class="creator-explorer-link" id="creatorExplorer" href="#" target="_blank" rel="noreferrer">View creator on Blockscout ↗</a>
             <a class="creator-explorer-link" id="profileRegistryExplorer" href="#" target="_blank" rel="noreferrer" hidden>Profile registry ↗</a>
@@ -119,6 +161,6 @@
     <script src="factory-abi.js"></script>
     <script src="profile-registry-config.js"></script>
     <script src="profile-registry-abi.js"></script>
-    <script src="token.js"></script>
+    <script src="token.js?v=20260802-dexscreener"></script>
   </body>
 </html>
