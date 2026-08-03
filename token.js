@@ -18,6 +18,7 @@ const V4_UNIVERSAL_ROUTER = FACTORY_CONFIG.uniswapV4UniversalRouter || "0x887678
 const V4_STATE_VIEW = FACTORY_CONFIG.uniswapV4StateView || "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b";
 const DIRECT_TRADE_SLIPPAGE_BPS = 300n;
 const DIRECT_TRADE_DEADLINE_SECONDS = 10 * 60;
+const DIRECT_TRADE_DEFAULT_STATUS = "USD size converts at the live onchain spot price. The Uniswap quote then reflects pool price impact and includes a 3% minimum-output buffer.";
 const PROFILE_PREFIX = "rwi-creator-profile:";
 const TOKEN_METADATA_PREFIX = "rwi-token-metadata:";
 const LOGO_DATABASE = "rwi-launchpad-assets-v1";
@@ -63,6 +64,7 @@ const state = {
   directTradeIntegrationsValidated: false,
   dexScreenerPair: null, dexScreenerRefreshTimer: null, dexScreenerRequest: 0,
   marketProvider: null, rwiUsdPrice: null, rwiUsdUpdatedAt: 0,
+  tokenRwiPrice: null, tokenUsdPrice: null,
 };
 
 function isAddress(value) {
@@ -367,6 +369,9 @@ function showDexScreenerWaiting(tokenAddress, message = "Reading the token/RWI s
 
 function renderOnchainMarketPrice(values, pair, tokenAddress) {
   state.dexScreenerPair = pair || { onchain: true };
+  state.tokenRwiPrice = finiteNumber(values.rwi);
+  state.tokenUsdPrice = finiteNumber(values.usd);
+  if (!state.rwiUsdPrice && state.tokenRwiPrice && state.tokenUsdPrice) state.rwiUsdPrice = state.tokenUsdPrice / state.tokenRwiPrice;
   const priceElement = $("#dexPriceUsd");
   priceElement.textContent = values.usd ? formatUsdPrice(values.usd) : `${formatTokenRatio(values.rwi)} RWI`;
   priceElement.title = values.usd ? `$${values.usd.toLocaleString("en-US", { maximumFractionDigits: 18 })}` : "Live TOKEN/RWI Uniswap spot price";
@@ -375,11 +380,15 @@ function renderOnchainMarketPrice(values, pair, tokenAddress) {
   if (pair?.pairAddress) renderDextoolsChart(String(pair.pairAddress));
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Onchain Uniswap spot price · updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
+  if ($("#tradeAmount")?.value.trim()) scheduleDirectTradeQuote();
 }
 
 function renderDexScreenerPair(pair, tokenAddress) {
   state.dexScreenerPair = pair;
   const values = tokenMarketValues(pair, tokenAddress);
+  state.tokenRwiPrice = finiteNumber(values.rwi);
+  state.tokenUsdPrice = finiteNumber(values.usd);
+  if (!state.rwiUsdPrice && state.tokenRwiPrice && state.tokenUsdPrice) state.rwiUsdPrice = state.tokenUsdPrice / state.tokenRwiPrice;
   $("#dexPriceUsd").textContent = formatUsdPrice(values.usd);
   $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} RWI per token`;
   setDexMarketChange(tokenMarketChange24h(pair, tokenAddress));
@@ -387,6 +396,7 @@ function renderDexScreenerPair(pair, tokenAddress) {
   renderDextoolsChart(pairAddress);
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Live feed updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
+  if ($("#tradeAmount")?.value.trim()) scheduleDirectTradeQuote();
 }
 
 async function refreshDexScreenerMarket(tokenAddress, launch) {
@@ -449,13 +459,48 @@ function formatTradeUnits(value, symbol) {
   return `${BigInt(whole).toLocaleString("en-US")}${trimmed ? `.${trimmed}` : ""} ${symbol}`;
 }
 
-function readTradeAmount() {
+function readTradeUsdValue() {
   const raw = $("#tradeAmount").value.trim();
-  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(raw)) throw new Error("Enter a valid amount.");
-  const amount = window.ethers.parseUnits(raw, 18);
+  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(raw)) throw new Error("Enter a valid USD amount.");
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) throw new Error("Enter a USD amount greater than zero.");
+  return value;
+}
+
+function tradeInputAsset() {
+  const symbol = state.tradeDirection === "buy"
+    ? "RWI"
+    : document.querySelector("#detailSymbol").textContent.replace(/^\$/, "");
+  const usdPrice = state.tradeDirection === "buy" ? finiteNumber(state.rwiUsdPrice) : finiteNumber(state.tokenUsdPrice);
+  if (!usdPrice || usdPrice <= 0) throw new Error("Waiting for the live USD price…");
+  return { symbol, usdPrice };
+}
+
+function parseTradeAssetUnits(value) {
+  if (!Number.isFinite(value) || value <= 0 || value >= 1e21) throw new Error("That USD amount is outside the supported range.");
+  const normalized = value.toFixed(18).replace(/0+$/, "").replace(/\.$/, "");
+  return window.ethers.parseUnits(normalized, 18);
+}
+
+function readTradeAmount() {
+  const usdValue = readTradeUsdValue();
+  const { symbol, usdPrice } = tradeInputAsset();
+  const amount = parseTradeAssetUnits(usdValue / usdPrice);
   if (amount <= 0n) throw new Error("Enter an amount greater than zero.");
   if (amount > (1n << 128n) - 1n) throw new Error("That amount is too large.");
-  return amount;
+  return { amount, usdValue, symbol, usdPrice };
+}
+
+function updateTradeInputConversion(details = null) {
+  const element = $("#tradeInputConversion");
+  if (!element) return;
+  try {
+    const conversion = details || readTradeAmount();
+    element.textContent = `≈ ${formatTradeUnits(conversion.amount, conversion.symbol)} will leave your wallet`;
+  } catch (error) {
+    const hasInput = Boolean($("#tradeAmount").value.trim());
+    element.textContent = hasInput ? (error?.message || "USD conversion unavailable") : `Converted to ${state.tradeDirection === "buy" ? "RWI" : document.querySelector("#detailSymbol").textContent.replace(/^\$/, "")} at the live spot price`;
+  }
 }
 
 async function validateDirectTradeIntegrations(provider) {
@@ -481,9 +526,11 @@ async function quoteDirectTrade({ quiet = false } = {}) {
   if (!state.tradeSource || state.tradeSource.protocol !== "Uniswap v4") return null;
   const requestId = ++state.tradeQuoteRequest;
   try {
-    const amountIn = readTradeAmount();
+    const tradeAmount = readTradeAmount();
+    const amountIn = tradeAmount.amount;
     const { inputCurrency, outputCurrency, poolKey, zeroForOne } = directTradeCurrencies();
     if (!quiet) $("#tradeQuote").textContent = "Reading v4 pool…";
+    updateTradeInputConversion(tradeAmount);
     const provider = new window.ethers.JsonRpcProvider(RPC_URL, 4663, { staticNetwork: true });
     await validateDirectTradeIntegrations(provider);
     const quoter = new window.ethers.Contract(V4_QUOTER, [
@@ -494,7 +541,7 @@ async function quoteDirectTrade({ quiet = false } = {}) {
     if (amountOut <= 0n) throw new Error("The pool returned no output for that amount.");
     const minimumAmountOut = amountOut * (10_000n - DIRECT_TRADE_SLIPPAGE_BPS) / 10_000n;
     const outputSymbol = state.tradeDirection === "buy" ? document.querySelector("#detailSymbol").textContent.replace(/^\$/, "") : "RWI";
-    state.tradeQuote = { amountIn, amountOut, minimumAmountOut, inputCurrency, outputCurrency, poolKey, zeroForOne };
+    state.tradeQuote = { amountIn, amountOut, minimumAmountOut, inputCurrency, outputCurrency, poolKey, zeroForOne, usdValue: tradeAmount.usdValue, inputSymbol: tradeAmount.symbol };
     $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, outputSymbol);
     setDirectTradeStatus("Direct route found. The displayed minimum includes a 3% price-movement buffer.");
     return state.tradeQuote;
@@ -507,8 +554,8 @@ async function quoteDirectTrade({ quiet = false } = {}) {
       : (error?.shortMessage || error?.message || "A direct quote is not available.");
     setDirectTradeStatus(message, true);
     if (!quiet && !$("#tradeAmount").value.trim()) {
-      $("#tradeQuote").textContent = "Enter an amount";
-      setDirectTradeStatus("Quotes and swaps use Uniswap's official v4 contracts on Robinhood Chain. A 3% minimum-output buffer is enforced.");
+      $("#tradeQuote").textContent = "Enter a USD amount";
+      setDirectTradeStatus(DIRECT_TRADE_DEFAULT_STATUS);
     }
     return null;
   }
@@ -517,9 +564,11 @@ async function quoteDirectTrade({ quiet = false } = {}) {
 function scheduleDirectTradeQuote() {
   clearTimeout(scheduleDirectTradeQuote.timer);
   state.tradeQuote = null;
+  updateTradeInputConversion();
+  syncQuickTradeAmounts();
   if (!$("#tradeAmount").value.trim()) {
-    $("#tradeQuote").textContent = "Enter an amount";
-    setDirectTradeStatus("Quotes and swaps use Uniswap's official v4 contracts on Robinhood Chain. A 3% minimum-output buffer is enforced.");
+    $("#tradeQuote").textContent = "Enter a USD amount";
+    setDirectTradeStatus(DIRECT_TRADE_DEFAULT_STATUS);
     refreshPoolActivation();
     return;
   }
@@ -532,10 +581,28 @@ function selectTradeDirection(direction) {
   $("#tradeBuyTab").setAttribute("aria-selected", String(direction === "buy"));
   $("#tradeSellTab").setAttribute("aria-selected", String(direction === "sell"));
   $("#tradeDirectionLabel").textContent = direction === "buy" ? "Buy token" : "Sell token";
-  $("#tradeInputSymbol").textContent = direction === "buy"
-    ? "RWI"
-    : document.querySelector("#detailSymbol").textContent.replace(/^\$/, "");
-  $("#tradeAmount").placeholder = direction === "buy" ? "0.001" : "100";
+  $("#tradeInputLabel").textContent = direction === "buy" ? "USD amount to spend" : "USD value to sell";
+  $("#tradeInputSymbol").textContent = "USD";
+  $("#tradeAmount").placeholder = "25.00";
+  $("#tradeQuoteLabel").textContent = direction === "buy" ? "Tokens received at least" : "RWI received at least";
+  if (!state.tradeInFlight) $("#directTradeButton").textContent = directTradeButtonText();
+  scheduleDirectTradeQuote();
+}
+
+function directTradeButtonText() {
+  const action = state.tradeDirection === "buy" ? "buy" : "sell";
+  return window.ethereum?.request ? `${action === "buy" ? "Buy" : "Sell"} through Uniswap v4` : `Connect wallet to ${action}`;
+}
+
+function syncQuickTradeAmounts() {
+  const value = $("#tradeAmount").value.trim();
+  document.querySelectorAll("[data-trade-usd]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(Number(value) === Number(button.dataset.tradeUsd)));
+  });
+}
+
+function setQuickTradeAmount(value) {
+  $("#tradeAmount").value = String(value);
   scheduleDirectTradeQuote();
 }
 
@@ -610,7 +677,7 @@ async function executeDirectTrade() {
       "function approve(address spender,uint256 amount) returns (bool)",
     ], signer);
     const balance = await inputToken.balanceOf(account);
-    if (balance < quote.amountIn) throw new Error("Your wallet does not have enough of the input token.");
+    if (balance < quote.amountIn) throw new Error(`Your wallet does not have enough ${quote.inputSymbol} for this $${quote.usdValue.toLocaleString("en-US", { maximumFractionDigits: 2 })} trade.`);
 
     if (await inputToken.allowance(account, PERMIT2) < quote.amountIn) {
       button.textContent = "Approve token in wallet…";
@@ -651,7 +718,7 @@ async function executeDirectTrade() {
   } finally {
     state.tradeInFlight = false;
     button.disabled = false;
-    button.textContent = window.ethereum?.request ? "Trade through Uniswap v4" : "Connect wallet to trade";
+    button.textContent = directTradeButtonText();
   }
 }
 
@@ -661,7 +728,7 @@ function setupDirectTrade(launch) {
     : null;
   $("#directV4Trade").hidden = !state.tradeSource;
   if (!state.tradeSource) return;
-  $("#directTradeButton").textContent = window.ethereum?.request ? "Trade through Uniswap v4" : "Connect wallet to trade";
+  $("#directTradeButton").textContent = directTradeButtonText();
   selectTradeDirection("buy");
   refreshPoolActivation();
 }
@@ -1043,6 +1110,7 @@ $("#copyTokenAddress").addEventListener("click", async () => {
 $("#tradeBuyTab").addEventListener("click", () => selectTradeDirection("buy"));
 $("#tradeSellTab").addEventListener("click", () => selectTradeDirection("sell"));
 $("#tradeAmount").addEventListener("input", scheduleDirectTradeQuote);
+document.querySelectorAll("[data-trade-usd]").forEach((button) => button.addEventListener("click", () => setQuickTradeAmount(button.dataset.tradeUsd)));
 $("#directTradeButton").addEventListener("click", executeDirectTrade);
 
 window.addEventListener?.("beforeunload", () => {
@@ -1055,6 +1123,7 @@ if (!window.RWI_TOKEN_PAGE_TEST_MODE) window.RWI_TOKEN_PAGE_READY = loadTokenPag
 window.RWITokenPage = {
   uniswapSwapUrl, isAddress, resolveAssetUrl, normalizeSocialUrl, loadTokenPage, withTimeout,
   directTradePoolKey, directTradeCurrencies, encodeDirectV4Swap, validateDirectTradeIntegrations,
+  readTradeUsdValue, tradeInputAsset, parseTradeAssetUnits, readTradeAmount,
   selectDexScreenerPair, tokenMarketValues, tokenMarketChange24h, renderDexScreenerPair, renderDextoolsChart,
   quoteFromSqrtPrice, rwiUsdPriceFromPairs, readOnchainMarketValues, formatUsdPrice,
 };
