@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0.0",
+  "requestType": "Launchpad Addition",
+  "launchpad": {
+    "name": "RWI Launchpad",
+    "url": "https://rwilaunch.vercel.app/",
+    "twitter": "https://x.com/RWIrobinhood",
+    "telegram": "https://t.me/RWIonRobinhood"
+  },
+  "network": {
+    "name": "Robinhood Chain",
+    "chainId": 4663,
+    "rpc": "https://rpc.mainnet.chain.robinhood.com",
+    "explorer": "https://robinhoodchain.blockscout.com"
+  },
+  "protocol": {
+    "fork": "Uniswap V4",
+    "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "universalRouter": "0x8876789976dEcBfCbBbe364623C63652db8C0904",
+    "stateView": "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b",
+    "factoryHook": "0x0Fb46f019eBf66D0767E891f8fACe687F1156088",
+    "factoryHookDeploymentBlock": 26265769,
+    "factoryHookSource": "https://robinhoodchain.blockscout.com/address/0x0Fb46f019eBf66D0767E891f8fACe687F1156088?tab=contract",
+    "poolFeeBps": 100,
+    "tickSpacing": 200
+  },
+  "launchRules": {
+    "quoteTokenCanChange": false,
+    "quoteToken": {
+      "symbol": "RWI",
+      "address": "0x2286397228be256529BE1ae9ed8D7d16549e9C6A"
+    },
+    "fixedTokenSupply": "1000000000000000000000000000",
+    "fixedTokenSupplyDisplay": "1000000000",
+    "poolAllocationBps": 10000,
+    "graduation": false,
+    "migration": false,
+    "liquidityPermanentlyLocked": true
+  },
+  "fees": {
+    "uniswapV4LpFee": "1% per swap",
+    "launchpadFee": "0%",
+    "lpFeeBeneficiary": "Token creator",
+    "creatorClaimAsset": "Native ETH",
+    "notes": "The immutable hook owns the raw v4 position. It has no negative-liquidity or admin-withdrawal path. Creator fee revenue is collected without removing principal liquidity."
+  },
+  "eventDiscovery": {
+    "launchEvent": "TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
+    "launchEventTopic0": "0xf07793eca258527bb50425fdfd999c5f58071aa8bb93982a0da11483fcbd1e52",
+    "launchGetter": "launches(address):(address,bytes32,uint256,uint128,bool,uint256,uint256,int24,int24)",
+    "poolKeyGetter": "poolKey(address):((address,address,uint24,int24,address))",
+    "positionOwner": "0x0Fb46f019eBf66D0767E891f8fACe687F1156088",
+    "positionSalt": "0x0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "liveSamples": {
+    "token": "0x0327C02821aE603caD215c796080B232C39549b3",
+    "poolId": "0xf538a16c48cf79adc9c1eea2dba7304275ba1461a87ba1ac9dd970700a1c011d",
+    "poolInitialization": "https://robinhoodchain.blockscout.com/tx/0xb5cd555c641128a8e7e9a264de377e9597efd35fcfe4068769e8e7fb3103469c",
+    "buySwap": "https://robinhoodchain.blockscout.com/tx/0x5a97835b7d6d1a3be89c4f1a2fd331afd84b9c62df848deb2d673ed903c21b9c",
+    "sellSwap": "https://robinhoodchain.blockscout.com/tx/0xc5a8de333208b1b5ddeda3d635f9305e9e75dfc7cc2034b797c768c87e376849",
+    "graduationEvent": "N/A - tokens launch directly into their final Uniswap v4 pool and never graduate or migrate",
+    "geckoTerminalPool": "https://www.geckoterminal.com/robinhood/pools/0xf538a16c48cf79adc9c1eea2dba7304275ba1461a87ba1ac9dd970700a1c011d",
+    "dexScreenerPool": "https://dexscreener.com/robinhood/0xf538a16c48cf79adc9c1eea2dba7304275ba1461a87ba1ac9dd970700a1c011d"
+  },
+  "liquidityVerification": {
+    "stateViewReads": [
+      "getLiquidity(bytes32)",
+      "getSlot0(bytes32)",
+      "getPositionInfo(bytes32,address,int24,int24,bytes32)"
+    ],
+    "instructions": "Read the token launch record, then call StateView.getPositionInfo with the factory hook as owner, the recorded tick range, and the zero salt. The returned position liquidity must equal the launch record liquidity."
+  }
+}
