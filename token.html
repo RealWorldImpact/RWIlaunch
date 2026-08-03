@@ -33,7 +33,7 @@
           <p class="eyebrow">Direct TOKEN / RWI market</p>
           <div class="token-detail-title-row">
             <div><p id="detailSymbol">$TOKEN</p><h1 id="detailName">Token</h1></div>
-            <span class="status-badge">LP locked forever</span>
+            <span class="status-badge" id="liquidityStatusBadge">LP locked forever</span>
           </div>
           <p class="token-detail-description" id="detailDescription">Loading token information…</p>
           <div class="token-social-links" id="tokenSocialLinks" hidden>
@@ -112,7 +112,7 @@
       <section class="token-facts" id="tokenFacts" hidden>
         <article><span>Total supply</span><strong id="detailSupply">1,000,000,000</strong><small>Fixed · no future minting</small></article>
         <article><span>Uniswap pair</span><strong id="detailPair">TOKEN / RWI</strong><small>1% pool fee</small></article>
-        <article><span>Locked position</span><strong id="detailPosition">#0</strong><small>Custodied permanently by the launch system</small></article>
+        <article><span>Locked position</span><strong id="detailPosition">#0</strong><small id="detailLiquidityStatus">Checking the live position onchain</small></article>
         <article><span>Launch path</span><strong>Direct pool</strong><small>No bonding curve or graduation</small></article>
       </section>
 
@@ -137,10 +137,12 @@
           <div class="market-links">
             <a id="uniswapTokenPage" href="#" target="_blank" rel="noreferrer">View on Uniswap ↗</a>
             <a id="poolExplorer" href="#" target="_blank" rel="noreferrer">Pool explorer ↗</a>
+            <a id="dexScreenerPool" href="#" target="_blank" rel="noreferrer">Dexscreener pool ↗</a>
             <a id="geckoTerminalPool" href="#" target="_blank" rel="noreferrer">GeckoTerminal pool ↗</a>
+            <a id="liquidityProof" href="rwi-launchpad-manifest.json" target="_blank" rel="noreferrer">Liquidity lock proof ↗</a>
             <a href="https://www.geckoterminal.com/request-form/update-token" target="_blank" rel="noreferrer">Submit GeckoTerminal logo ↗</a>
           </div>
-          <p>Always verify both contract addresses before confirming a transaction. A new single-sided pool needs one real buy before GeckoTerminal can report its price, volume, and reserves.</p>
+          <p>Always verify both contract addresses before confirming a transaction. Dex indexers need a real swap before they can discover a new pool; lock and reserve badges remain controlled by each indexer.</p>
         </article>
       </section>
     </main>
@@ -158,6 +160,6 @@
     <script src="factory-abi.js"></script>
     <script src="profile-registry-config.js"></script>
     <script src="profile-registry-abi.js"></script>
-    <script src="token.js?v=20260802-usd-trading"></script>
+    <script src="token.js?v=20260802-indexer-proof"></script>
   </body>
 </html>

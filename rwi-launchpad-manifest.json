@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "RWI Launchpad",
+  "network": {
+    "name": "Robinhood Chain",
+    "chainId": 4663,
+    "rpc": "https://rpc.mainnet.chain.robinhood.com",
+    "explorer": "https://robinhoodchain.blockscout.com"
+  },
+  "protocol": "Uniswap v4",
+  "pairAsset": {
+    "symbol": "RWI",
+    "address": "0x2286397228be256529BE1ae9ed8D7d16549e9C6A"
+  },
+  "factoryHook": {
+    "address": "0x0Fb46f019eBf66D0767E891f8fACe687F1156088",
+    "deploymentBlock": 26265769,
+    "sourceVerified": true,
+    "runtimeCodeHash": "0x5a5a63423b3878f945a0ae6de1149511ac591b3c0c735abd90af082e6d5b6896",
+    "explorer": "https://robinhoodchain.blockscout.com/address/0x0Fb46f019eBf66D0767E891f8fACe687F1156088?tab=contract"
+  },
+  "uniswapV4": {
+    "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "stateView": "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b",
+    "universalRouter": "0x8876789976dEcBfCbBbe364623C63652db8C0904",
+    "quoter": "0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94",
+    "fee": 10000,
+    "tickSpacing": 200,
+    "positionOwner": "0x0Fb46f019eBf66D0767E891f8fACe687F1156088",
+    "positionSalt": "0x0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "discovery": {
+    "event": "TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
+    "eventTopic0": "0xf07793eca258527bb50425fdfd999c5f58071aa8bb93982a0da11483fcbd1e52",
+    "launchGetter": "launches(address):(address,bytes32,uint256,uint128,bool,uint256,uint256,int24,int24)",
+    "poolKeyGetter": "poolKey(address):((address,address,uint24,int24,address))",
+    "stateViewReads": [
+      "getLiquidity(bytes32)",
+      "getSlot0(bytes32)",
+      "getPositionInfo(bytes32,address,int24,int24,bytes32)"
+    ]
+  },
+  "liquidityLock": {
+    "type": "immutable-hook-owned-v4-position",
+    "permanent": true,
+    "upgradeable": false,
+    "adminLiquidityWithdrawal": false,
+    "negativeLiquidityDeltaPath": false,
+    "launchRecordFlag": "liquidityPermanentlyLocked",
+    "verification": "Read the launch record, then compare its liquidity with StateView.getPositionInfo using the factory hook as owner and the zero salt. StateView.getLiquidity must also be nonzero while the current tick is inside the recorded range."
+  },
+  "launchRules": {
+    "fixedSupply": "1000000000000000000000000000",
+    "fixedSupplyDisplay": "1000000000",
+    "poolAllocationBps": 10000,
+    "initialRwiLiquidity": "0",
+    "graduation": false,
+    "migration": false
+  }
+}

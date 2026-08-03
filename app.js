@@ -2132,6 +2132,38 @@ function sameAddress(left, right) {
   return String(left).toLowerCase() === String(right).toLowerCase();
 }
 
+async function verifyNewLaunchLiquidity(provider, launchFactory, tokenAddress, expectedPoolId) {
+  const ethers = window.ethers;
+  const factoryAddress = await launchFactory.getAddress();
+  const stateView = new ethers.Contract(FACTORY_CONFIG.uniswapV4StateView, [
+    "function getLiquidity(bytes32 poolId) view returns (uint128 liquidity)",
+    "function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96,int24 tick,uint24 protocolFee,uint24 lpFee)",
+    "function getPositionInfo(bytes32 poolId,address owner,int24 tickLower,int24 tickUpper,bytes32 salt) view returns (uint128 liquidity,uint256 feeGrowthInside0LastX128,uint256 feeGrowthInside1LastX128)",
+  ], provider);
+  const record = await launchFactory.launches(tokenAddress);
+  const poolId = String(record.poolId);
+  const tickLower = Number(record.tickLower);
+  const tickUpper = Number(record.tickUpper);
+  const [activeLiquidity, positionInfo, slot0] = await Promise.all([
+    stateView.getLiquidity(poolId),
+    stateView.getPositionInfo(poolId, factoryAddress, tickLower, tickUpper, ethers.ZeroHash),
+    stateView.getSlot0(poolId),
+  ]);
+  const recordedLiquidity = BigInt(record.liquidity);
+  const positionLiquidity = BigInt(positionInfo.liquidity ?? positionInfo[0]);
+  const liveLiquidity = BigInt(activeLiquidity);
+  const currentTick = Number(slot0.tick ?? slot0[1]);
+  const failures = [];
+  if (poolId.toLowerCase() !== String(expectedPoolId).toLowerCase()) failures.push("pool ID mismatch");
+  if (!record.liquidityPermanentlyLocked) failures.push("lock flag missing");
+  if (recordedLiquidity === 0n) failures.push("recorded liquidity is zero");
+  if (positionLiquidity !== recordedLiquidity) failures.push("live position differs from the launch record");
+  if (liveLiquidity === 0n) failures.push("active pool liquidity is zero");
+  if (currentTick < tickLower || currentTick >= tickUpper) failures.push("opening price is outside the locked range");
+  if (failures.length) throw new Error(`Onchain liquidity check: ${failures.join(", ")}.`);
+  return { recordedLiquidity, positionLiquidity, liveLiquidity, currentTick, tickLower, tickUpper };
+}
+
 async function validateFactoryDeployment(provider, address) {
   const ethers = window.ethers;
   const network = await provider.getNetwork();
@@ -2448,6 +2480,23 @@ async function launchOnUniswap() {
       }
     }
 
+    let liquidityVerification = null;
+    let liquidityVerificationWarning = null;
+    if (launchEvent?.args.token && launchEvent?.args.poolId) {
+      try {
+        button.textContent = "Verifying locked liquidity…";
+        $("#modalNote").textContent = "Checking the live Uniswap position, active liquidity, price range, and permanent lock record onchain.";
+        liquidityVerification = await verifyNewLaunchLiquidity(
+          provider,
+          launchFactory,
+          launchEvent.args.token,
+          launchEvent.args.poolId,
+        );
+      } catch (liquidityError) {
+        liquidityVerificationWarning = String(liquidityError?.message || "The live liquidity check could not be completed.").slice(0, 220);
+      }
+    }
+
     state.lastLaunchTx = transaction.hash;
     state.lastTokenAddress = launchEvent?.args.token || null;
     state.lastPoolAddress = null;
@@ -2484,14 +2533,19 @@ async function launchOnUniswap() {
     }
     $("#modalTitle").textContent = "Your token is live.";
     const publicationWarning = assetPersistenceWarning || publicMetadataWarning;
-    $("#modalCopy").textContent = publicMetadataPublication
+    const liquidityCopy = liquidityVerification
+      ? " The live position matches the launch record and is active inside its locked range."
+      : liquidityVerificationWarning
+        ? ` Liquidity verification warning: ${liquidityVerificationWarning}`
+        : "";
+    $("#modalCopy").textContent = (publicMetadataPublication
       ? "The v4 pool opened at the factory-enforced, tick-rounded $10,000 valuation, and the creator-verified 512×512 logo is now publicly hosted for every launchpad visitor."
       : publicationWarning
         ? `The token and v4 pool are live. ${publicationWarning} Download the publish-ready kit as a backup.`
-        : "The token and v4 pool are live. Download the publish-ready metadata kit as a backup.";
+        : "The token and v4 pool are live. Download the publish-ready metadata kit as a backup.") + liquidityCopy;
     $("#modalNote").textContent = launchEvent
       ? (BigInt(launchEvent.args.initialRwiAmount) > 0n
-        ? `Token ${launchEvent.args.token.slice(0, 8)}… launched with a ${formatUnits(BigInt(launchEvent.args.initialRwiAmount), 18, 6)} RWI first purchase. The LP is locked forever and the pool already has real swap activity.`
+        ? `Token ${launchEvent.args.token.slice(0, 8)}… launched with a ${formatUnits(BigInt(launchEvent.args.initialRwiAmount), 18, 6)} RWI first purchase. The LP is locked forever${liquidityVerification ? ", its live position was verified," : ""} and the pool already has real swap activity.`
         : `Token ${launchEvent.args.token.slice(0, 8)}… paired with $RWI in v4 pool ${launchEvent.args.poolId.slice(0, 10)}…. Liquidity is locked forever. One real swap is required before market indexers can report price and volume.`)
       : "Launch confirmed. The TOKEN / $RWI pool is live, its LP is locked forever, and there is no graduation step.";
     if (state.lastTokenAddress) $("#uniswapTradeButton").hidden = false;

@@ -30,6 +30,8 @@ const DEXSCREENER_REFRESH_MS = 30_000;
 const RWI_USD_CACHE_MS = 60_000;
 const V4_STATE_VIEW_ABI = Object.freeze([
   "function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96,int24 tick,uint24 protocolFee,uint24 lpFee)",
+  "function getLiquidity(bytes32 poolId) view returns (uint128 liquidity)",
+  "function getPositionInfo(bytes32 poolId,address owner,int24 tickLower,int24 tickUpper,bytes32 salt) view returns (uint128 liquidity,uint256 feeGrowthInside0LastX128,uint256 feeGrowthInside1LastX128)",
 ]);
 const V3_SPOT_POOL_ABI = Object.freeze([
   "function token0() view returns (address)",
@@ -658,6 +660,55 @@ async function refreshPoolActivation() {
   }
 }
 
+async function verifyDisplayedLiquidity(launch) {
+  const status = $("#detailLiquidityStatus");
+  const badge = $("#liquidityStatusBadge");
+  if (launch.protocol !== "Uniswap v4" || !launch.poolId) {
+    status.textContent = "Permanent lock recorded by the launch factory";
+    return;
+  }
+  if (!launch.factoryAddress || launch.tickLower === null || launch.tickUpper === null || launch.liquidity === null) {
+    status.textContent = launch.liquidityPermanentlyLocked ? "Permanent lock recorded onchain" : "Lock record unavailable";
+    return;
+  }
+  try {
+    const provider = marketProvider();
+    const stateView = new window.ethers.Contract(V4_STATE_VIEW, V4_STATE_VIEW_ABI, provider);
+    const [activeLiquidity, positionInfo, slot0] = await Promise.all([
+      stateView.getLiquidity(launch.poolId),
+      stateView.getPositionInfo(
+        launch.poolId,
+        launch.factoryAddress,
+        launch.tickLower,
+        launch.tickUpper,
+        window.ethers.ZeroHash,
+      ),
+      stateView.getSlot0(launch.poolId),
+    ]);
+    const recordedLiquidity = BigInt(launch.liquidity);
+    const positionLiquidity = BigInt(positionInfo.liquidity ?? positionInfo[0]);
+    const currentTick = Number(slot0.tick ?? slot0[1]);
+    const inRange = currentTick >= launch.tickLower && currentTick < launch.tickUpper;
+    if (
+      launch.liquidityPermanentlyLocked
+      && recordedLiquidity > 0n
+      && BigInt(activeLiquidity) > 0n
+      && positionLiquidity === recordedLiquidity
+      && inRange
+    ) {
+      badge.textContent = "LP lock verified live";
+      status.textContent = "Verified active · full position intact";
+      return;
+    }
+    badge.textContent = "Check LP status";
+    status.textContent = "Live position does not match every launch guarantee";
+  } catch {
+    status.textContent = launch.liquidityPermanentlyLocked
+      ? "Permanent lock recorded · live read unavailable"
+      : "Lock record unavailable";
+  }
+}
+
 async function executeDirectTrade() {
   if (state.tradeInFlight) return;
   const button = $("#directTradeButton");
@@ -1010,6 +1061,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#buyOnUniswap").href = uniswapSwapUrl(RWI_ADDRESS, address);
   $("#sellOnUniswap").href = uniswapSwapUrl(address, RWI_ADDRESS);
   $("#uniswapTokenPage").href = `https://app.uniswap.org/explore/tokens/robinhood/${address}`;
+  $("#dexScreenerPool").href = `https://dexscreener.com/robinhood/${launch.poolId || launch.pool}`;
   if (launch.pool) {
     $("#poolExplorer").href = `${EXPLORER_URL}/address/${launch.pool}`;
     $("#poolExplorer").textContent = "Pool explorer ↗";
@@ -1020,6 +1072,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
     $("#geckoTerminalPool").href = `https://www.geckoterminal.com/robinhood/pools/${launch.poolId}`;
   }
   setupDirectTrade(launch);
+  verifyDisplayedLiquidity(launch);
   renderCreator(launch.creator, creatorProfile);
   $("#tokenPageStatus").hidden = true;
   $("#tokenDetail").hidden = false;
@@ -1085,7 +1138,18 @@ async function loadTokenPage() {
       symbol,
       decimals: Number(decimals),
       supply,
-      launch: { creator: launch.creator, pool, poolId, protocol: factoryLaunch.source.protocol, positionTokenId: BigInt(launch.positionTokenId), factoryAddress: factoryLaunch.factoryAddress },
+      launch: {
+        creator: launch.creator,
+        pool,
+        poolId,
+        protocol: factoryLaunch.source.protocol,
+        positionTokenId: BigInt(launch.positionTokenId),
+        factoryAddress: factoryLaunch.factoryAddress,
+        liquidity: isV4 ? BigInt(launch.liquidity) : null,
+        liquidityPermanentlyLocked: Boolean(launch.liquidityPermanentlyLocked),
+        tickLower: isV4 ? Number(launch.tickLower) : null,
+        tickUpper: isV4 ? Number(launch.tickUpper) : null,
+      },
       metadata,
       creatorProfile,
     });
