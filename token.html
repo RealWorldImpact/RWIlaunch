@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260802-dextools" />
+    <link rel="stylesheet" href="styles.css?v=20260802-onchain-price" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -45,6 +45,10 @@
             <code id="detailAddress">0x0000000000000000000000000000000000000000</code>
             <button id="copyTokenAddress" type="button">Copy contract</button>
           </div>
+        </div>
+      </section>
+
+      <section class="token-market-stack" id="tokenMarketStack" hidden aria-label="Token market and trading">
           <section class="compact-market-chart" id="tokenMarketLive" hidden aria-label="Live DEXTools token chart">
             <header class="compact-market-header">
               <div class="compact-market-price">
@@ -96,7 +100,6 @@
             <a class="button token-sell-button" id="sellOnUniswap" href="#" target="_blank" rel="noreferrer">Open sell in Uniswap App</a>
           </div>
           <p class="uniswap-route-note">The direct trader targets this exact v4 pool. The Uniswap App links remain available for pools already discovered by its route service.</p>
-        </div>
       </section>
 
       <section class="token-facts" id="tokenFacts" hidden>
@@ -148,6 +151,6 @@
     <script src="factory-abi.js"></script>
     <script src="profile-registry-config.js"></script>
     <script src="profile-registry-abi.js"></script>
-    <script src="token.js?v=20260802-dextools"></script>
+    <script src="token.js?v=20260802-onchain-price"></script>
   </body>
 </html>
