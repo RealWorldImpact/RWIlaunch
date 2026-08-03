@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260802-onchain-price" />
+    <link rel="stylesheet" href="styles.css?v=20260802-usd-trading" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -88,13 +88,20 @@
               <button id="tradeSellTab" type="button" role="tab" aria-selected="false">Sell</button>
             </div>
             <label class="direct-trade-input" for="tradeAmount">
-              <span>You pay</span>
-              <span><input id="tradeAmount" inputmode="decimal" autocomplete="off" placeholder="0.001" /><strong id="tradeInputSymbol">RWI</strong></span>
+              <span id="tradeInputLabel">USD amount to spend</span>
+              <span class="direct-trade-value"><b aria-hidden="true">$</b><input id="tradeAmount" inputmode="decimal" autocomplete="off" placeholder="25.00" aria-describedby="tradeInputConversion directTradeStatus" /><strong id="tradeInputSymbol">USD</strong></span>
+              <small id="tradeInputConversion" aria-live="polite">Converted to RWI at the live spot price</small>
             </label>
-            <div class="direct-trade-quote"><span>You receive at least</span><strong id="tradeQuote">Enter an amount</strong></div>
-            <button class="button button-lime direct-trade-button" id="directTradeButton" type="button">Connect wallet to trade</button>
-            <p class="direct-trade-status" id="directTradeStatus">Quotes and swaps use Uniswap's official v4 contracts on Robinhood Chain. A 3% minimum-output buffer is enforced.</p>
+            <div class="trade-quick-amounts" aria-label="Quick USD amounts">
+              <button type="button" data-trade-usd="10" aria-pressed="false">$10</button>
+              <button type="button" data-trade-usd="25" aria-pressed="false">$25</button>
+              <button type="button" data-trade-usd="100" aria-pressed="false">$100</button>
+            </div>
+            <div class="direct-trade-quote"><span id="tradeQuoteLabel">Tokens received at least</span><strong id="tradeQuote" aria-live="polite">Enter a USD amount</strong></div>
+            <button class="button button-lime direct-trade-button" id="directTradeButton" type="button">Connect wallet to buy</button>
+            <p class="direct-trade-status" id="directTradeStatus">USD size converts at the live onchain spot price. The Uniswap quote then reflects pool price impact and includes a 3% minimum-output buffer.</p>
           </section>
+          <p class="trade-alternative-label">Or continue in the Uniswap App</p>
           <div class="token-trade-actions">
             <a class="button button-lime" id="buyOnUniswap" href="#" target="_blank" rel="noreferrer">Open buy in Uniswap App</a>
             <a class="button token-sell-button" id="sellOnUniswap" href="#" target="_blank" rel="noreferrer">Open sell in Uniswap App</a>
@@ -151,6 +158,6 @@
     <script src="factory-abi.js"></script>
     <script src="profile-registry-config.js"></script>
     <script src="profile-registry-abi.js"></script>
-    <script src="token.js?v=20260802-onchain-price"></script>
+    <script src="token.js?v=20260802-usd-trading"></script>
   </body>
 </html>
