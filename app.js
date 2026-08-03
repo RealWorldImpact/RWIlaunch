@@ -2,7 +2,7 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260803-description-fix";
+const RELEASE_VERSION = "20260803-usd-dev-buy";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
@@ -107,6 +107,8 @@ const state = {
   lastTokenAddress: null,
   lastPoolAddress: null,
   lastPoolId: null,
+  lastDevBuyRwiAmount: 0n,
+  lastDevBuyUsdAmount: "0",
   factoryDeploymentInFlight: false,
   lastFactoryAddress: null,
   creatorLaunches: [],
@@ -153,7 +155,7 @@ const fields = {
   name: $("#tokenName"), ticker: $("#tokenTicker"), description: $("#tokenDescription"),
   image: $("#tokenImage"),
   website: $("#website"), twitter: $("#twitter"), telegram: $("#telegram"),
-  devBuy: $("#devBuyRwi"),
+  devBuy: $("#devBuyUsd"),
   lock: $("#lockLiquidity"),
 };
 
@@ -199,18 +201,29 @@ async function ensureEthersLibrary() {
   return ethersLibraryPromise;
 }
 
-function parseDecimalAmount(value, decimals = 18) {
+function parseDecimalAmount(value, decimals = 18, label = "amount") {
   const normalized = String(value || "").trim();
   if (!normalized) return 0n;
-  if (!/^(?:0|[1-9]\d*)(?:\.\d*)?$/.test(normalized)) throw new Error("Enter a valid RWI amount.");
+  if (!/^(?:0|[1-9]\d*)(?:\.\d*)?$/.test(normalized)) throw new Error(`Enter a valid ${label} amount.`);
   const [whole, fraction = ""] = normalized.split(".");
   if (fraction.length > decimals) throw new Error(`Use no more than ${decimals} decimal places.`);
   return BigInt(whole) * 10n ** BigInt(decimals) + BigInt((fraction || "0").padEnd(decimals, "0"));
 }
 
-function configuredDevBuyAmount() {
-  const amount = parseDecimalAmount(fields.devBuy.value, 18);
-  if (amount > (1n << 127n) - 1n) throw new Error("The dev buy amount is too large.");
+function configuredDevBuyUsdAmount() {
+  const amount = parseDecimalAmount(fields.devBuy.value, 18, "USD");
+  if (amount > 1_000_000n * 10n ** 18n) throw new Error("The optional dev buy cannot exceed $1,000,000.");
+  return amount;
+}
+
+function rwiAmountForUsd(usdAmountE18, rwiUsdPrice) {
+  if (usdAmountE18 === 0n) return 0n;
+  const numericPrice = Number(rwiUsdPrice);
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) throw new Error("The RWI/USD price is unavailable.");
+  const priceE18 = window.ethers.parseUnits(numericPrice.toFixed(18), 18);
+  if (priceE18 <= 0n) throw new Error("The RWI/USD price is unavailable.");
+  const amount = usdAmountE18 * 10n ** 18n / priceE18;
+  if (amount <= 0n || amount > (1n << 127n) - 1n) throw new Error("The optional dev buy amount is outside the supported range.");
   return amount;
 }
 
@@ -265,14 +278,7 @@ function updatePreview() {
   $("#previewDescription").textContent = description;
   $("#previewPair").textContent = `${ticker} / RWI`;
   $("#fixedPairLabel").textContent = `${ticker} / $RWI`;
-  let devBuyLabel = "0 RWI required";
-  try {
-    const devBuyAmount = configuredDevBuyAmount();
-    if (devBuyAmount > 0n) devBuyLabel = `${formatUnits(devBuyAmount, 18, 6)} RWI dev buy`;
-  } catch {
-    devBuyLabel = "Check dev buy amount";
-  }
-  $("#previewLiquidity").textContent = devBuyLabel;
+  $("#previewLiquidity").textContent = "0 RWI upfront";
   $("#descriptionCount").textContent = `${fields.description.value.length} / ${TOKEN_DESCRIPTION_MAX_LENGTH}`;
 
   $("#modalName").textContent = name;
@@ -291,15 +297,52 @@ function validateForm() {
   if (fields.name.value.trim().length < 2) return { message: "Add a token name.", element: fields.name };
   if (fields.ticker.value.trim().length < 2) return { message: "Add a ticker symbol.", element: fields.ticker };
   if (!state.imageFile) return { message: "Add and crop a token image.", element: $("#uploadZone") };
+  return null;
+}
+
+function validateDevBuySelection() {
+  fields.devBuy.removeAttribute("aria-invalid");
   try {
-    const devBuyAmount = configuredDevBuyAmount();
-    if (state.rwiBalance !== null && devBuyAmount > state.rwiBalance) {
-      return { message: "The optional dev buy exceeds this wallet's RWI balance.", element: fields.devBuy };
-    }
+    configuredDevBuyUsdAmount();
+    return null;
   } catch (error) {
+    fields.devBuy.setAttribute("aria-invalid", "true");
     return { message: error.message, element: fields.devBuy };
   }
-  return null;
+}
+
+async function updateDevBuyEstimate() {
+  const estimate = $("#devBuyEstimate");
+  const requestId = (updateDevBuyEstimate.requestId || 0) + 1;
+  updateDevBuyEstimate.requestId = requestId;
+  let usdAmount;
+  try {
+    usdAmount = configuredDevBuyUsdAmount();
+  } catch (error) {
+    estimate.textContent = error.message;
+    return;
+  }
+  if (usdAmount === 0n) {
+    estimate.textContent = "Leave blank or enter 0 to skip the dev buy.";
+    return;
+  }
+  estimate.textContent = "Estimating the RWI purchase amount…";
+  try {
+    await ensureEthersLibrary();
+    const provider = new window.ethers.JsonRpcProvider(ROBINHOOD_CHAIN.rpcUrls[0], 4663, { staticNetwork: true });
+    const rwiUsdPrice = await readDiscoverRwiUsdPrice(provider);
+    const rwiAmount = rwiAmountForUsd(usdAmount, rwiUsdPrice);
+    if (requestId !== updateDevBuyEstimate.requestId) return;
+    estimate.textContent = `≈ ${formatUnits(rwiAmount, 18, 6)} RWI at $${Number(rwiUsdPrice).toLocaleString("en-US", { maximumFractionDigits: 8 })} per RWI`;
+  } catch {
+    if (requestId !== updateDevBuyEstimate.requestId) return;
+    estimate.textContent = "The exact RWI amount will be calculated from the live market price before launch.";
+  }
+}
+
+function scheduleDevBuyEstimate() {
+  clearTimeout(scheduleDevBuyEstimate.timer);
+  scheduleDevBuyEstimate.timer = setTimeout(updateDevBuyEstimate, 250);
 }
 
 function showValidation(failure) {
@@ -714,7 +757,6 @@ async function publishLaunchedTokenAssets(signer, address, poolReference, source
     website: fields.website.value,
     twitter: fields.twitter.value,
     telegram: fields.telegram.value,
-    devBuy: fields.devBuy.value,
   };
   const logoSha256 = String(await sha256BlobHex(imageFile)).replace(/^0x/, "");
   const payload = {
@@ -960,7 +1002,6 @@ function restoreDraft() {
     fields.website.value = draft.website || "";
     fields.twitter.value = draft.twitter || "";
     fields.telegram.value = draft.telegram || "";
-    fields.devBuy.value = draft.devBuy || "";
     $("#draftStatus").textContent = "Draft restored";
   } catch {
     localStorage.removeItem(DRAFT_KEY);
@@ -1030,10 +1071,11 @@ async function ensureRobinhoodChain() {
 
 function renderAccount() {
   const button = $("#walletButton");
+  const modalAction = $("#modalWallet").dataset.action;
   if (!state.account) {
     button.textContent = "Connect wallet";
     button.classList.remove("is-connected");
-    if (!state.launchInFlight) $("#modalWallet").textContent = "Connect wallet";
+    if (!state.launchInFlight) $("#modalWallet").textContent = modalAction === "confirm-launch" ? "Launch Token" : "Connect wallet";
     updateBalanceState();
     renderDashboardAccess();
     return;
@@ -1042,6 +1084,11 @@ function renderAccount() {
   button.classList.add("is-connected");
   renderDashboardAccess();
   if (state.launchInFlight) return;
+  if (modalAction === "confirm-launch") {
+    $("#modalWallet").textContent = "Launch Token";
+    updateBalanceState();
+    return;
+  }
   if ($("#modalWallet").dataset.action === "deploy-factory") {
     $("#modalWallet").textContent = "Deploy v4 hook with wallet";
     return;
@@ -1049,7 +1096,7 @@ function renderAccount() {
   if (state.lastLaunchTx) {
     $("#modalWallet").textContent = "View transaction ↗";
   } else if (configuredFactoryAddress()) {
-    $("#modalWallet").textContent = "Launch on Uniswap";
+    $("#modalWallet").textContent = "Launch Token";
   } else {
     $("#modalWallet").textContent = "$10K v4 hook pending deployment";
   }
@@ -2676,6 +2723,7 @@ function openFactoryDeploymentModal() {
   const modal = $(".launch-modal");
   modal.classList.add("is-factory-deploy");
   $("#modalToken").hidden = true;
+  $("#modalDevBuy").hidden = true;
   $("#downloadBrief").hidden = true;
   $("#modalTitle").textContent = FACTORY_CONFIG.launchesPaused ? "Deploy the corrected v4 launch hook." : "Deploy the v4 launch hook.";
   $("#modalCopy").textContent = "Your wallet will submit two Robinhood Chain transactions: a small permissionless CREATE2 helper, then the corrected immutable v4 hook at an address with the required callback permission. No RWI is required.";
@@ -2704,11 +2752,30 @@ async function mineBrowserHookSalt(deployerAddress, creationCodeHash, onProgress
 function restoreLaunchModal() {
   $(".launch-modal").classList.remove("is-factory-deploy");
   $("#modalToken").hidden = false;
+  $("#modalDevBuy").hidden = false;
   $("#downloadBrief").hidden = false;
   $("#downloadBrief").textContent = state.imageFile ? "Download metadata kit" : "Download launch brief";
   delete $("#downloadBrief").dataset.action;
   $("#uniswapTradeButton").hidden = true;
   $("#modalCopy").textContent = "One launch transaction deploys exactly 1 billion tokens at a tick-rounded $10,000 dual-TWAP valuation and allocates 100% of the supply to a token-only TOKEN / $RWI v4 position. An optional dev buy executes only after the LP is locked forever.";
+}
+
+function openLaunchConfirmation() {
+  restoreLaunchModal();
+  state.lastLaunchTx = null;
+  state.lastDevBuyRwiAmount = 0n;
+  state.lastDevBuyUsdAmount = "0";
+  fields.devBuy.value = "";
+  fields.devBuy.removeAttribute("aria-invalid");
+  $("#modalTitle").textContent = "Review your launch.";
+  $("#modalNote").textContent = "Enter an optional USD dev buy or leave it blank, then use the final Launch Token button.";
+  $("#modalWallet").textContent = "Launch Token";
+  $("#modalWallet").dataset.action = "confirm-launch";
+  $("#launchModal").hidden = false;
+  updateBalanceState();
+  updateDevBuyEstimate();
+  syncModalScrollLock();
+  requestAnimationFrame(() => fields.devBuy.focus({ preventScroll: true }));
 }
 
 async function deployFactoryWithWallet() {
@@ -2847,7 +2914,15 @@ async function launchOnUniswap() {
     button.textContent = "Binding public logo to launch…";
     $("#modalNote").textContent = "Preparing one transaction that authorizes both the token launch and its public logo. No second signature will be needed.";
     const launchMetadataAuthorization = await prepareLaunchMetadataAuthorization(signerAddress);
-    const devBuyRwiAmount = configuredDevBuyAmount();
+    const devBuyUsdAmount = configuredDevBuyUsdAmount();
+    let devBuyRwiAmount = 0n;
+    if (devBuyUsdAmount > 0n) {
+      button.textContent = "Converting USD dev buy…";
+      $("#modalNote").textContent = "Calculating the RWI purchase amount from the live RWI/USD market price.";
+      state.discoverRwiUsdPrice = null;
+      const rwiUsdPrice = await readDiscoverRwiUsdPrice(provider);
+      devBuyRwiAmount = rwiAmountForUsd(devBuyUsdAmount, rwiUsdPrice);
+    }
     let params = {
       name: fields.name.value.trim(),
       symbol: cleanTicker(fields.ticker.value),
@@ -2872,7 +2947,7 @@ async function launchOnUniswap() {
       if (BigInt(rwiBalance) < devBuyRwiAmount) throw new Error("The optional dev buy exceeds this wallet's RWI balance.");
       if (BigInt(allowance) < devBuyRwiAmount) {
         button.textContent = "Approve dev-buy RWI…";
-        $("#modalNote").textContent = `Approve exactly ${formatUnits(devBuyRwiAmount, 18, 6)} RWI for the optional first purchase. The token is not launched by this approval.`;
+        $("#modalNote").textContent = `Your $${formatUnits(devBuyUsdAmount, 18, 2)} dev buy is approximately ${formatUnits(devBuyRwiAmount, 18, 6)} RWI. Approve that exact RWI amount for the first purchase.`;
         const approval = await rwiToken.approve(factoryAddress, devBuyRwiAmount);
         button.textContent = "Confirming RWI approval…";
         await approval.wait();
@@ -2899,6 +2974,8 @@ async function launchOnUniswap() {
       to: factoryAddress,
       data: authorizedLaunchCalldata,
     });
+    state.lastDevBuyRwiAmount = devBuyRwiAmount;
+    state.lastDevBuyUsdAmount = formatUnits(devBuyUsdAmount, 18, 2);
     button.textContent = "Creating Uniswap v4 pool…";
     $("#modalNote").textContent = `Transaction submitted · ${transaction.hash.slice(0, 10)}…`;
     const receipt = await transaction.wait();
@@ -2965,6 +3042,7 @@ async function launchOnUniswap() {
       }
     }
     $("#modalTitle").textContent = "Your token is live.";
+    $("#modalDevBuy").hidden = true;
     const publicationWarning = assetPersistenceWarning || publicMetadataWarning;
     const liquidityCopy = liquidityVerification
       ? " The live position matches the launch record and is active inside its locked range."
@@ -2978,7 +3056,7 @@ async function launchOnUniswap() {
         : "The token and v4 pool are live. Download the publish-ready metadata kit as a backup.") + liquidityCopy;
     $("#modalNote").textContent = launchEvent
       ? (BigInt(launchEvent.args.initialRwiAmount) > 0n
-        ? `Token ${launchEvent.args.token.slice(0, 8)}… launched with a ${formatUnits(BigInt(launchEvent.args.initialRwiAmount), 18, 6)} RWI first purchase. The LP is locked forever${liquidityVerification ? ", its live position was verified," : ""} and the pool already has real swap activity.`
+        ? `Token ${launchEvent.args.token.slice(0, 8)}… launched with a $${state.lastDevBuyUsdAmount} dev buy (${formatUnits(BigInt(launchEvent.args.initialRwiAmount), 18, 6)} RWI). The LP is locked forever${liquidityVerification ? ", its live position was verified," : ""} and the pool already has real swap activity.`
         : `Token ${launchEvent.args.token.slice(0, 8)}… paired with $RWI in v4 pool ${launchEvent.args.poolId.slice(0, 10)}…. Liquidity is locked forever. One real swap is required before market indexers can report price and volume.`)
       : "Launch confirmed. The TOKEN / $RWI pool is live, its LP is locked forever, and there is no graduation step.";
     if (state.lastTokenAddress) $("#uniswapTradeButton").hidden = false;
@@ -2990,6 +3068,10 @@ async function launchOnUniswap() {
   } catch (error) {
     const message = readableWalletError(error);
     $("#modalNote").textContent = message;
+    if (!state.lastLaunchTx) {
+      button.dataset.action = "confirm-launch";
+      button.textContent = "Launch Token";
+    }
     toast(message);
   } finally {
     state.launchInFlight = false;
@@ -3009,6 +3091,16 @@ async function handleModalPrimary() {
   }
   if ($("#modalWallet").dataset.action === "close") {
     closeModal();
+    return;
+  }
+  if ($("#modalWallet").dataset.action === "confirm-launch") {
+    const failure = validateDevBuySelection();
+    if (failure) {
+      $("#modalNote").textContent = failure.message;
+      failure.element.focus({ preventScroll: true });
+      return;
+    }
+    await launchOnUniswap();
     return;
   }
   if (state.lastLaunchTx) {
@@ -3178,7 +3270,7 @@ async function downloadLaunchBrief() {
     token: { address: state.lastTokenAddress, name: fields.name.value.trim(), ticker, description: fields.description.value.trim(), imageFileName: state.imageFile?.name || null, supply: FIXED_TOKEN_SUPPLY.toString(), decimals: 18, supplyPolicy: "fixed-one-billion-no-future-minting" },
     links: { website: fields.website.value.trim(), twitter: fields.twitter.value.trim(), telegram: fields.telegram.value.trim() },
     network: { name: ROBINHOOD_CHAIN.chainName, chainId: 4663, rpc: ROBINHOOD_CHAIN.rpcUrls[0], explorer: ROBINHOOD_CHAIN.blockExplorerUrls[0] },
-    pairing: { venue: "Uniswap v4", poolId: state.lastPoolId, hookAddress: configuredFactoryAddress(), poolManager: FACTORY_CONFIG.uniswapV4PoolManager, tradeUrl: state.lastTokenAddress ? uniswapSwapUrl(RWI_ADDRESS, state.lastTokenAddress) : null, poolFee: LIQUIDITY_MODEL.poolFee, asset: "$RWI", address: RWI_ADDRESS, initialRwiLiquidity: "0", initialLiquidityMode: "single-sided-token-position", optionalDevBuyRwi: configuredDevBuyAmount().toString(), devBuyMode: "post-lock-exact-input-swap", firstBuyersSupplyRwi: true, poolAllocationPercent: 100, creatorTokenAllocationPercent: 0, tokensEnteringPool: economics.pool.toString(), targetMarketCapUsd: TARGET_MARKET_CAP_USD, openingPriceMode: "30-minute-uniswap-rwi-weth-plus-weth-usdg-dual-twap", liquidityLock: "permanent", liquidityWithdrawable: false, lpFeeRecipient: "token-creator-in-eth", creatorLpFeeShareBps: 10000, launchpadLpFeeShareBps: 0 },
+    pairing: { venue: "Uniswap v4", poolId: state.lastPoolId, hookAddress: configuredFactoryAddress(), poolManager: FACTORY_CONFIG.uniswapV4PoolManager, tradeUrl: state.lastTokenAddress ? uniswapSwapUrl(RWI_ADDRESS, state.lastTokenAddress) : null, poolFee: LIQUIDITY_MODEL.poolFee, asset: "$RWI", address: RWI_ADDRESS, initialRwiLiquidity: "0", initialLiquidityMode: "single-sided-token-position", optionalDevBuyUsd: state.lastDevBuyUsdAmount, optionalDevBuyRwi: state.lastDevBuyRwiAmount.toString(), devBuyMode: "usd-denominated-post-lock-exact-input-swap", firstBuyersSupplyRwi: true, poolAllocationPercent: 100, creatorTokenAllocationPercent: 0, tokensEnteringPool: economics.pool.toString(), targetMarketCapUsd: TARGET_MARKET_CAP_USD, openingPriceMode: "30-minute-uniswap-rwi-weth-plus-weth-usdg-dual-twap", liquidityLock: "permanent", liquidityWithdrawable: false, lpFeeRecipient: "token-creator-in-eth", creatorLpFeeShareBps: 10000, launchpadLpFeeShareBps: 0 },
     listing: { metadataVersion: 1, metadataReady: Boolean(state.imageFile), publicMetadataPath, publicLogoPath: state.imageFile ? publicLogoPath : null, logo: state.imageFile ? { fileName: state.imageFile.name, mimeType: "image/png", width: LOGO_SIZE, height: LOGO_SIZE, crop: "square-cover", bytes: state.imageFile.size, sha256: logoSha256, browserAssetKey: state.lastTokenAddress ? `token:${String(state.lastTokenAddress).toLowerCase()}` : DRAFT_LOGO_KEY } : null, imageRequiresPublicHosting: Boolean(state.imageFile), poolStartsWithPricedRwi: false, discoveryRequiresRealRwiSwaps: true },
     note: configuredFactoryAddress()
       ? "The hook enforces a tick-rounded $10,000 opening valuation from protected 30-minute RWI/WETH and WETH/USDG Uniswap TWAPs. The creator supplies no RWI, receives all claimable LP revenue only as ETH, and the v4 liquidity is locked forever with no migration or graduation state."
@@ -3228,9 +3320,9 @@ function openUniswapTrade() {
 fields.name.addEventListener("input", updatePreview);
 fields.ticker.addEventListener("input", updatePreview);
 fields.description.addEventListener("input", updatePreview);
-fields.devBuy.addEventListener("input", updatePreview);
+fields.devBuy.addEventListener("input", scheduleDevBuyEstimate);
 fields.image.addEventListener("change", (event) => openCropper(event.target.files[0]));
-Object.values(fields).filter((field) => field && field !== fields.image).forEach((field) => {
+Object.values(fields).filter((field) => field && field !== fields.image && field !== fields.devBuy).forEach((field) => {
   field.addEventListener("input", queueDraftSave);
   field.addEventListener("change", queueDraftSave);
 });
@@ -3341,21 +3433,7 @@ $("#launchForm").addEventListener("submit", async (event) => {
     return;
   }
   $("#formMessage").textContent = "";
-  restoreLaunchModal();
-  $("#modalTitle").textContent = "Preparing your launch.";
-  $("#modalNote").textContent = configuredDevBuyAmount() > 0n
-    ? "The optional dev buy may require one exact-amount RWI approval, followed by the atomic launch + buy transaction."
-    : "One transaction · no RWI approval · 100% of supply enters the locked pool.";
-  $("#modalWallet").textContent = "Preparing…";
-  delete $("#modalWallet").dataset.action;
-  $("#launchModal").hidden = false;
-  syncModalScrollLock();
-  launchButton.disabled = true;
-  try {
-    await launchOnUniswap();
-  } finally {
-    launchButton.disabled = false;
-  }
+  openLaunchConfirmation();
 });
 
 function closeModal() {
