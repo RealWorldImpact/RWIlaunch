@@ -178,12 +178,6 @@ function formatUsdPrice(value) {
   return `$${number.toExponential(4).replace("e-", "e−")}`;
 }
 
-function formatCompactUsd(value) {
-  const number = finiteNumber(value);
-  if (number === null || number < 0) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 }).format(number);
-}
-
 function formatTokenRatio(value) {
   const number = finiteNumber(value);
   if (number === null || number <= 0) return "—";
@@ -249,23 +243,29 @@ function setDexMarketChange(value) {
   if (number < 0) element.classList.add("is-negative");
 }
 
-function showDexScreenerWaiting(tokenAddress, message = "The chart appears automatically after Dexscreener indexes the Uniswap pool and its first swap.") {
+function dextoolsPairUrl(pairId) {
+  return `https://www.dextools.io/app/en/robinhood/pair-explorer/${encodeURIComponent(pairId)}`;
+}
+
+function renderDextoolsChart(pairId) {
+  if (!/^0x(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(String(pairId || ""))) return;
+  const chartUrl = `https://www.dextools.io/widget-chart/en/robinhood/pe-light/${encodeURIComponent(pairId)}?theme=dark&chartType=1&chartResolution=30&drawingToolbars=false&chartInUsd=true&showTradeHistory=false&headerColor=0b0b09&tvPlatformColor=1f2b3d&tvPaneColor=1f2b3d`;
+  const chart = $("#dextoolsChart");
+  if (!chart) return;
+  if (chart.src !== chartUrl) chart.src = chartUrl;
+  chart.hidden = false;
+  const status = $("#dextoolsChartStatus");
+  if (status) status.hidden = true;
+  const link = $("#dextoolsMarketLink");
+  if (link) link.href = dextoolsPairUrl(pairId);
+}
+
+function showDexScreenerWaiting(tokenAddress, message = "DEXTools is loading the chart. The separate price summary will appear after the market-data feed indexes its first swap.") {
   state.dexScreenerPair = null;
-  $("#dexPriceUsd").textContent = "Waiting for first indexed swap";
+  $("#dexPriceUsd").textContent = "Live price in chart";
   $("#dexPriceRwi").textContent = "— RWI per token";
   setDexMarketChange(null);
-  $("#dexVolume24h").textContent = "—";
-  $("#dexLiquidity").textContent = "—";
-  $("#dexMarketCap").textContent = "—";
-  $("#dexscreenerChart").hidden = true;
-  const status = $("#dexscreenerChartStatus");
-  status.hidden = false;
-  status.querySelector("strong").textContent = "Chart awaiting market activity";
-  status.querySelector("span").textContent = message;
-  $("#dexMarketUpdated").textContent = "Checking for a live RWI market every 30 seconds";
-  const link = $("#dexscreenerMarketLink");
-  link.href = `https://dexscreener.com/${DEXSCREENER_CHAIN_ID}/${tokenAddress}`;
-  link.textContent = "Search on Dexscreener ↗";
+  $("#dexMarketUpdated").textContent = message;
 }
 
 function renderDexScreenerPair(pair, tokenAddress) {
@@ -274,20 +274,10 @@ function renderDexScreenerPair(pair, tokenAddress) {
   $("#dexPriceUsd").textContent = formatUsdPrice(values.usd);
   $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} RWI per token`;
   setDexMarketChange(tokenMarketChange24h(pair, tokenAddress));
-  $("#dexVolume24h").textContent = formatCompactUsd(pair?.volume?.h24);
-  $("#dexLiquidity").textContent = formatCompactUsd(pair?.liquidity?.usd);
-  $("#dexMarketCap").textContent = formatCompactUsd(pair?.marketCap ?? pair?.fdv);
   const pairAddress = String(pair.pairAddress || "");
-  const chartUrl = `https://dexscreener.com/${DEXSCREENER_CHAIN_ID}/${encodeURIComponent(pairAddress)}?embed=1&theme=dark&trades=0&info=0`;
-  const chart = $("#dexscreenerChart");
-  if (chart.src !== chartUrl) chart.src = chartUrl;
-  chart.hidden = false;
-  $("#dexscreenerChartStatus").hidden = true;
+  renderDextoolsChart(pairAddress);
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Live feed updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
-  const link = $("#dexscreenerMarketLink");
-  link.href = `https://dexscreener.com/${DEXSCREENER_CHAIN_ID}/${encodeURIComponent(pairAddress)}`;
-  link.textContent = "Open full Dexscreener chart ↗";
 }
 
 async function refreshDexScreenerMarket(tokenAddress, launch) {
@@ -303,7 +293,7 @@ async function refreshDexScreenerMarket(tokenAddress, launch) {
     else showDexScreenerWaiting(tokenAddress);
   } catch {
     if (requestId !== state.dexScreenerRequest) return;
-    if (!state.dexScreenerPair) showDexScreenerWaiting(tokenAddress, "Live data is temporarily unavailable. The page will retry automatically.");
+    if (!state.dexScreenerPair) showDexScreenerWaiting(tokenAddress, "DEXTools chart is live. The separate price summary is retrying automatically.");
     else $("#dexMarketUpdated").textContent = "Live feed interrupted · retrying automatically";
   }
 }
@@ -311,7 +301,8 @@ async function refreshDexScreenerMarket(tokenAddress, launch) {
 function startDexScreenerFeed(tokenAddress, launch) {
   clearInterval(state.dexScreenerRefreshTimer);
   $("#tokenMarketLive").hidden = false;
-  showDexScreenerWaiting(tokenAddress, "Checking Dexscreener for this token’s indexed Uniswap RWI pool.");
+  showDexScreenerWaiting(tokenAddress);
+  renderDextoolsChart(launch?.poolId || launch?.pool);
   refreshDexScreenerMarket(tokenAddress, launch);
   state.dexScreenerRefreshTimer = setInterval(() => refreshDexScreenerMarket(tokenAddress, launch), DEXSCREENER_REFRESH_MS);
 }
@@ -954,5 +945,5 @@ if (!window.RWI_TOKEN_PAGE_TEST_MODE) window.RWI_TOKEN_PAGE_READY = loadTokenPag
 window.RWITokenPage = {
   uniswapSwapUrl, isAddress, resolveAssetUrl, normalizeSocialUrl, loadTokenPage, withTimeout,
   directTradePoolKey, directTradeCurrencies, encodeDirectV4Swap, validateDirectTradeIntegrations,
-  selectDexScreenerPair, tokenMarketValues, tokenMarketChange24h, renderDexScreenerPair, formatUsdPrice, formatCompactUsd,
+  selectDexScreenerPair, tokenMarketValues, tokenMarketChange24h, renderDexScreenerPair, renderDextoolsChart, formatUsdPrice,
 };
