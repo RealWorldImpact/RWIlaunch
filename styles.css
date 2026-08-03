@@ -842,6 +842,146 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .market-links { align-items: start; flex-direction: column; gap: 12px; }
 }
 
+/* Compact token-market console: the full desktop experience fits inside one viewport. */
+.token-page-body { min-height: 100dvh; overflow: hidden; background: var(--paper); }
+.token-site-header { height: 58px; }
+.token-page-main { width: 100%; height: calc(100dvh - 58px); min-height: 0; overflow: hidden; padding: 14px max(18px, calc((100vw - 1380px) / 2)); }
+.token-page-status { height: 100%; min-height: 0; }
+.token-dashboard[hidden] { display: none; }
+.token-dashboard { width: 100%; height: 100%; display: grid; grid-template-columns: minmax(250px, .78fr) minmax(440px, 1.48fr) minmax(320px, 1fr); grid-template-rows: minmax(240px, 1fr) 78px 158px; grid-template-areas: "identity chart trade" "identity facts trade" "identity info trade"; gap: 10px; }
+.token-page-footer { display: none; }
+
+.token-dashboard .token-detail-hero { grid-area: identity; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--ink); background: var(--white); padding: 14px; box-shadow: 5px 5px 0 var(--ink); }
+.token-dashboard .token-detail-art { width: min(78%, 220px); min-height: 0; flex: 0 1 auto; aspect-ratio: 1; align-self: center; margin: 2px auto 15px; border-radius: 18px; box-shadow: 5px 5px 0 var(--ink); }
+.token-dashboard .token-detail-art span { font-size: clamp(72px, 9vw, 132px); }
+.token-dashboard .token-detail-copy { min-width: 0; min-height: 0; display: flex; flex: 1; flex-direction: column; border: 0; padding: 0; }
+.token-detail-topline { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.token-detail-topline > p { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 9px; line-height: 1.2; text-transform: uppercase; letter-spacing: .06em; }
+.token-page-body .token-detail-topline .status-badge { flex: 0 0 auto; padding: 4px 6px; background: var(--lime); font-size: 8px; line-height: 1.15; }
+.token-dashboard .token-detail-title-row { display: block; }
+.token-dashboard .token-detail-title-row p { margin: 0 0 4px; font-size: 10px; }
+.token-dashboard .token-detail-title-row h1 { max-height: 2.02em; overflow: hidden; margin: 0; font-size: clamp(36px, 3.6vw, 56px); line-height: .89; letter-spacing: -.05em; }
+.token-dashboard .token-detail-description { min-height: 0; display: -webkit-box; overflow: hidden; margin: 12px 0 10px; color: var(--muted); font-size: 14px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.token-dashboard .token-social-links { min-height: 18px; gap: 7px 14px; margin: 0 0 9px; }
+.token-dashboard .token-social-links a { font-size: 9px; }
+.token-dashboard .token-contract-row { min-height: 36px; margin-top: auto; }
+.token-dashboard .token-contract-row code { padding: 9px 10px; font-size: 9px; }
+.token-dashboard .token-contract-row button { padding: 0 10px; font-size: 8px; }
+
+.token-dashboard .compact-market-chart { grid-area: chart; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: 4px 4px 0 var(--ink); }
+#tokenMarketLive[hidden] { display: none; }
+.token-dashboard .compact-market-header { min-height: 64px; flex: 0 0 auto; padding: 9px 13px; }
+.token-dashboard .compact-market-price { gap: 1px; }
+.token-dashboard .compact-market-price > span { font-size: 9px; }
+.token-dashboard .compact-market-price > strong { font-size: clamp(24px, 2.5vw, 32px); }
+.token-dashboard .compact-market-price > small { font-size: 9px; }
+.token-dashboard .compact-market-actions { gap: 3px; }
+.token-dashboard .compact-market-actions a { font-size: 9px; }
+.token-dashboard .dextools-chart-shell { min-height: 0; flex: 1 1 auto; }
+.token-dashboard .dextools-chart-shell iframe { height: 100%; min-height: 150px; }
+.token-dashboard .dextools-chart-status { min-height: 0; height: 100%; }
+.token-dashboard .compact-market-footer { min-height: 23px; flex: 0 0 auto; overflow: hidden; padding: 5px 10px; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+
+.token-dashboard .token-market-stack { grid-area: trade; width: auto; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; margin: 0; border: 1px solid var(--ink); background: var(--white); padding: 12px; box-shadow: 5px 5px 0 var(--lime); }
+.token-dashboard .direct-v4-trade { min-height: 0; margin: 0; border: 0; background: transparent; padding: 0; box-shadow: none; }
+.token-dashboard .direct-v4-heading { min-height: 43px; }
+.token-dashboard .direct-v4-heading > div { gap: 1px; }
+.token-dashboard .direct-v4-heading span, .token-dashboard .direct-v4-badge, .token-dashboard .direct-trade-input > span:first-child, .token-dashboard .direct-trade-quote span { font-size: 9px; }
+.token-dashboard .direct-v4-heading strong { font-size: 26px; }
+.token-dashboard .direct-v4-badge { padding: 4px 6px; }
+.token-dashboard .trade-direction-tabs { margin: 9px 0 8px; }
+.token-dashboard .trade-direction-tabs button { min-height: 33px; font-size: 10px; }
+.token-dashboard .direct-trade-input { gap: 3px; padding: 7px 9px; }
+.token-dashboard .direct-trade-value b, .token-dashboard .direct-trade-input input { font-size: 24px; }
+.token-dashboard .direct-trade-input strong { font-size: 10px; }
+.token-dashboard .direct-trade-input small { min-height: 14px; overflow: hidden; font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.token-dashboard .trade-quick-amounts { gap: 5px; margin-top: 6px; }
+.token-dashboard .trade-quick-amounts button { min-height: 29px; font-size: 9px; }
+.token-dashboard .direct-trade-quote { min-height: 34px; padding-top: 5px; }
+.token-dashboard .direct-trade-quote strong { font-size: 10px; }
+.token-dashboard .direct-trade-button { min-height: 40px; margin-top: 5px; font-size: 10px; }
+.token-dashboard .direct-trade-status { min-height: 30px; display: -webkit-box; overflow: hidden; margin: 7px 0 0; font-size: 9px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.external-trade-card { margin-top: auto; border-top: 1px solid rgba(11,11,9,.24); padding-top: 8px; }
+.token-dashboard .trade-alternative-label { margin: 0 0 7px; font-size: 8px; }
+.token-dashboard .token-trade-actions { gap: 6px; margin: 0; }
+.token-dashboard .token-trade-actions .button { min-height: 38px; padding: 0 7px; font-size: 8px; text-align: center; }
+.token-dashboard .uniswap-route-note { min-height: 24px; display: -webkit-box; overflow: hidden; margin: 7px 0 0; font-size: 8px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.token-dashboard .token-market-stack.is-external-only { justify-content: center; }
+.token-dashboard .token-market-stack.is-external-only .external-trade-card { margin-top: 0; border-top: 0; }
+
+.token-dashboard .token-facts { grid-area: facts; min-width: 0; min-height: 0; height: 100%; margin: 0; box-shadow: 3px 3px 0 rgba(11,11,9,.2); }
+.token-dashboard .token-facts article { justify-content: center; gap: 2px; overflow: hidden; padding: 7px 9px; }
+.token-dashboard .token-facts span { font-size: 8px; }
+.token-dashboard .token-facts strong { font-size: 14px; line-height: 1.15; }
+.token-dashboard .token-facts small { overflow: hidden; font-size: 8px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+
+.token-dashboard .token-page-grid { grid-area: info; min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-columns: .92fr 1.08fr; gap: 10px; margin: 0; }
+.token-dashboard .creator-card, .token-dashboard .market-card { min-height: 0; overflow: hidden; padding: 10px 12px; }
+.token-dashboard .creator-card-heading { gap: 8px; padding-bottom: 5px; }
+.token-dashboard .creator-card-heading, .token-dashboard .creator-card-heading strong { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.token-dashboard .creator-identity { grid-template-columns: 39px 1fr; gap: 8px; margin-top: 7px; }
+.token-dashboard .creator-page-avatar { width: 39px; }
+.token-dashboard .creator-page-avatar span { font-size: 20px; }
+.token-dashboard .creator-identity p { overflow: hidden; margin: 0 0 1px; font-size: 16px; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
+.token-dashboard .creator-identity code { max-width: 150px; font-size: 8px; }
+.token-dashboard .creator-page-bio { min-height: 0; display: -webkit-box; overflow: hidden; margin: 6px 0; font-size: 11px; line-height: 1.25; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.token-dashboard .creator-card-links { gap: 5px 12px; }
+.token-dashboard .creator-explorer-link { font-size: 8px; }
+.token-dashboard .market-address-row { grid-template-columns: 70px 1fr; gap: 7px; padding: 5px 0; }
+.token-dashboard .market-address-row span, .token-dashboard .market-address-row code { font-size: 8px; }
+.token-dashboard .market-links { gap: 4px 12px; margin-top: 7px; font-size: 8px; line-height: 1.3; }
+.token-dashboard .market-card > p { display: none; }
+
+@media (min-width: 1101px) and (max-height: 700px) {
+  .token-dashboard { grid-template-rows: minmax(205px, 1fr) 70px 143px; }
+  .token-dashboard .token-detail-art { width: min(64%, 170px); margin-bottom: 10px; }
+  .token-dashboard .token-detail-title-row h1 { font-size: clamp(33px, 3.2vw, 49px); }
+  .token-dashboard .token-detail-description { -webkit-line-clamp: 2; }
+}
+
+@media (max-width: 1100px) {
+  .token-page-body { overflow: auto; }
+  .token-page-main { height: auto; min-height: calc(100dvh - 58px); overflow: visible; padding: 18px; }
+  .token-dashboard { height: auto; grid-template-columns: minmax(270px, .8fr) minmax(0, 1.2fr); grid-template-rows: auto; grid-template-areas: "identity chart" "trade trade" "facts facts" "info info"; }
+  .token-dashboard .token-detail-hero, .token-dashboard .compact-market-chart { min-height: 390px; }
+  .token-dashboard .token-market-stack { min-height: 480px; }
+  .token-dashboard .token-facts { min-height: 82px; }
+  .token-dashboard .token-page-grid { min-height: 170px; }
+}
+
+@media (max-width: 700px) {
+  .token-site-header { height: 58px; }
+  .token-page-main { padding: 12px; }
+  .token-dashboard { grid-template-columns: 1fr; grid-template-areas: "identity" "chart" "trade" "facts" "info"; gap: 9px; }
+  .token-dashboard .token-detail-hero { min-height: 0; display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: center; gap: 12px; padding: 12px; }
+  .token-dashboard .token-detail-art { width: 100%; margin: 0; border-radius: 14px; box-shadow: 4px 4px 0 var(--ink); }
+  .token-dashboard .token-detail-art span { font-size: 64px; }
+  .token-dashboard .token-detail-title-row h1 { max-height: 1em; font-size: clamp(34px, 10vw, 48px); white-space: nowrap; text-overflow: ellipsis; }
+  .token-detail-topline > p { display: none; }
+  .token-detail-topline { justify-content: flex-end; margin-bottom: 4px; }
+  .token-dashboard .token-detail-description { margin: 8px 0 6px; -webkit-line-clamp: 2; }
+  .token-dashboard .token-social-links { margin-bottom: 6px; }
+  .token-dashboard .token-contract-row { min-height: 32px; }
+  .token-dashboard .compact-market-chart { min-height: 315px; }
+  .token-dashboard .compact-market-header { align-items: center; flex-direction: row; }
+  .token-dashboard .compact-market-actions { width: auto; display: grid; grid-template-columns: 1fr; justify-items: end; }
+  .token-dashboard .dextools-chart-shell iframe { min-height: 220px; }
+  .token-dashboard .token-market-stack { min-height: 470px; }
+  .token-dashboard .token-facts { min-height: 0; grid-template-columns: 1fr 1fr; }
+  .token-dashboard .token-facts article:nth-child(3) { border-left: 0; border-top: 1px solid var(--ink); }
+  .token-dashboard .token-facts article:nth-child(4) { border-top: 1px solid var(--ink); }
+  .token-dashboard .token-facts article { min-height: 65px; }
+  .token-dashboard .token-page-grid { min-height: 0; grid-template-columns: 1fr; }
+  .token-dashboard .creator-card, .token-dashboard .market-card { min-height: 150px; }
+}
+
+@media (max-width: 430px) {
+  .token-dashboard .token-detail-hero { grid-template-columns: 92px minmax(0, 1fr); }
+  .token-dashboard .token-detail-description { font-size: 12px; }
+  .token-dashboard .token-trade-actions { grid-template-columns: 1fr; }
+  .token-dashboard .pair-asset-row { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

@@ -61,6 +61,7 @@ const KNOWN_LAUNCHES = Object.freeze({
 const $ = (selector) => document.querySelector(selector);
 const state = {
   token: null, creator: null, pool: null, poolId: null, positionTokenId: null,
+  tokenSymbol: "TOKEN",
   imageUrl: null, creatorImageUrl: null, tradeDirection: "buy", tradeSource: null,
   tradeQuote: null, tradeQuoteRequest: 0, tradeInFlight: false,
   directTradeIntegrationsValidated: false,
@@ -578,22 +579,27 @@ function scheduleDirectTradeQuote() {
 }
 
 function selectTradeDirection(direction) {
+  const symbol = state.tokenSymbol || "TOKEN";
   state.tradeDirection = direction;
   state.tradeQuote = null;
   $("#tradeBuyTab").setAttribute("aria-selected", String(direction === "buy"));
   $("#tradeSellTab").setAttribute("aria-selected", String(direction === "sell"));
-  $("#tradeDirectionLabel").textContent = direction === "buy" ? "Buy token" : "Sell token";
+  $("#tradeBuyTab").textContent = `Buy $${symbol}`;
+  $("#tradeSellTab").textContent = `Sell $${symbol}`;
+  $("#tradeDirectionLabel").textContent = direction === "buy" ? `Buy $${symbol}` : `Sell $${symbol}`;
   $("#tradeInputLabel").textContent = direction === "buy" ? "USD amount to spend" : "USD value to sell";
   $("#tradeInputSymbol").textContent = "USD";
   $("#tradeAmount").placeholder = "25.00";
-  $("#tradeQuoteLabel").textContent = direction === "buy" ? "Tokens received at least" : "RWI received at least";
+  $("#tradeQuoteLabel").textContent = direction === "buy" ? `$${symbol} received at least` : "RWI received at least";
   if (!state.tradeInFlight) $("#directTradeButton").textContent = directTradeButtonText();
   scheduleDirectTradeQuote();
 }
 
 function directTradeButtonText() {
   const action = state.tradeDirection === "buy" ? "buy" : "sell";
-  return window.ethereum?.request ? `${action === "buy" ? "Buy" : "Sell"} through Uniswap v4` : `Connect wallet to ${action}`;
+  const symbol = state.tokenSymbol || "TOKEN";
+  const label = `${action === "buy" ? "Buy" : "Sell"} $${symbol}`;
+  return window.ethereum?.request ? `${label} via Uniswap v4` : `Connect wallet to ${action} $${symbol}`;
 }
 
 function syncQuickTradeAmounts() {
@@ -778,6 +784,7 @@ function setupDirectTrade(launch) {
     ? { address: launch.factoryAddress, protocol: launch.protocol }
     : null;
   $("#directV4Trade").hidden = !state.tradeSource;
+  $("#tokenMarketStack").classList.toggle("is-external-only", !state.tradeSource);
   if (!state.tradeSource) return;
   $("#directTradeButton").textContent = directTradeButtonText();
   selectTradeDirection("buy");
@@ -1035,6 +1042,7 @@ function renderCreator(creator, resolvedProfile) {
 
 function renderToken({ address, name, symbol, supply, decimals, launch, metadata, creatorProfile }) {
   state.token = address;
+  state.tokenSymbol = symbol;
   state.creator = launch.creator;
   state.pool = launch.pool;
   state.poolId = launch.poolId;
@@ -1059,7 +1067,9 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
     $("#detailMonogram").textContent = "";
   }
   $("#buyOnUniswap").href = uniswapSwapUrl(RWI_ADDRESS, address);
+  $("#buyOnUniswap").textContent = `Buy $${symbol} on Uniswap`;
   $("#sellOnUniswap").href = uniswapSwapUrl(address, RWI_ADDRESS);
+  $("#sellOnUniswap").textContent = `Sell $${symbol} on Uniswap`;
   $("#uniswapTokenPage").href = `https://app.uniswap.org/explore/tokens/robinhood/${address}`;
   $("#dexScreenerPool").href = `https://dexscreener.com/robinhood/${launch.poolId || launch.pool}`;
   if (launch.pool) {
@@ -1075,6 +1085,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   verifyDisplayedLiquidity(launch);
   renderCreator(launch.creator, creatorProfile);
   $("#tokenPageStatus").hidden = true;
+  $("#tokenDashboard").hidden = false;
   $("#tokenDetail").hidden = false;
   $("#tokenMarketStack").hidden = false;
   $("#tokenFacts").hidden = false;
