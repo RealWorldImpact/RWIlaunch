@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260803-description-fix" />
+    <link rel="stylesheet" href="styles.css?v=20260803-clean-trade-panel" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -67,7 +67,7 @@
         </section>
 
         <section class="token-market-stack" id="tokenMarketStack" hidden aria-label="Token trading">
-          <section class="direct-v4-trade" id="directV4Trade" hidden aria-label="Atomic Uniswap trade">
+          <section class="direct-v4-trade" id="directV4Trade" hidden aria-label="Uniswap trade">
             <div class="direct-v4-heading">
               <div><span>RWI-routed Uniswap</span><strong id="tradeDirectionLabel">Buy $TOKEN</strong></div>
               <span class="direct-v4-badge">ETH / USDG only</span>
@@ -95,12 +95,7 @@
             </div>
             <div class="direct-trade-quote"><span id="tradeQuoteLabel">$TOKEN received at least</span><strong id="tradeQuote" aria-live="polite">Enter a USD amount</strong></div>
             <button class="button button-lime direct-trade-button" id="directTradeButton" type="button">Connect wallet to buy $TOKEN</button>
-            <p class="direct-trade-status" id="directTradeStatus">ETH and USDG settle atomically through RWI into this token pool.</p>
-            <div class="trade-route-summary" aria-label="Atomic trade route">
-              <span>Atomic path</span>
-              <strong id="tradeRouteText">ETH → WETH → RWI → $TOKEN</strong>
-              <small>One transaction · no RWI balance needed</small>
-            </div>
+            <p class="direct-trade-status" id="directTradeStatus" hidden></p>
           </section>
         </section>
 
@@ -155,6 +150,6 @@
     <script src="factory-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
-    <script src="token.js?v=20260803-description-fix"></script>
+    <script src="token.js?v=20260803-clean-trade-panel"></script>
   </body>
 </html>

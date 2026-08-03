@@ -28,7 +28,7 @@ const DIRECT_TRADE_DEADLINE_SECONDS = 10 * 60;
 const ROUTER_MSG_SENDER = "0x0000000000000000000000000000000000000001";
 const ROUTER_ADDRESS_THIS = "0x0000000000000000000000000000000000000002";
 const ROUTER_CONTRACT_BALANCE = 1n << 255n;
-const DIRECT_TRADE_DEFAULT_STATUS = "Choose ETH or USDG. The atomic route uses RWI internally and never requires an RWI balance or approval.";
+const DIRECT_TRADE_DEFAULT_STATUS = "";
 const PROFILE_PREFIX = "rwi-creator-profile:";
 const TOKEN_METADATA_PREFIX = "rwi-token-metadata:";
 const LOGO_DATABASE = "rwi-launchpad-assets-v1";
@@ -472,7 +472,8 @@ function handleMarketVisibilityChange() {
 
 function setDirectTradeStatus(message, warning = false) {
   const element = $("#directTradeStatus");
-  element.textContent = message;
+  element.textContent = String(message || "");
+  element.hidden = !element.textContent;
   element.classList.toggle("is-warning", warning);
 }
 
@@ -695,7 +696,7 @@ async function quoteDirectTrade({ quiet = false } = {}) {
         usdValue: tradeAmount.usdValue,
       };
       $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, outputSymbol, outputDecimals);
-      setDirectTradeStatus(`Atomic ${settlement.symbol} → RWI → token route found. The displayed minimum includes a 3% price-movement buffer.`);
+      setDirectTradeStatus("");
       return state.tradeQuote;
     }
 
@@ -767,7 +768,7 @@ async function quoteDirectTrade({ quiet = false } = {}) {
       };
       $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, settlement.symbol, settlement.decimals);
     }
-    setDirectTradeStatus(`Atomic ${settlement.symbol} settlement route found. RWI is used only inside the transaction; no RWI balance or approval is needed.`);
+    setDirectTradeStatus("");
     return state.tradeQuote;
   } catch (error) {
     if (requestId !== state.tradeQuoteRequest) return null;
@@ -814,9 +815,6 @@ function selectTradeDirection(direction) {
   $("#tradeAmount").placeholder = "25.00";
   $("#tradeSettlementLabel").textContent = direction === "buy" ? "Pay with" : "Receive in";
   $("#tradeQuoteLabel").textContent = direction === "buy" ? `$${symbol} received at least` : `${settlement.symbol} received at least`;
-  $("#tradeRouteText").textContent = direction === "buy"
-    ? `${settlement.symbol} → WETH → RWI → $${symbol}`
-    : `$${symbol} → RWI → WETH → ${settlement.symbol}`;
   if (!state.tradeInFlight) $("#directTradeButton").textContent = directTradeButtonText();
   scheduleDirectTradeQuote();
 }
@@ -998,7 +996,7 @@ async function refreshPoolActivation() {
     const view = new window.ethers.Contract(V4_STATE_VIEW, ["function getLiquidity(bytes32 poolId) view returns (uint128)"], provider);
     const activeLiquidity = await view.getLiquidity(state.poolId);
     if (activeLiquidity === 0n && !state.tradeQuote) {
-      setDirectTradeStatus("This launch is waiting for its first ETH or USDG buy. The route acquires RWI internally and activates the locked position in one transaction.", true);
+      setDirectTradeStatus("This launch is waiting for its first purchase.", true);
     }
   } catch {
     // Trading remains available when the optional state read is unavailable.
@@ -1102,12 +1100,12 @@ async function executeDirectTrade() {
     const deadline = BigInt(Number(latestBlock.timestamp) + DIRECT_TRADE_DEADLINE_SECONDS);
     const routedTrade = encodeRoutedTrade(quote, deadline);
     button.textContent = "Confirm swap in wallet…";
-    setDirectTradeStatus(`Confirm the atomic ${quote.settlementAsset} → RWI → token route. The minimum output shown above is enforced onchain.`);
+    setDirectTradeStatus("Confirm the trade in your wallet. The minimum output shown above is enforced onchain.");
     const transaction = await signer.sendTransaction({ to: V4_UNIVERSAL_ROUTER, data: routedTrade.data, value: routedTrade.nativeValue });
     button.textContent = "Swap submitted…";
     setDirectTradeStatus(`Swap submitted: ${transaction.hash.slice(0, 10)}…`);
     await transaction.wait();
-    toast("Atomic Uniswap trade confirmed.");
+    toast("Uniswap trade confirmed.");
     setDirectTradeStatus("Trade confirmed on Robinhood Chain. Public route discovery may take a short time to refresh.");
     await quoteDirectTrade({ quiet: true });
     await refreshPoolActivation();
