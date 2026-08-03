@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260803-creator-pages" />
+    <link rel="stylesheet" href="styles.css?v=20260803-creator-redesign" />
   </head>
   <body class="creator-public-body">
     <header class="site-header token-site-header">
@@ -24,6 +24,10 @@
 
       <div class="creator-page-content" id="creatorPageContent" hidden>
         <section class="creator-profile-hero" aria-labelledby="creatorPageName">
+          <div class="creator-profile-topline">
+            <span>Public creator profile</span>
+            <span class="creator-profile-live"><i></i> Live on Robinhood Chain</span>
+          </div>
           <div class="creator-profile-avatar" id="creatorHeroAvatar" role="img" aria-label="Creator profile picture"><span id="creatorHeroInitial">?</span></div>
           <div class="creator-profile-copy">
             <p class="eyebrow" id="creatorProfileSource">Creator profile</p>
@@ -39,12 +43,12 @@
         </section>
 
         <div class="creator-page-panels">
-          <section class="creator-page-panel" aria-labelledby="creatorTokensTitle">
+          <section class="creator-page-panel creator-launches-panel" aria-labelledby="creatorTokensTitle">
             <header class="creator-panel-heading"><div><span>Created on RWI Launch</span><h2 id="creatorTokensTitle">Token launches</h2></div><p>Every confirmed token created by this wallet across current and legacy launch factories.</p></header>
             <div class="creator-launch-grid" id="creatorLaunchGrid" aria-live="polite"><div class="creator-panel-empty">Reading creator launches…</div></div>
           </section>
 
-          <section class="creator-page-panel" aria-labelledby="creatorTradesTitle">
+          <section class="creator-page-panel creator-trades-panel" aria-labelledby="creatorTradesTitle">
             <header class="creator-panel-heading"><div><span>Onchain market activity</span><h2 id="creatorTradesTitle">Recent trades</h2></div><p>Recent swaps from this creator’s token/RWI markets.</p></header>
             <div class="creator-trade-list" id="creatorTradeList" aria-live="polite"><div class="creator-panel-empty">Reading market activity…</div></div>
           </section>
@@ -59,11 +63,11 @@
       <small>Market activity is read directly from Uniswap events on Robinhood Chain.</small>
     </footer>
 
-    <script src="vendor/ethers.umd.min.js?v=20260803-creator-pages"></script>
-    <script src="factory-config.js?v=20260803-creator-pages"></script>
-    <script src="factory-abi.js?v=20260803-creator-pages"></script>
-    <script src="profile-registry-config.js?v=20260803-creator-pages"></script>
-    <script src="profile-registry-abi.js?v=20260803-creator-pages"></script>
-    <script src="creator.js?v=20260803-creator-pages"></script>
+    <script src="vendor/ethers.umd.min.js?v=20260803-creator-redesign"></script>
+    <script src="factory-config.js?v=20260803-creator-redesign"></script>
+    <script src="factory-abi.js?v=20260803-creator-redesign"></script>
+    <script src="profile-registry-config.js?v=20260803-creator-redesign"></script>
+    <script src="profile-registry-abi.js?v=20260803-creator-redesign"></script>
+    <script src="creator.js?v=20260803-creator-redesign"></script>
   </body>
 </html>
