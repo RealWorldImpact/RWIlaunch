@@ -28,6 +28,7 @@ const USDG_DECIMALS = 6;
 const DIRECT_TRADE_SLIPPAGE_BPS = 300n;
 const DIRECT_TRADE_HOP_SLIPPAGE_BPS = 150n;
 const DIRECT_TRADE_DEADLINE_SECONDS = 10 * 60;
+const ETH_GAS_RESERVE_WEI = 1_000_000_000_000_000n;
 const ROUTER_MSG_SENDER = "0x0000000000000000000000000000000000000001";
 const ROUTER_ADDRESS_THIS = "0x0000000000000000000000000000000000000002";
 const ROUTER_CONTRACT_BALANCE = 1n << 255n;
@@ -77,6 +78,8 @@ const state = {
   tokenSymbol: "TOKEN", tokenDecimals: 18, quoteSymbol: "RWI", settlementAsset: "ETH",
   imageUrl: null, creatorImageUrl: null, tradeDirection: "buy", tradeSource: null,
   tradeQuote: null, tradeQuoteRequest: 0, tradeInFlight: false,
+  tradePercentAmount: null, tradePercentRequest: 0,
+  walletAccount: null, walletTokenBalance: null, walletBalanceRequest: 0,
   directTradeIntegrationsValidated: false,
   dexScreenerPair: null, dexScreenerRefreshTimer: null, dexScreenerRequest: 0,
   dexScreenerToken: null, dexScreenerLaunch: null,
@@ -436,6 +439,8 @@ function renderOnchainMarketPrice(values, pair, tokenAddress) {
   if (pair?.pairAddress) renderGeckoTerminalChart(String(pair.pairAddress));
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Onchain Uniswap spot price · updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
+  renderWalletTokenBalance();
+  syncTradePercentUsdInput();
   if ($("#tradeAmount")?.value.trim()) scheduleDirectTradeQuote();
 }
 
@@ -452,6 +457,8 @@ function renderDexScreenerPair(pair, tokenAddress) {
   renderGeckoTerminalChart(pairAddress);
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Live feed updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
+  renderWalletTokenBalance();
+  syncTradePercentUsdInput();
   if ($("#tradeAmount")?.value.trim()) scheduleDirectTradeQuote();
 }
 
@@ -605,6 +612,23 @@ function formatTradeUnits(value, symbol, decimals = 18) {
   return `${BigInt(whole).toLocaleString("en-US")}${trimmed ? `.${trimmed}` : ""} ${symbol}`;
 }
 
+function tradePercentAmount(balance, percent) {
+  const normalized = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+  return (BigInt(balance) * BigInt(normalized)) / 100n;
+}
+
+function formatTradeUsdInput(value) {
+  if (!Number.isFinite(value) || value <= 0) return "";
+  const digits = value >= 100 ? 2 : value >= 1 ? 4 : 6;
+  return value.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatWalletUsdValue(value) {
+  if (!Number.isFinite(value) || value < 0) return "USD value unavailable";
+  if (value > 0 && value < 0.01) return "Worth < $0.01";
+  return `Worth ${value.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function readTradeUsdValue() {
   const raw = $("#tradeAmount").value.trim();
   if (!/^(?:\d+\.?\d*|\.\d+)$/.test(raw)) throw new Error("Enter a valid USD amount.");
@@ -632,8 +656,15 @@ function parseTradeAssetUnits(value, decimals = 18) {
 }
 
 function readTradeAmount() {
-  const usdValue = readTradeUsdValue();
   const { symbol, usdPrice, decimals } = tradeInputAsset();
+  if (state.tradePercentAmount !== null) {
+    const amount = BigInt(state.tradePercentAmount);
+    if (amount <= 0n) throw new Error("Choose a percentage greater than zero.");
+    if (amount > (1n << 128n) - 1n) throw new Error("That amount is too large.");
+    const usdValue = Number(window.ethers.formatUnits(amount, decimals)) * usdPrice;
+    return { amount, usdValue, symbol, usdPrice, decimals };
+  }
+  const usdValue = readTradeUsdValue();
   const amount = parseTradeAssetUnits(usdValue / usdPrice, decimals);
   if (amount <= 0n) throw new Error("Enter an amount greater than zero.");
   if (amount > (1n << 128n) - 1n) throw new Error("That amount is too large.");
@@ -651,6 +682,186 @@ function updateTradeInputConversion(details = null) {
     const symbol = state.tradeDirection === "buy" ? state.settlementAsset : state.tokenSymbol;
     element.textContent = hasInput ? (error?.message || "USD conversion unavailable") : `Converted to ${symbol} at the live spot price`;
   }
+}
+
+function renderTradePercentVisual() {
+  const input = $("#tradePercent");
+  if (!input) return;
+  const percent = Math.max(0, Math.min(100, Number(input.value) || 0));
+  $("#tradePercentOutput").textContent = `${Math.round(percent)}%`;
+  input.style?.setProperty?.("--trade-percent", `${percent}%`);
+}
+
+function updateTradePercentCopy() {
+  const buying = state.tradeDirection === "buy";
+  const settlement = settlementAssetConfig();
+  $("#tradePercentLabel").textContent = buying ? `${settlement.symbol} balance to spend` : `$${state.tokenSymbol} balance to sell`;
+  $("#tradePercentHint").textContent = buying && settlement.native
+    ? "100% keeps 0.001 ETH in your wallet for gas."
+    : "Choose how much of your available wallet balance to swap.";
+}
+
+function resetTradePercentSelection({ clearAmount = true } = {}) {
+  state.tradePercentRequest += 1;
+  state.tradePercentAmount = null;
+  const input = $("#tradePercent");
+  if (input) input.value = "0";
+  renderTradePercentVisual();
+  updateTradePercentCopy();
+  if (clearAmount && $("#tradeAmount")) $("#tradeAmount").value = "";
+  updateTradeInputConversion();
+}
+
+function renderWalletTokenBalance(message = null) {
+  const balanceElement = $("#tradeWalletTokenBalance");
+  const valueElement = $("#tradeWalletTokenValue");
+  if (!balanceElement || !valueElement) return;
+  if (message) {
+    balanceElement.textContent = message;
+    valueElement.textContent = "Token value unavailable";
+    return;
+  }
+  if (state.walletTokenBalance === null) {
+    balanceElement.textContent = state.walletAccount ? "Reading balance…" : "Connect wallet";
+    valueElement.textContent = "Token value unavailable";
+    return;
+  }
+  balanceElement.textContent = formatTradeUnits(state.walletTokenBalance, `$${state.tokenSymbol}`, state.tokenDecimals);
+  const tokenPrice = finiteNumber(state.tokenUsdPrice);
+  const usdValue = tokenPrice === null ? null : Number(window.ethers.formatUnits(state.walletTokenBalance, state.tokenDecimals)) * tokenPrice;
+  valueElement.textContent = usdValue === null ? "Live USD value loading" : formatWalletUsdValue(usdValue);
+}
+
+async function refreshWalletTokenBalance({ account = state.walletAccount, provider = null } = {}) {
+  const requestId = ++state.walletBalanceRequest;
+  if (!state.token || !window.ethereum?.request) {
+    state.walletAccount = null;
+    state.walletTokenBalance = null;
+    renderWalletTokenBalance();
+    return null;
+  }
+  try {
+    const chainId = await window.ethereum.request({ method: "eth_chainId" });
+    if (String(chainId).toLowerCase() !== "0x1237") {
+      state.walletTokenBalance = null;
+      renderWalletTokenBalance("Switch to Robinhood Chain");
+      return null;
+    }
+    if (!account) {
+      const accounts = await window.ethereum.request({ method: "eth_accounts" });
+      account = accounts?.[0] || null;
+    }
+    if (!account) {
+      state.walletAccount = null;
+      state.walletTokenBalance = null;
+      renderWalletTokenBalance();
+      return null;
+    }
+    state.walletAccount = account;
+    renderWalletTokenBalance();
+    const readProvider = provider || new window.ethers.BrowserProvider(window.ethereum);
+    const token = new window.ethers.Contract(state.token, ["function balanceOf(address owner) view returns (uint256)"], readProvider);
+    const balance = BigInt(await token.balanceOf(account));
+    if (requestId !== state.walletBalanceRequest) return null;
+    state.walletTokenBalance = balance;
+    renderWalletTokenBalance();
+    return balance;
+  } catch {
+    if (requestId !== state.walletBalanceRequest) return null;
+    state.walletTokenBalance = null;
+    renderWalletTokenBalance("Balance unavailable");
+    return null;
+  }
+}
+
+function syncTradePercentUsdInput() {
+  if (state.tradePercentAmount === null) return;
+  try {
+    const { usdPrice, decimals } = tradeInputAsset();
+    const usdValue = Number(window.ethers.formatUnits(state.tradePercentAmount, decimals)) * usdPrice;
+    $("#tradeAmount").value = formatTradeUsdInput(usdValue);
+  } catch {}
+}
+
+function previewTradePercent() {
+  state.tradePercentRequest += 1;
+  state.tradePercentAmount = null;
+  $("#tradeAmount").value = "";
+  renderTradePercentVisual();
+  const percent = Number($("#tradePercent").value) || 0;
+  $("#tradePercentHint").textContent = percent > 0 ? "Release the slider to read your wallet balance." : "Choose how much of your available wallet balance to swap.";
+  $("#tradeQuote").textContent = percent > 0 ? "Calculating selection" : "Enter a USD amount";
+  setDirectTradeStatus("");
+  updateTradeInputConversion();
+}
+
+async function applyTradePercent() {
+  const percent = Math.max(0, Math.min(100, Math.round(Number($("#tradePercent").value) || 0)));
+  renderTradePercentVisual();
+  const requestId = ++state.tradePercentRequest;
+  state.tradePercentAmount = null;
+  if (percent <= 0) {
+    $("#tradeAmount").value = "";
+    updateTradePercentCopy();
+    scheduleDirectTradeQuote();
+    return;
+  }
+  try {
+    $("#tradePercentHint").textContent = "Reading your available wallet balance…";
+    const account = await connectTradeWallet();
+    if (requestId !== state.tradePercentRequest) return;
+    const provider = new window.ethers.BrowserProvider(window.ethereum);
+    const buying = state.tradeDirection === "buy";
+    const settlement = settlementAssetConfig();
+    let balance;
+    let decimals;
+    let symbol;
+    let usdPrice;
+    if (buying && settlement.native) {
+      const walletBalance = BigInt(await provider.getBalance(account));
+      balance = walletBalance > ETH_GAS_RESERVE_WEI ? walletBalance - ETH_GAS_RESERVE_WEI : 0n;
+      decimals = 18;
+      symbol = "ETH";
+      usdPrice = await ensureEthUsdPrice(provider);
+    } else if (buying) {
+      const settlementToken = new window.ethers.Contract(settlement.address, ["function balanceOf(address owner) view returns (uint256)"], provider);
+      balance = BigInt(await settlementToken.balanceOf(account));
+      decimals = settlement.decimals;
+      symbol = settlement.symbol;
+      usdPrice = 1;
+    } else {
+      const token = new window.ethers.Contract(state.token, ["function balanceOf(address owner) view returns (uint256)"], provider);
+      balance = BigInt(await token.balanceOf(account));
+      decimals = state.tokenDecimals;
+      symbol = state.tokenSymbol;
+      usdPrice = finiteNumber(state.tokenUsdPrice);
+      state.walletTokenBalance = balance;
+      renderWalletTokenBalance();
+      if (!usdPrice || usdPrice <= 0) throw new Error("Waiting for the live token price before calculating this percentage.");
+    }
+    if (requestId !== state.tradePercentRequest) return;
+    const amount = tradePercentAmount(balance, percent);
+    if (amount <= 0n) throw new Error(`Your available ${symbol} balance is too small for this percentage.`);
+    state.tradePercentAmount = amount;
+    const usdValue = Number(window.ethers.formatUnits(amount, decimals)) * usdPrice;
+    $("#tradeAmount").value = formatTradeUsdInput(usdValue);
+    const reserveNote = buying && settlement.native && percent === 100 ? " · 0.001 ETH kept for gas" : "";
+    $("#tradePercentHint").textContent = `${formatTradeUnits(amount, symbol, decimals)} selected${reserveNote}`;
+    scheduleDirectTradeQuote();
+  } catch (error) {
+    if (requestId !== state.tradePercentRequest) return;
+    state.tradePercentAmount = null;
+    $("#tradeAmount").value = "";
+    scheduleDirectTradeQuote();
+    const message = error?.shortMessage || error?.message || "This wallet percentage could not be calculated.";
+    $("#tradePercentHint").textContent = message;
+    setDirectTradeStatus(message, true);
+  }
+}
+
+function handleTradeAmountInput() {
+  resetTradePercentSelection({ clearAmount: false });
+  scheduleDirectTradeQuote();
 }
 
 async function validateDirectTradeIntegrations(provider) {
@@ -717,6 +928,7 @@ async function quoteDirectTrade({ quiet = false } = {}) {
     const provider = new window.ethers.JsonRpcProvider(RPC_URL, 4663, { staticNetwork: true });
     await validateDirectTradeIntegrations(provider);
     if (state.settlementAsset === "ETH") await ensureEthUsdPrice(provider);
+    syncTradePercentUsdInput();
     const tradeAmount = readTradeAmount();
     updateTradeInputConversion(tradeAmount);
     const settlement = settlementAssetConfig();
@@ -946,7 +1158,6 @@ function scheduleDirectTradeQuote() {
   clearTimeout(scheduleDirectTradeQuote.timer);
   state.tradeQuote = null;
   updateTradeInputConversion();
-  syncQuickTradeAmounts();
   if (!$("#tradeAmount").value.trim()) {
     $("#tradeQuote").textContent = "Enter a USD amount";
     setDirectTradeStatus(DIRECT_TRADE_DEFAULT_STATUS);
@@ -968,10 +1179,11 @@ function selectTradeDirection(direction) {
   $("#tradeDirectionLabel").textContent = direction === "buy" ? `Buy $${symbol}` : `Sell $${symbol}`;
   $("#tradeInputLabel").textContent = direction === "buy" ? "USD amount to spend" : "USD value to sell";
   $("#tradeInputSymbol").textContent = "USD";
-  $("#tradeAmount").placeholder = direction === "buy" ? "" : "25.00";
+  $("#tradeAmount").placeholder = "";
   $("#tradeSettlementLabel").textContent = direction === "buy" ? "Pay with" : "Receive in";
   $("#tradeQuoteLabel").textContent = direction === "buy" ? `$${symbol} received at least` : `${settlement.symbol} received at least`;
   if (!state.tradeInFlight) $("#directTradeButton").textContent = directTradeButtonText();
+  resetTradePercentSelection({ clearAmount: true });
   scheduleDirectTradeQuote();
 }
 
@@ -991,18 +1203,6 @@ function directTradeButtonText() {
   const settlement = settlementAssetConfig();
   const label = action === "buy" ? `Buy $${symbol} with ${settlement.symbol}` : `Sell $${symbol} for ${settlement.symbol}`;
   return window.ethereum?.request ? label : `Connect wallet to ${action} $${symbol} ${action === "buy" ? "with" : "for"} ${settlement.symbol}`;
-}
-
-function syncQuickTradeAmounts() {
-  const value = $("#tradeAmount").value.trim();
-  document.querySelectorAll("[data-trade-usd]").forEach((button) => {
-    button.setAttribute("aria-pressed", String(Number(value) === Number(button.dataset.tradeUsd)));
-  });
-}
-
-function setQuickTradeAmount(value) {
-  $("#tradeAmount").value = String(value);
-  scheduleDirectTradeQuote();
 }
 
 async function connectTradeWallet() {
@@ -1028,6 +1228,8 @@ async function connectTradeWallet() {
       });
     }
   }
+  state.walletAccount = accounts[0];
+  void refreshWalletTokenBalance({ account: accounts[0] });
   return accounts[0];
 }
 
@@ -1299,7 +1501,9 @@ async function executeDirectTrade() {
     await transaction.wait();
     toast("Uniswap trade confirmed.");
     setDirectTradeStatus("Trade confirmed on Robinhood Chain. Public route discovery may take a short time to refresh.");
-    await quoteDirectTrade({ quiet: true });
+    resetTradePercentSelection({ clearAmount: true });
+    $("#tradeQuote").textContent = "Enter a USD amount";
+    await refreshWalletTokenBalance({ account, provider });
     await refreshPoolActivation();
   } catch (error) {
     const rejected = Number(error?.code) === 4001 || Number(error?.info?.error?.code) === 4001;
@@ -1634,6 +1838,9 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#tokenDetail").hidden = false;
   $("#tokenMarketStack").hidden = false;
   $("#tokenFacts").hidden = false;
+  renderWalletTokenBalance();
+  updateTradePercentCopy();
+  void refreshWalletTokenBalance();
   startDexScreenerFeed(address, launch);
   $("#tokenPageGrid").hidden = false;
 }
@@ -1752,8 +1959,9 @@ $("#copyTokenAddress").addEventListener("click", async () => {
 $("#tradeBuyTab").addEventListener("click", () => selectTradeDirection("buy"));
 $("#tradeSellTab").addEventListener("click", () => selectTradeDirection("sell"));
 document.querySelectorAll("[data-settlement-asset]").forEach((button) => button.addEventListener("click", () => selectSettlementAsset(button.dataset.settlementAsset)));
-$("#tradeAmount").addEventListener("input", scheduleDirectTradeQuote);
-document.querySelectorAll("[data-trade-usd]").forEach((button) => button.addEventListener("click", () => setQuickTradeAmount(button.dataset.tradeUsd)));
+$("#tradeAmount").addEventListener("input", handleTradeAmountInput);
+$("#tradePercent").addEventListener("input", previewTradePercent);
+$("#tradePercent").addEventListener("change", applyTradePercent);
 $("#directTradeButton").addEventListener("click", executeDirectTrade);
 $("#creatorCard").addEventListener("click", (event) => {
   if (!state.creator || event.target.closest?.("a, button")) return;
@@ -1765,6 +1973,19 @@ $("#creatorCard").addEventListener("keydown", (event) => {
   window.location.href = `creator.html?address=${encodeURIComponent(state.creator)}`;
 });
 document.addEventListener?.("visibilitychange", handleMarketVisibilityChange);
+window.ethereum?.on?.("accountsChanged", (accounts) => {
+  state.walletAccount = accounts?.[0] || null;
+  state.walletTokenBalance = null;
+  resetTradePercentSelection({ clearAmount: true });
+  renderWalletTokenBalance();
+  if (state.walletAccount) void refreshWalletTokenBalance({ account: state.walletAccount });
+});
+window.ethereum?.on?.("chainChanged", () => {
+  state.walletTokenBalance = null;
+  resetTradePercentSelection({ clearAmount: true });
+  renderWalletTokenBalance();
+  void refreshWalletTokenBalance();
+});
 
 window.addEventListener?.("beforeunload", () => {
   clearInterval(state.dexScreenerRefreshTimer);
@@ -1779,6 +2000,7 @@ window.RWITokenPage = {
   v3BridgeExactInputPath, v3BridgeExactOutputPath, directQuoteBridgeExactInputPath, directQuoteBridgeExactOutputPath,
   legacyV3TradePath, settlementAssetConfig, directQuoteAssetConfig, selectSettlementAsset,
   readTradeUsdValue, tradeInputAsset, parseTradeAssetUnits, readTradeAmount, quoteDirectTrade,
+  tradePercentAmount, formatTradeUsdInput, formatWalletUsdValue,
   getTradeQuote: () => state.tradeQuote,
   selectDexScreenerPair, tokenMarketValues, tokenMarketChange24h, renderDexScreenerPair, renderGeckoTerminalChart,
   quoteFromSqrtPrice, rwiUsdPriceFromPairs, readOnchainMarketValues, formatUsdPrice,
