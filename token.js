@@ -292,10 +292,11 @@ function marketProvider() {
   return state.marketProvider;
 }
 
-function quoteFromSqrtPrice(sqrtPriceX96, baseIsToken0) {
+function quoteFromSqrtPrice(sqrtPriceX96, baseIsToken0, baseDecimals = 18, quoteDecimals = 18) {
   const sqrtPrice = Number(sqrtPriceX96) / (2 ** 96);
   const token1PerToken0 = sqrtPrice * sqrtPrice;
-  const quote = baseIsToken0 ? token1PerToken0 : 1 / token1PerToken0;
+  const rawQuotePerBase = baseIsToken0 ? token1PerToken0 : 1 / token1PerToken0;
+  const quote = rawQuotePerBase * (10 ** (Number(baseDecimals) - Number(quoteDecimals)));
   return Number.isFinite(quote) && quote > 0 ? quote : null;
 }
 
@@ -309,7 +310,13 @@ async function readTokenRwiPriceOnchain(tokenAddress, launch, provider) {
   if (launch?.poolId) {
     const stateView = new window.ethers.Contract(V4_STATE_VIEW, V4_STATE_VIEW_ABI, provider);
     const slot0 = await stateView.getSlot0(launch.poolId);
-    return quoteFromSqrtPrice(slot0.sqrtPriceX96 ?? slot0[0], BigInt(tokenAddress) < BigInt(launch.quoteAddress || RWI_ADDRESS));
+    const quoteDecimals = launch.quoteSymbol === "USDG" ? USDG_DECIMALS : 18;
+    return quoteFromSqrtPrice(
+      slot0.sqrtPriceX96 ?? slot0[0],
+      BigInt(tokenAddress) < BigInt(launch.quoteAddress || RWI_ADDRESS),
+      state.tokenDecimals,
+      quoteDecimals,
+    );
   }
   if (launch?.pool) return readV3Quote(launch.pool, tokenAddress, provider);
   return null;
@@ -525,6 +532,27 @@ function settlementAssetConfig(asset = state.settlementAsset) {
     : { symbol: "ETH", address: null, decimals: 18, native: true };
 }
 
+function directQuoteAssetConfig() {
+  const symbol = state.tradeSource?.quoteSymbol === "USDG" ? "USDG" : "ETH";
+  return symbol === "USDG"
+    ? { symbol, address: USDG_ADDRESS, decimals: USDG_DECIMALS, native: false }
+    : { symbol, address: window.ethers.ZeroAddress, decimals: 18, native: true };
+}
+
+function directQuoteBridgeExactInputPath(inputAsset, outputAsset) {
+  const inputToken = inputAsset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;
+  const outputToken = outputAsset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;
+  if (sameAddress(inputToken, outputToken)) throw new Error("A cross-settlement bridge requires different assets.");
+  return window.ethers.solidityPacked(["address", "uint24", "address"], [inputToken, WETH_USDG_V3_FEE, outputToken]);
+}
+
+function directQuoteBridgeExactOutputPath(inputAsset, outputAsset) {
+  const inputToken = inputAsset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;
+  const outputToken = outputAsset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;
+  if (sameAddress(inputToken, outputToken)) throw new Error("A cross-settlement bridge requires different assets.");
+  return window.ethers.solidityPacked(["address", "uint24", "address"], [outputToken, WETH_USDG_V3_FEE, inputToken]);
+}
+
 function applySlippage(value, bps = DIRECT_TRADE_SLIPPAGE_BPS) {
   return BigInt(value) * (10_000n - bps) / 10_000n;
 }
@@ -693,7 +721,9 @@ async function quoteDirectTrade({ quiet = false } = {}) {
     updateTradeInputConversion(tradeAmount);
     const settlement = settlementAssetConfig();
     const buying = state.tradeDirection === "buy";
-    if (!quiet) $("#tradeQuote").textContent = `Finding ${buying ? `${settlement.symbol} → RWI → $${state.tokenSymbol}` : `$${state.tokenSymbol} → RWI → ${settlement.symbol}`} route…`;
+    const routeQuoteSymbol = state.tradeSource.directQuote ? state.tradeSource.quoteSymbol : "RWI";
+    const routeMiddle = routeQuoteSymbol === settlement.symbol ? "" : ` → ${routeQuoteSymbol}`;
+    if (!quiet) $("#tradeQuote").textContent = `Finding ${buying ? `${settlement.symbol}${routeMiddle} → $${state.tokenSymbol}` : `$${state.tokenSymbol} → ${routeQuoteSymbol}${routeMiddle ? ` → ${settlement.symbol}` : ""}`} route…`;
 
     if (state.tradeSource.protocol === "Uniswap v3") {
       const tokenFee = await legacyV3PoolFee(provider);
@@ -729,31 +759,107 @@ async function quoteDirectTrade({ quiet = false } = {}) {
     ], provider);
 
     if (state.tradeSource.directQuote) {
-      const [directAmountOut] = await quoter.quoteExactInputSingle.staticCall([poolKey, zeroForOne, tradeAmount.amount, "0x"]);
-      if (requestId !== state.tradeQuoteRequest) return null;
-      if (directAmountOut <= 0n) throw new Error("The direct pool returned no output for that amount.");
-      const minimumAmountOut = applySlippage(directAmountOut, DIRECT_TRADE_HOP_SLIPPAGE_BPS);
-      state.tradeQuote = {
-        routeProtocol: "v4",
-        directQuote: true,
-        direction: state.tradeDirection,
-        amountIn: tradeAmount.amount,
-        amountOut: directAmountOut,
-        minimumAmountOut,
-        quoteAmount: buying ? tradeAmount.amount : directAmountOut,
-        minimumQuoteOut: buying ? 0n : minimumAmountOut,
-        settlementAsset: state.settlementAsset,
-        settlement,
-        walletInputCurrency: buying ? settlement.address : state.token,
-        walletInputDecimals: buying ? settlement.decimals : state.tokenDecimals,
-        inputSymbol: tradeAmount.symbol,
-        inputCurrency,
-        outputCurrency,
-        poolKey,
-        zeroForOne,
-        usdValue: tradeAmount.usdValue,
-      };
-      $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, buying ? state.tokenSymbol : settlement.symbol, buying ? state.tokenDecimals : settlement.decimals);
+      const poolQuote = directQuoteAssetConfig();
+      const crossSettlement = poolQuote.symbol !== settlement.symbol;
+      if (!crossSettlement) {
+        const [directAmountOut] = await quoter.quoteExactInputSingle.staticCall([poolKey, zeroForOne, tradeAmount.amount, "0x"]);
+        if (requestId !== state.tradeQuoteRequest) return null;
+        if (directAmountOut <= 0n) throw new Error("The direct pool returned no output for that amount.");
+        const minimumAmountOut = applySlippage(directAmountOut, DIRECT_TRADE_HOP_SLIPPAGE_BPS);
+        state.tradeQuote = {
+          routeProtocol: "v4",
+          directQuote: true,
+          crossSettlement: false,
+          direction: state.tradeDirection,
+          amountIn: tradeAmount.amount,
+          amountOut: directAmountOut,
+          minimumAmountOut,
+          quoteAmount: buying ? tradeAmount.amount : directAmountOut,
+          minimumQuoteOut: buying ? 0n : minimumAmountOut,
+          settlementAsset: state.settlementAsset,
+          settlement,
+          poolQuote,
+          walletInputCurrency: buying ? settlement.address : state.token,
+          walletInputDecimals: buying ? settlement.decimals : state.tokenDecimals,
+          inputSymbol: tradeAmount.symbol,
+          inputCurrency,
+          outputCurrency,
+          poolKey,
+          zeroForOne,
+          usdValue: tradeAmount.usdValue,
+        };
+        $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, buying ? state.tokenSymbol : settlement.symbol, buying ? state.tokenDecimals : settlement.decimals);
+      } else if (buying) {
+        const bridgeInputPath = directQuoteBridgeExactInputPath(settlement.symbol, poolQuote.symbol);
+        const maximumPoolQuote = await quoteV3ExactInput(provider, bridgeInputPath, tradeAmount.amount);
+        const quoteAmount = applySlippage(maximumPoolQuote, DIRECT_TRADE_HOP_SLIPPAGE_BPS);
+        if (quoteAmount <= 0n || quoteAmount > (1n << 128n) - 1n) throw new Error("The settlement bridge returned an invalid pool-quote amount.");
+        const bridgePath = directQuoteBridgeExactOutputPath(settlement.symbol, poolQuote.symbol);
+        const estimatedSettlementIn = await quoteV3ExactOutput(provider, bridgePath, quoteAmount);
+        if (estimatedSettlementIn > tradeAmount.amount) throw new Error("The settlement bridge exceeds the selected spend limit.");
+        const [tokenOut] = await quoter.quoteExactInputSingle.staticCall([poolKey, zeroForOne, quoteAmount, "0x"]);
+        if (requestId !== state.tradeQuoteRequest) return null;
+        if (tokenOut <= 0n) throw new Error("The direct token pool returned no output for that amount.");
+        const minimumAmountOut = applySlippage(tokenOut, DIRECT_TRADE_HOP_SLIPPAGE_BPS);
+        state.tradeQuote = {
+          routeProtocol: "v4",
+          directQuote: true,
+          crossSettlement: true,
+          direction: "buy",
+          amountIn: tradeAmount.amount,
+          amountOut: tokenOut,
+          minimumAmountOut,
+          quoteAmount,
+          minimumQuoteOut: 0n,
+          estimatedSettlementIn,
+          bridgePath,
+          settlementAsset: state.settlementAsset,
+          settlement,
+          poolQuote,
+          walletInputCurrency: settlement.address,
+          walletInputDecimals: settlement.decimals,
+          inputSymbol: settlement.symbol,
+          inputCurrency,
+          outputCurrency,
+          poolKey,
+          zeroForOne,
+          usdValue: tradeAmount.usdValue,
+        };
+        $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, state.tokenSymbol, state.tokenDecimals);
+      } else {
+        const [poolQuoteOut] = await quoter.quoteExactInputSingle.staticCall([poolKey, zeroForOne, tradeAmount.amount, "0x"]);
+        if (poolQuoteOut <= 0n) throw new Error(`The token pool returned no ${poolQuote.symbol} output for that amount.`);
+        const minimumQuoteOut = applySlippage(poolQuoteOut, DIRECT_TRADE_HOP_SLIPPAGE_BPS);
+        const bridgePath = directQuoteBridgeExactInputPath(poolQuote.symbol, settlement.symbol);
+        const settlementOut = await quoteV3ExactInput(provider, bridgePath, minimumQuoteOut);
+        if (requestId !== state.tradeQuoteRequest) return null;
+        if (settlementOut <= 0n) throw new Error("The settlement bridge returned no output for that amount.");
+        const minimumAmountOut = applySlippage(settlementOut, DIRECT_TRADE_HOP_SLIPPAGE_BPS);
+        state.tradeQuote = {
+          routeProtocol: "v4",
+          directQuote: true,
+          crossSettlement: true,
+          direction: "sell",
+          amountIn: tradeAmount.amount,
+          amountOut: settlementOut,
+          minimumAmountOut,
+          quoteAmount: poolQuoteOut,
+          minimumQuoteOut,
+          bridgePath,
+          settlementAsset: state.settlementAsset,
+          settlement,
+          poolQuote,
+          walletInputCurrency: state.token,
+          walletInputDecimals: state.tokenDecimals,
+          inputSymbol: state.tokenSymbol,
+          inputCurrency,
+          outputCurrency,
+          poolKey,
+          zeroForOne,
+          usdValue: tradeAmount.usdValue,
+        };
+        $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, settlement.symbol, settlement.decimals);
+      }
     } else if (buying) {
       const bridgeInputPath = v3BridgeExactInputPath(state.settlementAsset, "buy");
       const bridgeMaximumRwi = await quoteV3ExactInput(provider, bridgeInputPath, tradeAmount.amount);
@@ -823,9 +929,10 @@ async function quoteDirectTrade({ quiet = false } = {}) {
     if (requestId !== state.tradeQuoteRequest) return null;
     state.tradeQuote = null;
     $("#tradeQuote").textContent = "No quote";
-    const message = state.tradeDirection === "sell"
-      ? `No ${state.settlementAsset} sell route is available yet. Complete the first ETH or USDG buy, then try again.`
-      : (error?.shortMessage || error?.message || "A direct quote is not available.");
+    const rawMessage = error?.shortMessage || error?.reason || error?.message || "A direct quote is not available.";
+    const message = /execution reverted|missing revert data|could not decode result/i.test(rawMessage)
+      ? `The ${state.settlementAsset} route could not quote that size. Try a smaller USD amount.`
+      : rawMessage;
     setDirectTradeStatus(message, true);
     if (!quiet && !$("#tradeAmount").value.trim()) {
       $("#tradeQuote").textContent = "Enter a USD amount";
@@ -938,14 +1045,14 @@ function encodeV4SwapCommand(quote) {
   ]]);
   if (quote.direction === "buy") {
     const quoteAddress = state.tradeSource?.quoteAddress || RWI_ADDRESS;
-    const payerIsUser = Boolean(quote.directQuote && !sameAddress(quoteAddress, window.ethers.ZeroAddress));
+    const payerIsUser = Boolean(quote.directQuote && !quote.crossSettlement && !sameAddress(quoteAddress, window.ethers.ZeroAddress));
     const settleParams = coder.encode(["address", "uint256", "bool"], [quoteAddress, quote.directQuote ? quote.quoteAmount : quote.rwiAmount, payerIsUser]);
     const takeAllParams = coder.encode(["address", "uint256"], [state.token, quote.minimumAmountOut]);
     return coder.encode(["bytes", "bytes[]"], ["0x060b0f", [swapParams, settleParams, takeAllParams]]);
   }
   const settleParams = coder.encode(["address", "uint256", "bool"], [state.token, quote.amountIn, true]);
   const quoteAddress = state.tradeSource?.quoteAddress || RWI_ADDRESS;
-  const recipient = quote.directQuote ? ROUTER_MSG_SENDER : ROUTER_ADDRESS_THIS;
+  const recipient = quote.directQuote && !quote.crossSettlement ? ROUTER_MSG_SENDER : ROUTER_ADDRESS_THIS;
   const takeParams = coder.encode(["address", "address", "uint256"], [quoteAddress, recipient, 0]);
   return coder.encode(["bytes", "bytes[]"], ["0x060b0e", [swapParams, settleParams, takeParams]]);
 }
@@ -968,8 +1075,8 @@ function encodeWrapEthCommand(amount) {
   return window.ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [ROUTER_ADDRESS_THIS, amount]);
 }
 
-function encodeUnwrapWethCommand(minimumAmount) {
-  return window.ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [ROUTER_MSG_SENDER, minimumAmount]);
+function encodeUnwrapWethCommand(minimumAmount, recipient = ROUTER_MSG_SENDER) {
+  return window.ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [recipient, minimumAmount]);
 }
 
 function encodeRoutedTrade(quote, deadline) {
@@ -979,7 +1086,40 @@ function encodeRoutedTrade(quote, deadline) {
   const buying = quote.direction === "buy";
   let nativeValue = 0n;
 
-  if (quote.directQuote) {
+  if (quote.directQuote && quote.crossSettlement && buying) {
+    if (isEth) {
+      commands.push("0x0b");
+      inputs.push(encodeWrapEthCommand(quote.amountIn));
+      nativeValue = quote.amountIn;
+      commands.push("0x01");
+      inputs.push(encodeV3ExactOutputCommand(ROUTER_ADDRESS_THIS, quote.quoteAmount, quote.amountIn, quote.bridgePath, false));
+      commands.push("0x10");
+      inputs.push(encodeV4SwapCommand(quote));
+      commands.push("0x0c");
+      inputs.push(encodeUnwrapWethCommand(0));
+    } else {
+      commands.push("0x01");
+      inputs.push(encodeV3ExactOutputCommand(ROUTER_ADDRESS_THIS, quote.quoteAmount, quote.amountIn, quote.bridgePath, true));
+      commands.push("0x0c");
+      inputs.push(encodeUnwrapWethCommand(quote.quoteAmount, ROUTER_ADDRESS_THIS));
+      commands.push("0x10");
+      inputs.push(encodeV4SwapCommand(quote));
+    }
+  } else if (quote.directQuote && quote.crossSettlement) {
+    commands.push("0x10");
+    inputs.push(encodeV4SwapCommand(quote));
+    if (isEth) {
+      commands.push("0x00");
+      inputs.push(encodeV3ExactInputCommand(ROUTER_ADDRESS_THIS, ROUTER_CONTRACT_BALANCE, quote.minimumAmountOut, quote.bridgePath, false));
+      commands.push("0x0c");
+      inputs.push(encodeUnwrapWethCommand(quote.minimumAmountOut));
+    } else {
+      commands.push("0x0b");
+      inputs.push(encodeWrapEthCommand(quote.minimumQuoteOut));
+      commands.push("0x00");
+      inputs.push(encodeV3ExactInputCommand(ROUTER_MSG_SENDER, ROUTER_CONTRACT_BALANCE, quote.minimumAmountOut, quote.bridgePath, false));
+    }
+  } else if (quote.directQuote) {
     commands.push("0x10");
     inputs.push(encodeV4SwapCommand(quote));
     if (buying && isEth) nativeValue = quote.amountIn;
@@ -1188,9 +1328,9 @@ function setupDirectTrade(launch) {
   $("#directV4Trade").hidden = !state.tradeSource;
   if (!state.tradeSource) return;
   document.querySelectorAll("[data-settlement-asset]").forEach((button) => {
-    button.hidden = Boolean(launch.directQuote && button.dataset.settlementAsset !== launch.quoteSymbol);
+    button.hidden = false;
   });
-  if (launch.directQuote) state.settlementAsset = launch.quoteSymbol;
+  if (!["ETH", "USDG"].includes(state.settlementAsset)) state.settlementAsset = "ETH";
   $("#directTradeButton").textContent = directTradeButtonText();
   selectTradeDirection("buy");
   refreshPoolActivation();
@@ -1636,7 +1776,8 @@ if (!window.RWI_TOKEN_PAGE_TEST_MODE) window.RWI_TOKEN_PAGE_READY = loadTokenPag
 window.RWITokenPage = {
   uniswapSwapUrl, isAddress, resolveAssetUrl, normalizeSocialUrl, loadTokenPage, withTimeout, displayedTokenDescription,
   directTradePoolKey, directTradeCurrencies, encodeV4SwapCommand, encodeRoutedTrade, validateDirectTradeIntegrations,
-  v3BridgeExactInputPath, v3BridgeExactOutputPath, legacyV3TradePath, settlementAssetConfig, selectSettlementAsset,
+  v3BridgeExactInputPath, v3BridgeExactOutputPath, directQuoteBridgeExactInputPath, directQuoteBridgeExactOutputPath,
+  legacyV3TradePath, settlementAssetConfig, directQuoteAssetConfig, selectSettlementAsset,
   readTradeUsdValue, tradeInputAsset, parseTradeAssetUnits, readTradeAmount, quoteDirectTrade,
   getTradeQuote: () => state.tradeQuote,
   selectDexScreenerPair, tokenMarketValues, tokenMarketChange24h, renderDexScreenerPair, renderDextoolsChart,
