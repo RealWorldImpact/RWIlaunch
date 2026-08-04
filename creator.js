@@ -3,9 +3,12 @@ const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 const EXPLORER_URL = "https://robinhoodchain.blockscout.com";
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
+const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({});
+const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || Object.freeze([]);
 const PROFILE_REGISTRY_CONFIG = window.RWI_PROFILE_REGISTRY || Object.freeze({});
 const PROFILE_REGISTRY_ABI = window.RWI_PROFILE_REGISTRY_ABI || Object.freeze([]);
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
+const MULTI_QUOTE_FEE_MODE = "internal-match-eth-90-10";
 const TOKEN_SUPPLY = 1_000_000_000n;
 const SWAP_SCAN_BLOCKS = 750_000;
 const MAX_TRADES = 30;
@@ -39,6 +42,12 @@ function sameAddress(left, right) {
 
 function factorySources() {
   const sources = [];
+  if (isAddress(QUOTE_FACTORY_CONFIG.factoryAddress)) sources.push({
+    address: QUOTE_FACTORY_CONFIG.factoryAddress,
+    deploymentBlock: Number(QUOTE_FACTORY_CONFIG.deploymentBlock || 0),
+    protocol: "Uniswap v4",
+    feeMode: MULTI_QUOTE_FEE_MODE,
+  });
   if (isAddress(FACTORY_CONFIG.factoryAddress)) sources.push({
     address: FACTORY_CONFIG.factoryAddress,
     deploymentBlock: Number(FACTORY_CONFIG.deploymentBlock || 0),
@@ -54,6 +63,7 @@ function factorySources() {
 
 function factoryAbi(source) {
   if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  if (source.feeMode === MULTI_QUOTE_FEE_MODE) return QUOTE_FACTORY_ABI;
   return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
 }
 
@@ -62,8 +72,12 @@ async function queryLogsInBatches(contract, filter, firstBlock, latestBlock) {
   for (let from = firstBlock; from <= latestBlock; from += CHUNK_SIZE) ranges.push([from, Math.min(latestBlock, from + CHUNK_SIZE - 1)]);
   const logs = [];
   for (let index = 0; index < ranges.length; index += 3) {
-    const batches = await Promise.all(ranges.slice(index, index + 3).map(([from, to]) => contract.queryFilter(filter, from, to)));
-    batches.forEach((batch) => logs.push(...batch));
+    const batches = await Promise.allSettled(
+      ranges.slice(index, index + 3).map(([from, to]) => contract.queryFilter(filter, from, to)),
+    );
+    const completed = batches.filter((batch) => batch.status === "fulfilled");
+    completed.forEach((batch) => logs.push(...batch.value));
+    if (!completed.length) throw batches[0].reason;
   }
   return logs;
 }
@@ -90,10 +104,14 @@ async function readCreatorLaunch(eventLog, source, provider) {
   const args = eventLog.args || factory.interface.parseLog(eventLog)?.args;
   const token = String(args.token);
   const tokenContract = new window.ethers.Contract(token, ["function name() view returns(string)", "function symbol() view returns(string)"], provider);
-  const [nameResult, symbolResult, metadataResult, blockResult] = await Promise.allSettled([
-    tokenContract.name(), tokenContract.symbol(), readMetadata(token), provider.getBlock(eventLog.blockNumber),
+  const launchRecordPromise = source.feeMode === MULTI_QUOTE_FEE_MODE ? factory.launches(token) : Promise.resolve(null);
+  const [nameResult, symbolResult, metadataResult, blockResult, recordResult] = await Promise.allSettled([
+    tokenContract.name(), tokenContract.symbol(), readMetadata(token), provider.getBlock(eventLog.blockNumber), launchRecordPromise,
   ]);
   const metadata = metadataResult.status === "fulfilled" ? metadataResult.value : {};
+  const record = recordResult.status === "fulfilled" ? recordResult.value : null;
+  const quoteSymbol = source.feeMode === MULTI_QUOTE_FEE_MODE ? (Number(record?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+  const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : RWI_ADDRESS;
   return {
     token,
     creator: String(args.creator),
@@ -103,6 +121,8 @@ async function readCreatorLaunch(eventLog, source, provider) {
     factoryAddress: source.address,
     blockNumber: Number(eventLog.blockNumber || 0),
     timestamp: blockResult.status === "fulfilled" ? Number(blockResult.value?.timestamp || 0) : 0,
+    quoteSymbol,
+    quoteAddress,
     transactionHash: eventLog.transactionHash,
     name: nameResult.status === "fulfilled" ? String(nameResult.value) : "Creator token",
     symbol: symbolResult.status === "fulfilled" ? String(symbolResult.value) : "TOKEN",
@@ -115,7 +135,8 @@ async function loadCreatorLaunches(creator, provider, latestBlock) {
     const factory = new window.ethers.Contract(source.address, factoryAbi(source), provider);
     const filter = factory.filters.TokenLaunched(null, creator, null);
     const logs = await queryLogsInBatches(factory, filter, source.deploymentBlock, latestBlock);
-    return Promise.all(logs.map((log) => readCreatorLaunch(log, source, provider)));
+    const launches = await Promise.allSettled(logs.map((log) => readCreatorLaunch(log, source, provider)));
+    return launches.filter((launch) => launch.status === "fulfilled").map((launch) => launch.value);
   }));
   const unique = new Map();
   results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value)
@@ -198,7 +219,7 @@ async function queryRecentSwapLogs(launch, provider, latestBlock) {
   }
   return logs.map((log) => {
     const args = log.args || contract.interface.parseLog(log)?.args;
-    const tokenIs0 = BigInt(launch.token) < BigInt(RWI_ADDRESS);
+    const tokenIs0 = BigInt(launch.token) < BigInt(launch.quoteAddress || RWI_ADDRESS);
     const tokenDelta = BigInt(tokenIs0 ? args.amount0 : args.amount1);
     const rwiDelta = BigInt(tokenIs0 ? args.amount1 : args.amount0);
     return {
@@ -284,7 +305,7 @@ function renderLaunches(launches) {
     const address = document.createElement("code");
     meta.textContent = `$${launch.symbol} · ${date}`;
     title.textContent = launch.name;
-    description.textContent = launch.metadata?.description || "Fixed one-billion supply with permanently locked TOKEN / RWI liquidity.";
+    description.textContent = launch.metadata?.description || `Fixed one-billion supply with permanently locked TOKEN / ${launch.quoteSymbol || "RWI"} liquidity.`;
     address.textContent = launch.token;
     copy.append(meta, title, description, address);
     card.append(art, copy);
@@ -313,7 +334,7 @@ function renderTrades(trades) {
     row.innerHTML = `<span class="creator-trade-side is-${trade.side}">${trade.side}</span><span class="creator-trade-copy"><strong></strong><span></span></span><span class="creator-trade-value"><strong></strong><span></span></span>`;
     row.querySelector(".creator-trade-copy strong").textContent = `$${trade.launch.symbol} · ${formatAmount(trade.tokenAmount)} tokens`;
     row.querySelector(".creator-trade-copy span").textContent = `${time} · ${shortAddress(trade.sender)}`;
-    row.querySelector(".creator-trade-value strong").textContent = `${formatAmount(trade.rwiAmount)} RWI`;
+    row.querySelector(".creator-trade-value strong").textContent = `${formatAmount(trade.rwiAmount)} ${trade.launch.quoteSymbol || "RWI"}`;
     row.querySelector(".creator-trade-value span").textContent = "View transaction ↗";
     list.appendChild(row);
   });
