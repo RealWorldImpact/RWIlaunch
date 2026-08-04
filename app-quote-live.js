@@ -148,6 +148,7 @@ const state = {
   discoverView: "market",
   quoteAsset: "RWI",
   developerClaimInFlight: false,
+  developerRevenueFactories: [],
 };
 const discoveredWalletProviders = new Map();
 const $ = (selector) => document.querySelector(selector);
@@ -520,6 +521,17 @@ function configuredFactorySources() {
     feeMode: MULTI_QUOTE_FEE_MODE,
     runtimeCodeHash: QUOTE_FACTORY_CONFIG.runtimeCodeHash || null,
   });
+  for (const entry of QUOTE_FACTORY_CONFIG.legacyFactories || []) {
+    if (!isAddress(entry?.address) || sources.some((source) => sameAddress(source.address, entry.address))) continue;
+    sources.push({
+      ...entry,
+      deploymentBlock: Number(entry.deploymentBlock || 0),
+      current: false,
+      protocol: "Uniswap v4",
+      feeMode: MULTI_QUOTE_FEE_MODE,
+      launchesDeprecated: true,
+    });
+  }
   const current = configuredFactoryAddress();
   const localReplacement = usingLocalReplacementFactory();
   if (current) sources.push({
@@ -1580,8 +1592,8 @@ async function loadDeveloperRevenue(provider = null) {
   renderDeveloperRevenueAccess();
   if (!state.account || !sameAddress(state.account, DEVELOPER_WALLET)) return;
   const button = $("#claimDeveloperRevenue");
-  const address = quoteFactoryAddress();
-  if (!address || !QUOTE_FACTORY_ABI.length) {
+  const sources = configuredFactorySources().filter((source) => isMultiQuoteMode(source));
+  if (!sources.length || !QUOTE_FACTORY_ABI.length) {
     $("#developerEthPending").textContent = "Factory pending";
     $("#developerUsdPending").textContent = "—";
     button.textContent = "Nothing to claim";
@@ -1590,16 +1602,22 @@ async function loadDeveloperRevenue(provider = null) {
   }
   try {
     const readProvider = provider || new window.ethers.BrowserProvider(currentWalletProvider());
-    const factory = new window.ethers.Contract(address, QUOTE_FACTORY_ABI, readProvider);
-    const [configuredWallet, pending] = await Promise.all([
-      factory.developerWallet(),
-      factory.claimableDeveloperEthRewards(),
-    ]);
-    if (!sameAddress(configuredWallet, DEVELOPER_WALLET)) throw new Error("Developer wallet mismatch");
-    const pendingEth = BigInt(pending);
+    const results = await Promise.allSettled(sources.map(async (source) => {
+      const factory = new window.ethers.Contract(source.address, QUOTE_FACTORY_ABI, readProvider);
+      const [configuredWallet, pending] = await Promise.all([
+        factory.developerWallet(), factory.claimableDeveloperEthRewards(),
+      ]);
+      if (!sameAddress(configuredWallet, DEVELOPER_WALLET)) throw new Error("Developer wallet mismatch");
+      return { source, pending: BigInt(pending), factory };
+    }));
+    state.developerRevenueFactories = results
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => result.value);
+    if (!state.developerRevenueFactories.length) throw new Error("Developer revenue factories unavailable");
+    const pendingEth = state.developerRevenueFactories.reduce((total, entry) => total + entry.pending, 0n);
     $("#developerEthPending").textContent = `${formatUnits(pendingEth, 18, 8)} ETH`;
     try {
-      const ethUsd = BigInt(await factory.ethUsdPriceE18());
+      const ethUsd = BigInt(await state.developerRevenueFactories[0].factory.ethUsdPriceE18());
       $("#developerUsdPending").textContent = usdValueLabel(pendingEth * ethUsd / 10n ** 18n);
     } catch {
       $("#developerUsdPending").textContent = "USD estimate unavailable";
@@ -1626,22 +1644,30 @@ async function claimDeveloperRevenue() {
     const signer = await provider.getSigner();
     const signerAddress = await signer.getAddress();
     if (!sameAddress(signerAddress, DEVELOPER_WALLET)) throw new Error("Only the configured developer wallet can claim this balance.");
-    const address = quoteFactoryAddress();
-    if (!address) throw new Error("The ETH/USDG factory is not configured.");
-    const code = await provider.getCode(address);
-    if (code === "0x") throw new Error("The configured ETH/USDG factory is not deployed.");
-    const factory = new window.ethers.Contract(address, QUOTE_FACTORY_ABI, signer);
-    const configuredWallet = await factory.developerWallet();
-    if (!sameAddress(configuredWallet, DEVELOPER_WALLET)) throw new Error("The factory developer wallet does not match this dashboard.");
-    const pending = BigInt(await factory.claimableDeveloperEthRewards());
-    if (pending === 0n) throw new Error("No developer ETH is ready to claim.");
-    const transaction = await factory.claimDeveloperEthRewards();
-    button.textContent = "Claiming ETH…";
-    const receipt = await transaction.wait();
-    const event = receipt.logs.map((log) => {
-      try { return factory.interface.parseLog(log); } catch { return null; }
-    }).find((parsed) => parsed?.name === "DeveloperEthRewardsClaimed");
-    toast(event ? `Claimed ${feeLabel(BigInt(event.args.ethAmount), "ETH")} to the developer wallet.` : "Developer ETH claim confirmed.");
+    const sources = configuredFactorySources().filter((source) => isMultiQuoteMode(source));
+    const claimable = [];
+    for (const source of sources) {
+      const factory = new window.ethers.Contract(source.address, QUOTE_FACTORY_ABI, signer);
+      const [configuredWallet, pending] = await Promise.all([
+        factory.developerWallet(), factory.claimableDeveloperEthRewards(),
+      ]);
+      if (!sameAddress(configuredWallet, DEVELOPER_WALLET)) {
+        throw new Error("A factory developer wallet does not match this dashboard.");
+      }
+      if (BigInt(pending) > 0n) claimable.push({ source, factory, pending: BigInt(pending) });
+    }
+    if (!claimable.length) throw new Error("No developer ETH is ready to claim.");
+    let claimed = 0n;
+    for (let index = 0; index < claimable.length; index += 1) {
+      const entry = claimable[index];
+      button.textContent = `Confirm claim ${index + 1} of ${claimable.length}…`;
+      await validateConfiguredFeeFactory(provider, entry.source.address);
+      const transaction = await entry.factory.claimDeveloperEthRewards();
+      button.textContent = `Claiming ${index + 1} of ${claimable.length}…`;
+      await transaction.wait();
+      claimed += entry.pending;
+    }
+    toast(`Claimed ${feeLabel(claimed, "ETH")} to the developer wallet.`);
     await loadDeveloperRevenue(provider);
   } catch (error) {
     toast(readableWalletError(error).replace(/^Launch reverted:/, "Claim reverted:"));
@@ -2974,10 +3000,11 @@ async function validateQuoteFactoryDeployment(provider, address) {
   }
   if ((BigInt(address) & 0x3fffn) !== 0x2088n) throw new Error("The ETH/USDG factory has invalid v4 hook permissions.");
   const factory = new window.ethers.Contract(address, QUOTE_FACTORY_ABI, provider);
-  const [developer, weth, usdg, poolManager, stateView, swapRouter, creatorShare, developerShare, locked, targetCap] = await Promise.all([
+  const [developer, weth, usdg, poolManager, stateView, swapRouter, creatorShare, developerShare, locked, targetCap, activeBps, stagedBps, stagedOffset] = await Promise.all([
     factory.developerWallet(), factory.weth(), factory.usdg(), factory.poolManager(), factory.stateView(), factory.swapRouter(),
     factory.CREATOR_LP_FEE_SHARE_BPS(), factory.DEVELOPER_LP_FEE_SHARE_BPS(), factory.LIQUIDITY_PERMANENTLY_LOCKED(),
     factory.TARGET_MARKET_CAP_USD_E18(),
+    factory.INITIAL_ACTIVE_TOKEN_BPS(), factory.STAGED_TOKEN_BPS(), factory.STAGED_TICK_OFFSET(),
   ]);
   const addressChecks = [
     [developer, DEVELOPER_WALLET, "developer wallet"],
@@ -2990,7 +3017,10 @@ async function validateQuoteFactoryDeployment(provider, address) {
   for (const [actual, expected, label] of addressChecks) {
     if (!sameAddress(actual, expected)) throw new Error(`ETH/USDG factory ${label} mismatch.`);
   }
-  if (creatorShare !== 9000n || developerShare !== 1000n || !locked || targetCap !== 10_000n * 10n ** 18n) {
+  if (
+    creatorShare !== 9000n || developerShare !== 1000n || !locked || targetCap !== 10_000n * 10n ** 18n
+    || activeBps !== 9000n || stagedBps !== 1000n || stagedOffset !== 2200n
+  ) {
     throw new Error("The ETH/USDG factory launch or revenue rules do not match this build.");
   }
   return window.ethers.keccak256(code);
@@ -2999,7 +3029,14 @@ async function validateQuoteFactoryDeployment(provider, address) {
 async function validateConfiguredFeeFactory(provider, address) {
   const source = configuredFactorySource(address);
   if (!source) throw new Error("This token factory is not in the launchpad configuration.");
-  if (isMultiQuoteMode(source)) return validateQuoteFactoryDeployment(provider, address);
+  if (isMultiQuoteMode(source) && source.current) return validateQuoteFactoryDeployment(provider, address);
+  if (isMultiQuoteMode(source)) {
+    const code = await provider.getCode(address);
+    if (code === "0x" || !source.runtimeCodeHash || window.ethers.keccak256(code).toLowerCase() !== String(source.runtimeCodeHash).toLowerCase()) {
+      throw new Error("Legacy ETH/USDG factory bytecode does not match its verified configuration.");
+    }
+    return source.runtimeCodeHash;
+  }
   if (source.current && source.feeMode === INTERNAL_MATCH_FEE_MODE) return validateFactoryDeployment(provider, address);
   const network = await provider.getNetwork();
   if (network.chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain.");
