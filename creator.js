@@ -48,6 +48,15 @@ function factorySources() {
     protocol: "Uniswap v4",
     feeMode: MULTI_QUOTE_FEE_MODE,
   });
+  for (const entry of QUOTE_FACTORY_CONFIG.legacyFactories || []) {
+    if (!isAddress(entry?.address) || sources.some((source) => sameAddress(source.address, entry.address))) continue;
+    sources.push({
+      ...entry,
+      deploymentBlock: Number(entry.deploymentBlock || 0),
+      protocol: "Uniswap v4",
+      feeMode: MULTI_QUOTE_FEE_MODE,
+    });
+  }
   if (isAddress(FACTORY_CONFIG.factoryAddress)) sources.push({
     address: FACTORY_CONFIG.factoryAddress,
     deploymentBlock: Number(FACTORY_CONFIG.deploymentBlock || 0),
