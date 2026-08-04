@@ -55,7 +55,7 @@
   transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease;
 }
 
-.home-page-body .quote-selector label > span::before {
+.home-page-body .quote-selector .quote-asset-mark {
   grid-column: 1;
   grid-row: 1 / 3;
   width: 38px;
@@ -67,11 +67,29 @@
   background: transparent;
   font: 600 10px/1 var(--mono);
   letter-spacing: -.03em;
+  overflow: hidden;
 }
 
-.home-page-body .quote-selector input[value="RWI"] + span::before { content: "RWI"; }
-.home-page-body .quote-selector input[value="ETH"] + span::before { content: "Ξ"; font: 600 23px/1 var(--serif); }
-.home-page-body .quote-selector input[value="USDG"] + span::before { content: "$"; font-size: 18px; }
+.home-page-body .quote-selector .quote-asset-mark-rwi {
+  padding-top: 1px;
+}
+
+.home-page-body .quote-selector .quote-asset-mark img {
+  display: block;
+  width: 27px;
+  height: 27px;
+  object-fit: contain;
+}
+
+.home-page-body .quote-selector .quote-asset-mark-eth img {
+  width: 17px;
+  height: 28px;
+}
+
+.home-page-body .quote-selector .quote-asset-mark-usdg img {
+  width: 30px;
+  height: 30px;
+}
 
 .home-page-body .quote-selector label > span::after {
   content: "";
@@ -117,7 +135,7 @@
   box-shadow: inset 0 -3px 0 var(--lime);
 }
 
-.home-page-body .quote-selector input:checked + span::before {
+.home-page-body .quote-selector input:checked + span .quote-asset-mark {
   border-color: var(--lime);
   background: var(--lime);
   color: var(--ink);
