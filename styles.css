@@ -579,15 +579,30 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 17px; heigh
 .trade-settlement-options button { min-width: 68px; min-height: 30px; border: 0; background: transparent; color: var(--ink); font-family: var(--mono); font-size: 9px; font-weight: 600; cursor: pointer; }
 .trade-settlement-options button + button { border-left: 1px solid var(--ink); }
 .trade-settlement-options button[aria-pressed="true"] { background: var(--lime); }
+.trade-wallet-summary { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 9px; border: 1px solid var(--ink); background: var(--ink); color: var(--white); padding: 8px 11px; }
+.trade-wallet-summary > span { color: var(--lime); font-family: var(--mono); font-size: 9px; letter-spacing: .065em; text-transform: uppercase; }
+.trade-wallet-summary > div { min-width: 0; display: grid; justify-items: end; gap: 1px; }
+.trade-wallet-summary strong { max-width: 100%; overflow: hidden; font-family: var(--mono); font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.trade-wallet-summary small { color: rgba(255,255,255,.62); font-family: var(--mono); font-size: 10px; line-height: 1.25; }
 .direct-trade-input { display: grid; gap: 7px; border: 1px solid var(--ink); background: var(--white); padding: 11px 12px; }
 .direct-trade-value { display: flex; align-items: center; gap: 10px; }
 .direct-trade-value b { font-family: var(--serif); font-size: 28px; font-weight: 500; line-height: 1; }
 .direct-trade-input input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font-family: var(--serif); font-size: 28px; }
 .direct-trade-input strong { font-family: var(--mono); font-size: 13px; }
 .direct-trade-input small { min-height: 16px; color: rgba(11,11,9,.62); font-family: var(--mono); font-size: 11px; line-height: 1.4; }
-.trade-quick-amounts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 9px; }
-.trade-quick-amounts button { min-height: 34px; border: 1px solid var(--ink); background: transparent; color: var(--ink); font-family: var(--mono); font-size: 11px; font-weight: 600; cursor: pointer; }
-.trade-quick-amounts button:hover, .trade-quick-amounts button[aria-pressed="true"] { background: var(--ink); color: var(--lime); }
+.trade-percentage { display: grid; gap: 4px; margin-top: 8px; border: 1px solid var(--ink); background: rgba(204,254,6,.1); padding: 7px 10px 6px; }
+.trade-percentage-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-family: var(--mono); }
+.trade-percentage-heading span { font-size: 10px; line-height: 1.3; letter-spacing: .045em; text-transform: uppercase; }
+.trade-percentage-heading output { min-width: 42px; background: var(--ink); color: var(--lime); padding: 3px 6px; font-size: 11px; font-weight: 600; text-align: center; }
+.trade-percentage input[type="range"] { --trade-percent: 0%; width: 100%; height: 18px; margin: 0; appearance: none; -webkit-appearance: none; background: transparent; cursor: pointer; accent-color: var(--ink); }
+.trade-percentage input[type="range"]::-webkit-slider-runnable-track { height: 5px; border: 1px solid var(--ink); background: linear-gradient(to right, var(--ink) 0 var(--trade-percent), var(--white) var(--trade-percent) 100%); }
+.trade-percentage input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -6px; appearance: none; -webkit-appearance: none; border: 2px solid var(--ink); border-radius: 50%; background: var(--lime); box-shadow: 2px 2px 0 rgba(11,11,9,.28); }
+.trade-percentage input[type="range"]::-moz-range-track { height: 3px; border: 1px solid var(--ink); background: var(--white); }
+.trade-percentage input[type="range"]::-moz-range-progress { height: 3px; background: var(--ink); }
+.trade-percentage input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 2px solid var(--ink); border-radius: 50%; background: var(--lime); box-shadow: 2px 2px 0 rgba(11,11,9,.28); }
+.trade-percentage input[type="range"]:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.trade-percentage-scale { display: flex; justify-content: space-between; color: rgba(11,11,9,.55); font-family: var(--mono); font-size: 8px; line-height: 1; }
+.trade-percentage > small { min-height: 14px; overflow: hidden; color: rgba(11,11,9,.65); font-family: var(--mono); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .direct-trade-quote { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 43px; padding: 8px 2px 0; }
 .direct-trade-quote strong { font-family: var(--mono); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
 .direct-trade-button { width: 100%; margin-top: 9px; }
@@ -951,8 +966,11 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
 .token-dashboard .direct-trade-value b, .token-dashboard .direct-trade-input input { font-size: 24px; }
 .token-dashboard .direct-trade-input strong { font-size: 11px; }
 .token-dashboard .direct-trade-input small { min-height: 15px; overflow: hidden; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.token-dashboard .trade-quick-amounts { gap: 5px; margin-top: 6px; }
-.token-dashboard .trade-quick-amounts button { min-height: 29px; font-size: 10px; }
+.token-dashboard .trade-wallet-summary { min-height: 39px; margin-bottom: 6px; padding: 6px 9px; }
+.token-dashboard .trade-wallet-summary > span, .token-dashboard .trade-wallet-summary strong, .token-dashboard .trade-wallet-summary small { font-size: 10px; }
+.token-dashboard .trade-percentage { margin-top: 6px; padding: 5px 8px 4px; }
+.token-dashboard .trade-percentage-heading span, .token-dashboard .trade-percentage-heading output { font-size: 10px; }
+.token-dashboard .trade-percentage > small { font-size: 9px; }
 .token-dashboard .direct-trade-quote { min-height: 34px; padding-top: 5px; }
 .token-dashboard .direct-trade-quote strong { font-size: 11px; }
 .token-dashboard .direct-trade-button { min-height: 40px; margin-top: 5px; font-size: 11px; }
