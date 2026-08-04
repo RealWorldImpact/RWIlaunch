@@ -403,6 +403,8 @@ export async function GET(request) {
       authentication: blobAuthMode(),
       chainId: CHAIN_ID,
       factoryAddress: FACTORY_ADDRESS,
+      quoteFactoryAddress: QUOTE_FACTORY_ADDRESS,
+      legacyQuoteFactoryAddresses: LEGACY_QUOTE_FACTORY_ADDRESSES,
       tokenListPath: "/api/token-list",
       purpose: "creator-authenticated public RWI token metadata",
     });
