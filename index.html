@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#ccfe06" />
     <meta
       name="description"
-      content="RWI Launchpad — create tokens on Robinhood Chain, paired with $RWI."
+      content="RWI Launchpad — create tokens on Robinhood Chain, paired with $RWI, $ETH, or $USDG."
     />
     <title>RWI Launchpad · Robinhood Chain</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -152,6 +152,13 @@
                   </div>
                 </div>
 
+                <fieldset class="quote-selector" id="quoteSelector">
+                  <legend>Choose the permanent pair</legend>
+                  <label><input type="radio" name="quoteAsset" value="RWI" checked /><span><strong>$RWI</strong><small>100% of LP revenue to creator</small></span></label>
+                  <label><input type="radio" name="quoteAsset" value="ETH" /><span><strong>$ETH</strong><small>90% creator / 10% platform</small></span></label>
+                  <label><input type="radio" name="quoteAsset" value="USDG" /><span><strong>$USDG</strong><small>90% creator / 10% platform</small></span></label>
+                </fieldset>
+
                 <div class="pair-box compact-pair-box">
                   <div class="pair-token">
                     <div class="rwi-symbol"><span>RWI</span></div>
@@ -232,7 +239,7 @@
         </div>
         <div class="mechanism-grid">
           <article><span>01</span><h3>Deploy</h3><p>Name it and describe it. A standard ERC-20 with exactly 1 billion tokens and no future minting is created on Robinhood Chain.</p></article>
-          <article><span>02</span><h3>Price + pool</h3><p>Protected 30-minute RWI/WETH and WETH/USDG TWAPs set a tick-rounded $10,000 opening valuation, then the TOKEN / $RWI v4 pool is seeded directly.</p></article>
+          <article><span>02</span><h3>Price + pool</h3><p>Protected Uniswap TWAPs set a tick-rounded $10,000 opening valuation, then the selected TOKEN / RWI, ETH, or USDG v4 pool is seeded directly.</p></article>
           <article><span>03</span><h3>Trade</h3><p>Trading starts from the Uniswap pool once confirmed. There is no threshold, migration, or graduation step.</p></article>
         </div>
       </section>
@@ -259,7 +266,7 @@
           <section class="discover-group" aria-labelledby="discoverViewTitle">
             <div class="discover-group-heading">
               <div><span id="discoverViewKicker">Leaderboard</span><h3 id="discoverViewTitle">Highest market cap</h3></div>
-              <p id="discoverViewDescription">Live USD estimates from each token’s TOKEN / RWI Uniswap market.</p>
+              <p id="discoverViewDescription">Live USD estimates from each token's selected Uniswap market.</p>
             </div>
             <div class="token-grid discover-token-grid" id="discoverTokenGrid" aria-live="polite">
               <div class="discover-loading">Ranking live markets…</div>
@@ -321,13 +328,25 @@
             </div>
             <div class="revenue-summary">
               <div><span>Fee recipient</span><strong id="feeRecipient">Connected creator</strong></div>
-              <div><span>Creator share</span><strong>100%</strong></div>
+              <div><span>Creator share</span><strong>100% RWI · 90% ETH/USDG</strong></div>
               <div><span>LP custody</span><strong>Locked forever</strong></div>
             </div>
+            <section class="developer-revenue" id="developerRevenue" hidden aria-labelledby="developerRevenueTitle">
+              <div>
+                <span>Platform revenue</span>
+                <strong id="developerRevenueTitle">Developer ETH</strong>
+                <small>10% from ETH and USDG launches</small>
+              </div>
+              <div class="developer-revenue-balance">
+                <span id="developerEthPending">0 ETH</span>
+                <strong id="developerUsdPending">$0.00</strong>
+              </div>
+              <button class="claim-revenue" id="claimDeveloperRevenue" type="button" disabled>Nothing to claim</button>
+            </section>
             <div class="revenue-list" id="revenueList" aria-live="polite">
               <div class="dashboard-empty">Connect your wallet to load creator revenue.</div>
             </div>
-            <p class="revenue-note">Internal-match launches collect LP fees without swapping. Token fees wait for organic buys and are matched at the current pool price; RWI revenue is converted separately and held as native ETH. Claiming only transfers escrowed ETH and never trades the token pool. External RWI / WETH conversion impact can still apply. Legacy launches keep their original claim behavior.</p>
+            <p class="revenue-note">Internal-match launches collect LP fees without selling into the token pool. Token fees wait for organic buys and are matched at the current pool price. Creator claims transfer escrowed ETH only. RWI pairs send 100% to creators; ETH and USDG pairs send 90% to creators and 10% to the platform developer wallet.</p>
           </div>
         </div>
       </section>
@@ -336,7 +355,7 @@
 
     <footer>
       <div class="footer-brand">RWI / LAUNCHPAD</div>
-      <p>Tokens launch directly into $RWI liquidity on Uniswap.</p>
+      <p>Tokens launch directly into permanently locked RWI, ETH, or USDG liquidity on Uniswap.</p>
       <nav aria-label="Footer"><a href="https://rwihood.org/" target="_blank" rel="noreferrer">RWIhood.org ↗</a><a href="https://robinhoodchain.blockscout.com/token/0x2286397228be256529BE1ae9ed8D7d16549e9C6A" target="_blank" rel="noreferrer">$RWI Explorer ↗</a></nav>
       <small>Experimental software. Tokens carry risk. Verify contracts and do your own research.</small>
     </footer>
@@ -398,6 +417,9 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="factory-config.js?v=20260803-dextools-restored"></script>
     <script src="factory-abi.js?v=20260803-dextools-restored"></script>
+    <script src="quote-factory-config.js?v=20260803-quote-live"></script>
+    <script src="quote-factory-abi.js?v=20260803-quote-live"></script>
+    <script src="quote-factory-deployment.js?v=20260803-quote-live"></script>
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-deployment.js?v=20260803-dextools-restored"></script>
