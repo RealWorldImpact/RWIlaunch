@@ -113,6 +113,11 @@ function configuredFactorySources() {
     protocol: "Uniswap v4",
     feeMode: MULTI_QUOTE_FEE_MODE,
   });
+  for (const entry of QUOTE_FACTORY_CONFIG.legacyFactories || []) {
+    if (isAddress(entry?.address) && !sources.some((source) => sameAddress(source.address, entry.address))) {
+      sources.push({ ...entry, current: false, protocol: "Uniswap v4", feeMode: MULTI_QUOTE_FEE_MODE });
+    }
+  }
   const localReplacement = locallyDeployedFactoryAddress();
   const currentAddress = localReplacement || (isAddress(FACTORY_CONFIG.factoryAddress) ? FACTORY_CONFIG.factoryAddress : null);
   if (currentAddress) sources.push({
