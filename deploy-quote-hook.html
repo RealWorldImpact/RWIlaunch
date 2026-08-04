@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Deploy ETH/USDG Launch Hook</title>
+    <style>
+      :root { color-scheme: dark; font-family: Arial, sans-serif; background: #0b0b09; color: #f4f1e7; }
+      body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; }
+      main { width: min(680px, 100%); border: 1px solid #ccfe06; background: #12120f; padding: 28px; box-shadow: 10px 10px 0 #ccfe06; }
+      h1 { margin: 0 0 12px; font: 500 clamp(34px, 7vw, 58px)/.95 Georgia, serif; }
+      p { color: #b8b6ae; line-height: 1.55; }
+      .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin: 24px 0; background: #49510f; border: 1px solid #49510f; }
+      .facts div { display: flex; flex-direction: column; gap: 5px; background: #181813; padding: 14px; }
+      .facts span { color: #ccfe06; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+      .facts strong { overflow-wrap: anywhere; font-size: 13px; }
+      button { width: 100%; min-height: 54px; border: 1px solid #ccfe06; background: #ccfe06; color: #0b0b09; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+      button:disabled { cursor: wait; opacity: .55; }
+      #status { min-height: 48px; margin: 16px 0 0; color: #ccfe06; font: 12px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
+      #result { margin-top: 18px; border-top: 1px solid #49510f; padding-top: 16px; }
+      #result[hidden] { display: none; }
+      a { color: #ccfe06; }
+      @media (max-width: 560px) { .facts { grid-template-columns: 1fr; } main { padding: 20px; box-shadow: 6px 6px 0 #ccfe06; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Deploy the ETH/USDG hook.</h1>
+      <p>This performs an unaudited immutable Robinhood Chain deployment. Your wallet will confirm a CREATE2 helper transaction and then the hook deployment.</p>
+      <section class="facts">
+        <div><span>Creator revenue</span><strong>90% · native ETH</strong></div>
+        <div><span>Developer revenue</span><strong>10% · native ETH</strong></div>
+        <div><span>Developer wallet</span><strong>0x9CD7C9196A4C1836A3DF089cb210272e07e6A5e5</strong></div>
+        <div><span>Liquidity</span><strong>Permanently locked</strong></div>
+      </section>
+      <button id="deploy" type="button">Connect wallet and deploy</button>
+      <p id="status" role="status" aria-live="polite">Ready. Confirm only if the connected wallet has enough ETH for both deployment transactions.</p>
+      <section id="result" hidden>
+        <strong>Deployment validated</strong>
+        <p id="address"></p>
+        <a id="explorer" target="_blank" rel="noreferrer">Open hook on Blockscout</a>
+      </section>
+    </main>
+    <script src="vendor/ethers.umd.min.js"></script>
+    <script src="factory-deployment.js"></script>
+    <script src="quote-factory-abi.js"></script>
+    <script src="quote-factory-deployment.js"></script>
+    <script>
+      const REQUIRED_FLAGS = (1n << 13n) | (1n << 7n) | (1n << 3n);
+      const FLAGS_MASK = (1n << 14n) - 1n;
+      const CHAIN_ID = "0x1237";
+      const DEV_WALLET = "0x9CD7C9196A4C1836A3DF089cb210272e07e6A5e5";
+      const button = document.querySelector("#deploy");
+      const status = document.querySelector("#status");
+      let helper = null;
+      let mined = null;
+
+      function normalizeRuntime(bytecode, references = {}) {
+        const chars = String(bytecode || "").replace(/^0x/, "").toLowerCase().split("");
+        for (const entries of Object.values(references)) {
+          for (const entry of entries) {
+            const start = Number(entry.start) * 2;
+            const end = start + Number(entry.length) * 2;
+            for (let index = start; index < end; index += 1) chars[index] = "0";
+          }
+        }
+        return chars.join("");
+      }
+
+      async function mineSalt(deployerAddress, codeHash) {
+        for (let candidate = 0n; candidate < 1_000_000n; candidate += 1n) {
+          const salt = ethers.zeroPadValue(ethers.toBeHex(candidate), 32);
+          const address = ethers.getCreate2Address(deployerAddress, salt, codeHash);
+          if ((BigInt(address) & FLAGS_MASK) === REQUIRED_FLAGS) return { salt, address };
+          if (candidate > 0n && candidate % 10_000n === 0n) {
+            status.textContent = `Finding valid v4 hook address · ${Number(candidate).toLocaleString()} salts checked…`;
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+          }
+        }
+        throw new Error("No valid hook address was found in the bounded salt search.");
+      }
+
+      async function switchChain() {
+        const current = await ethereum.request({ method: "eth_chainId" });
+        if (String(current).toLowerCase() === CHAIN_ID) return;
+        try {
+          await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID }] });
+        } catch (error) {
+          if (Number(error.code) !== 4902) throw error;
+          await ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: CHAIN_ID, chainName: "Robinhood Chain", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://rpc.mainnet.chain.robinhood.com"], blockExplorerUrls: ["https://robinhoodchain.blockscout.com"] }] });
+        }
+      }
+
+      async function deploy() {
+        if (!window.ethereum?.request) throw new Error("Open this page in a browser with an EVM wallet.");
+        if (!window.ethers || !window.RWI_QUOTE_FACTORY_DEPLOYMENT?.bytecode || !window.RWI_HOOK_DEPLOYER_DEPLOYMENT?.bytecode) throw new Error("The reviewed deployment bundle did not load.");
+        await ethereum.request({ method: "eth_requestAccounts" });
+        await switchChain();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+        if ((await provider.getNetwork()).chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain.");
+
+        if (!helper) {
+          status.textContent = "Transaction 1 of 2 · confirm the CREATE2 helper deployment in your wallet.";
+          const helperFactory = new ethers.ContractFactory(window.RWI_HOOK_DEPLOYER_DEPLOYMENT.abi, window.RWI_HOOK_DEPLOYER_DEPLOYMENT.bytecode, signer);
+          helper = await helperFactory.deploy();
+          status.textContent = `CREATE2 helper submitted · ${helper.deploymentTransaction().hash}`;
+          await helper.waitForDeployment();
+        }
+
+        if (!mined) {
+          status.textContent = "Finding a hook address with the exact Uniswap permission bits…";
+          mined = await mineSalt(await helper.getAddress(), ethers.keccak256(window.RWI_QUOTE_FACTORY_DEPLOYMENT.bytecode));
+        }
+        status.textContent = `Transaction 2 of 2 · confirm immutable hook deployment at ${mined.address}.`;
+        const helperWithSigner = new ethers.Contract(await helper.getAddress(), window.RWI_HOOK_DEPLOYER_DEPLOYMENT.abi, signer);
+        const transaction = await helperWithSigner.deploy(mined.salt, window.RWI_QUOTE_FACTORY_DEPLOYMENT.bytecode, { gasLimit: 28_000_000 });
+        status.textContent = `Hook submitted · ${transaction.hash}`;
+        const receipt = await transaction.wait();
+
+        const code = await provider.getCode(mined.address);
+        if (code === "0x") throw new Error("The hook transaction confirmed without runtime bytecode.");
+        if (normalizeRuntime(code, window.RWI_QUOTE_FACTORY_DEPLOYMENT.immutableReferences) !== normalizeRuntime(window.RWI_QUOTE_FACTORY_DEPLOYMENT.deployedBytecode, window.RWI_QUOTE_FACTORY_DEPLOYMENT.immutableReferences)) throw new Error("The deployed runtime does not match the reviewed build.");
+        if ((BigInt(mined.address) & FLAGS_MASK) !== REQUIRED_FLAGS) throw new Error("The deployed hook permission bits are invalid.");
+        const hook = new ethers.Contract(mined.address, window.RWI_QUOTE_FACTORY_ABI, provider);
+        const [developer, creatorShare, developerShare, locked, targetCap] = await Promise.all([hook.developerWallet(), hook.CREATOR_LP_FEE_SHARE_BPS(), hook.DEVELOPER_LP_FEE_SHARE_BPS(), hook.LIQUIDITY_PERMANENTLY_LOCKED(), hook.TARGET_MARKET_CAP_USD_E18()]);
+        if (ethers.getAddress(developer) !== ethers.getAddress(DEV_WALLET)) throw new Error("Developer wallet validation failed.");
+        if (creatorShare !== 9000n || developerShare !== 1000n || !locked || targetCap !== ethers.parseEther("10000")) throw new Error("Immutable launch rule validation failed.");
+
+        document.querySelector("#address").textContent = `${mined.address} · block ${receipt.blockNumber} · tx ${transaction.hash}`;
+        document.querySelector("#explorer").href = `https://robinhoodchain.blockscout.com/address/${mined.address}?tab=contract`;
+        document.querySelector("#result").hidden = false;
+        status.textContent = "Hook deployed and bytecode validated. Copy the address before closing this page.";
+        button.textContent = "Deployment complete";
+        button.disabled = true;
+      }
+
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try { await deploy(); }
+        catch (error) {
+          status.textContent = error?.shortMessage || error?.message || "Deployment failed.";
+          button.disabled = false;
+          button.textContent = helper ? "Resume deployment" : "Connect wallet and deploy";
+        }
+      });
+    </script>
+  </body>
+</html>
