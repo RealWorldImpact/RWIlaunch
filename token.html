@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260803-geckoterminal-chart" />
+    <link rel="stylesheet" href="styles.css?v=20260803-wallet-percent-slider" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -83,15 +83,20 @@
                 <button type="button" data-settlement-asset="USDG" aria-pressed="false">USDG</button>
               </div>
             </div>
+            <div class="trade-wallet-summary" aria-live="polite">
+              <span>Your wallet</span>
+              <div><strong id="tradeWalletTokenBalance">Connect wallet</strong><small id="tradeWalletTokenValue">Token value unavailable</small></div>
+            </div>
             <label class="direct-trade-input" for="tradeAmount">
               <span id="tradeInputLabel">USD amount to spend</span>
               <span class="direct-trade-value"><b aria-hidden="true">$</b><input id="tradeAmount" inputmode="decimal" autocomplete="off" aria-describedby="tradeInputConversion directTradeStatus" /><strong id="tradeInputSymbol">USD</strong></span>
               <small id="tradeInputConversion" aria-live="polite">Converted to ETH at the live spot price</small>
             </label>
-            <div class="trade-quick-amounts" aria-label="Quick USD amounts">
-              <button type="button" data-trade-usd="10" aria-pressed="false">$10</button>
-              <button type="button" data-trade-usd="25" aria-pressed="false">$25</button>
-              <button type="button" data-trade-usd="100" aria-pressed="false">$100</button>
+            <div class="trade-percentage">
+              <div class="trade-percentage-heading"><span id="tradePercentLabel">ETH balance to spend</span><output id="tradePercentOutput" for="tradePercent">0%</output></div>
+              <input id="tradePercent" type="range" min="0" max="100" step="1" value="0" aria-label="Percentage of wallet balance to swap" aria-describedby="tradePercentHint directTradeStatus" />
+              <div class="trade-percentage-scale" aria-hidden="true"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+              <small id="tradePercentHint">Connect your wallet, then choose a percentage.</small>
             </div>
             <div class="direct-trade-quote"><span id="tradeQuoteLabel">$TOKEN received at least</span><strong id="tradeQuote" aria-live="polite">Enter a USD amount</strong></div>
             <button class="button button-lime direct-trade-button" id="directTradeButton" type="button">Connect wallet to buy $TOKEN</button>
@@ -143,13 +148,13 @@
     </footer>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="vendor/ethers.umd.min.js?v=20260803-geckoterminal-chart"></script>
-    <script src="factory-config.js?v=20260803-geckoterminal-chart"></script>
-    <script src="factory-abi.js?v=20260803-geckoterminal-chart"></script>
+    <script src="vendor/ethers.umd.min.js?v=20260803-wallet-percent-slider"></script>
+    <script src="factory-config.js?v=20260803-wallet-percent-slider"></script>
+    <script src="factory-abi.js?v=20260803-wallet-percent-slider"></script>
     <script src="quote-factory-live-config.js?v=20260803-factory-60c288"></script>
     <script src="quote-factory-abi.js?v=20260803-factory-60c288"></script>
-    <script src="profile-registry-config.js?v=20260803-geckoterminal-chart"></script>
-    <script src="profile-registry-abi.js?v=20260803-geckoterminal-chart"></script>
-  <script src="token.js?v=20260803-geckoterminal-chart"></script>
+    <script src="profile-registry-config.js?v=20260803-wallet-percent-slider"></script>
+    <script src="profile-registry-abi.js?v=20260803-wallet-percent-slider"></script>
+  <script src="token.js?v=20260803-wallet-percent-slider"></script>
   </body>
 </html>
