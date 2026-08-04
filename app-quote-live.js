@@ -630,29 +630,33 @@ function normalizeImmutableSlots(bytecode, immutableReferences) {
 
 function renderIntegrationStatus() {
   const status = $("#factoryIntegrationStatus");
-  const factoryAddress = configuredFactoryAddress();
+  const quoteSymbol = selectedQuoteAsset();
+  const multiQuote = quoteSymbol !== "RWI";
+  const config = multiQuote ? QUOTE_FACTORY_CONFIG : FACTORY_CONFIG;
+  const factoryAddress = multiQuote ? quoteFactoryAddress() : configuredFactoryAddress();
   if (!factoryAddress) {
-    status.textContent = FACTORY_CONFIG.allowBrowserDeployment
+    status.textContent = !multiQuote && FACTORY_CONFIG.allowBrowserDeployment
       ? "Launch factory compiled · ready for wallet deployment"
-      : "Dual-TWAP v4 hook pending deployment · internal review only";
+      : `${multiQuote ? "ETH/USDG" : "RWI"} v4 hook pending deployment · internal review only`;
     status.classList.remove("is-live");
     status.parentElement?.classList.remove("is-live");
-    $("#deployFactoryButton").hidden = !FACTORY_CONFIG.allowBrowserDeployment;
+    $("#deployFactoryButton").hidden = multiQuote || !FACTORY_CONFIG.allowBrowserDeployment;
     return;
   }
-  const localReplacement = usingLocalReplacementFactory();
-  const paused = effectiveLaunchesPaused();
+  const localReplacement = !multiQuote && usingLocalReplacementFactory();
+  const paused = multiQuote ? Boolean(config.launchesPaused) : effectiveLaunchesPaused();
   const stateLabel = localReplacement
     ? "Locally validated replacement hook active"
-    : FACTORY_CONFIG.sourceVerified
-    ? (FACTORY_CONFIG.independentAuditComplete ? "Source-verified audited factory live" : "Source-verified unaudited factory live")
+    : config.sourceVerified
+    ? (config.independentAuditComplete ? "Source-verified audited factory live" : "Source-verified unaudited factory live")
     : "Launch factory active locally";
+  const marketLabel = multiQuote ? "ETH/USDG" : "RWI";
   status.textContent = paused
-    ? `New launches paused for corrected hook deployment · existing markets remain available · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`
-    : `${stateLabel} · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`;
+    ? `New ${marketLabel} launches paused · existing markets remain available · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`
+    : `${stateLabel} · ${marketLabel} · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`;
   status.classList.toggle("is-live", !paused);
   status.parentElement?.classList.toggle("is-live", !paused);
-  const canDeployReplacement = Boolean(FACTORY_CONFIG.allowBrowserDeployment && FACTORY_CONFIG.launchesPaused && !localReplacement);
+  const canDeployReplacement = Boolean(!multiQuote && FACTORY_CONFIG.allowBrowserDeployment && FACTORY_CONFIG.launchesPaused && !localReplacement);
   $("#deployFactoryButton").hidden = !canDeployReplacement;
   if (canDeployReplacement) $("#deployFactoryButton").textContent = "Deploy corrected v4 hook →";
 }
@@ -1148,6 +1152,7 @@ function resetDraft() {
   if (rwiQuote) rwiQuote.checked = true;
   clearImage();
   updatePreview();
+  renderIntegrationStatus();
   $("#draftStatus").textContent = "Fresh draft";
   toast("Draft reset.");
 }
@@ -1586,16 +1591,19 @@ async function loadDeveloperRevenue(provider = null) {
   try {
     const readProvider = provider || new window.ethers.BrowserProvider(currentWalletProvider());
     const factory = new window.ethers.Contract(address, QUOTE_FACTORY_ABI, readProvider);
-    const [configuredWallet, pending, ethUsd] = await Promise.all([
+    const [configuredWallet, pending] = await Promise.all([
       factory.developerWallet(),
       factory.claimableDeveloperEthRewards(),
-      factory.ethUsdPriceE18(),
     ]);
     if (!sameAddress(configuredWallet, DEVELOPER_WALLET)) throw new Error("Developer wallet mismatch");
     const pendingEth = BigInt(pending);
-    const pendingUsd = pendingEth * BigInt(ethUsd) / 10n ** 18n;
     $("#developerEthPending").textContent = `${formatUnits(pendingEth, 18, 8)} ETH`;
-    $("#developerUsdPending").textContent = usdValueLabel(pendingUsd);
+    try {
+      const ethUsd = BigInt(await factory.ethUsdPriceE18());
+      $("#developerUsdPending").textContent = usdValueLabel(pendingEth * ethUsd / 10n ** 18n);
+    } catch {
+      $("#developerUsdPending").textContent = "USD estimate unavailable";
+    }
     button.textContent = pendingEth > 0n ? "Claim developer ETH" : "Nothing to claim";
     button.disabled = state.developerClaimInFlight || pendingEth === 0n;
   } catch {
@@ -3834,6 +3842,7 @@ fields.description.addEventListener("input", updatePreview);
 fields.devBuy.addEventListener("input", scheduleDevBuyEstimate);
 $$('input[name="quoteAsset"]').forEach((input) => input.addEventListener("change", () => {
   updatePreview();
+  renderIntegrationStatus();
   updateDevBuyEstimate();
   queueDraftSave();
 }));
