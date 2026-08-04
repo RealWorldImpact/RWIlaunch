@@ -123,6 +123,7 @@ async function readCreatorLaunch(eventLog, source, provider) {
     timestamp: blockResult.status === "fulfilled" ? Number(blockResult.value?.timestamp || 0) : 0,
     quoteSymbol,
     quoteAddress,
+    quoteDecimals: quoteSymbol === "USDG" ? 6 : 18,
     transactionHash: eventLog.transactionHash,
     name: nameResult.status === "fulfilled" ? String(nameResult.value) : "Creator token",
     symbol: symbolResult.status === "fulfilled" ? String(symbolResult.value) : "TOKEN",
@@ -209,7 +210,9 @@ async function loadProfile(creator, provider, latestBlock) {
 
 async function queryRecentSwapLogs(launch, provider, latestBlock) {
   const firstBlock = Math.max(launch.blockNumber, latestBlock - SWAP_SCAN_BLOCKS);
-  const address = launch.poolId ? FACTORY_CONFIG.uniswapV4PoolManager : launch.pool;
+  const address = launch.poolId
+    ? (QUOTE_FACTORY_CONFIG.uniswapV4PoolManager || FACTORY_CONFIG.uniswapV4PoolManager)
+    : launch.pool;
   const contract = new window.ethers.Contract(address, launch.poolId ? V4_SWAP_ABI : V3_SWAP_ABI, provider);
   const filter = launch.poolId ? contract.filters.Swap(launch.poolId) : contract.filters.Swap();
   const logs = [];
@@ -221,12 +224,12 @@ async function queryRecentSwapLogs(launch, provider, latestBlock) {
     const args = log.args || contract.interface.parseLog(log)?.args;
     const tokenIs0 = BigInt(launch.token) < BigInt(launch.quoteAddress || RWI_ADDRESS);
     const tokenDelta = BigInt(tokenIs0 ? args.amount0 : args.amount1);
-    const rwiDelta = BigInt(tokenIs0 ? args.amount1 : args.amount0);
+    const quoteDelta = BigInt(tokenIs0 ? args.amount1 : args.amount0);
     return {
       launch,
       side: tokenDelta > 0n ? "sell" : "buy",
       tokenAmount: tokenDelta < 0n ? -tokenDelta : tokenDelta,
-      rwiAmount: rwiDelta < 0n ? -rwiDelta : rwiDelta,
+      quoteAmount: quoteDelta < 0n ? -quoteDelta : quoteDelta,
       sender: String(args.sender),
       blockNumber: Number(log.blockNumber),
       transactionHash: log.transactionHash,
@@ -246,8 +249,8 @@ async function loadRecentTrades(launches, provider, latestBlock) {
   return trades;
 }
 
-function formatAmount(value, maximumFractionDigits = 4) {
-  const number = Number(window.ethers.formatUnits(value, 18));
+function formatAmount(value, decimals = 18, maximumFractionDigits = 4) {
+  const number = Number(window.ethers.formatUnits(value, decimals));
   if (!Number.isFinite(number)) return "—";
   if (number > 0 && number < 0.0001) return number.toExponential(3);
   return number.toLocaleString("en-US", { maximumFractionDigits });
@@ -334,7 +337,7 @@ function renderTrades(trades) {
     row.innerHTML = `<span class="creator-trade-side is-${trade.side}">${trade.side}</span><span class="creator-trade-copy"><strong></strong><span></span></span><span class="creator-trade-value"><strong></strong><span></span></span>`;
     row.querySelector(".creator-trade-copy strong").textContent = `$${trade.launch.symbol} · ${formatAmount(trade.tokenAmount)} tokens`;
     row.querySelector(".creator-trade-copy span").textContent = `${time} · ${shortAddress(trade.sender)}`;
-    row.querySelector(".creator-trade-value strong").textContent = `${formatAmount(trade.rwiAmount)} ${trade.launch.quoteSymbol || "RWI"}`;
+    row.querySelector(".creator-trade-value strong").textContent = `${formatAmount(trade.quoteAmount, trade.launch.quoteDecimals)} ${trade.launch.quoteSymbol || "RWI"}`;
     row.querySelector(".creator-trade-value span").textContent = "View transaction ↗";
     list.appendChild(row);
   });
