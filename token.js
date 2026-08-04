@@ -397,21 +397,21 @@ function setDexMarketChange(value) {
   if (number < 0) element.classList.add("is-negative");
 }
 
-function dextoolsPairUrl(pairId) {
-  return `https://www.dextools.io/app/en/robinhood/pair-explorer/${encodeURIComponent(pairId)}`;
+function geckoTerminalPoolUrl(pairId) {
+  return `https://www.geckoterminal.com/robinhood/pools/${encodeURIComponent(pairId)}`;
 }
 
-function renderDextoolsChart(pairId) {
+function renderGeckoTerminalChart(pairId) {
   if (!/^0x(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(String(pairId || ""))) return;
-  const chartUrl = `https://www.dextools.io/widget-chart/en/robinhood/pe-light/${encodeURIComponent(pairId)}?theme=dark&chartType=1&chartResolution=30&drawingToolbars=false&chartInUsd=true&showTradeHistory=false&headerColor=0b0b09&tvPlatformColor=1f2b3d&tvPaneColor=1f2b3d`;
-  const chart = $("#dextoolsChart");
+  const chartUrl = `${geckoTerminalPoolUrl(pairId)}?embed=1&info=0&swaps=0&light_chart=0&chart_type=price&resolution=15m&bg_color=1f2b3d`;
+  const chart = $("#geckoTerminalChart");
   if (!chart) return;
   if (chart.src !== chartUrl) chart.src = chartUrl;
   chart.hidden = false;
-  const status = $("#dextoolsChartStatus");
+  const status = $("#geckoTerminalChartStatus");
   if (status) status.hidden = true;
-  const link = $("#dextoolsMarketLink");
-  if (link) link.href = dextoolsPairUrl(pairId);
+  const link = $("#geckoTerminalMarketLink");
+  if (link) link.href = geckoTerminalPoolUrl(pairId);
 }
 
 function showDexScreenerWaiting(tokenAddress, message = "Reading the token/RWI spot price directly from its Uniswap pool.") {
@@ -433,7 +433,7 @@ function renderOnchainMarketPrice(values, pair, tokenAddress) {
   priceElement.title = values.usd ? `$${values.usd.toLocaleString("en-US", { maximumFractionDigits: 18 })}` : `Live TOKEN/${quoteSymbol} Uniswap spot price`;
   $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} ${quoteSymbol} per token`;
   setDexMarketChange(pair ? tokenMarketChange24h(pair, tokenAddress) : null);
-  if (pair?.pairAddress) renderDextoolsChart(String(pair.pairAddress));
+  if (pair?.pairAddress) renderGeckoTerminalChart(String(pair.pairAddress));
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Onchain Uniswap spot price · updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
   if ($("#tradeAmount")?.value.trim()) scheduleDirectTradeQuote();
@@ -449,7 +449,7 @@ function renderDexScreenerPair(pair, tokenAddress) {
   $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} ${state.dexScreenerLaunch?.quoteSymbol || "RWI"} per token`;
   setDexMarketChange(tokenMarketChange24h(pair, tokenAddress));
   const pairAddress = String(pair.pairAddress || "");
-  renderDextoolsChart(pairAddress);
+  renderGeckoTerminalChart(pairAddress);
   const updated = new Date();
   $("#dexMarketUpdated").textContent = `Live feed updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
   if ($("#tradeAmount")?.value.trim()) scheduleDirectTradeQuote();
@@ -480,7 +480,7 @@ function startDexScreenerFeed(tokenAddress, launch) {
   state.dexScreenerLaunch = launch;
   $("#tokenMarketLive").hidden = false;
   showDexScreenerWaiting(tokenAddress);
-  renderDextoolsChart(launch?.poolId || launch?.pool);
+  renderGeckoTerminalChart(launch?.poolId || launch?.pool);
   refreshDexScreenerMarket(tokenAddress, launch);
   if (!document.hidden) {
     state.dexScreenerRefreshTimer = setInterval(() => refreshDexScreenerMarket(tokenAddress, launch), DEXSCREENER_REFRESH_MS);
@@ -1610,7 +1610,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#detailMarketPairing").textContent = `${quoteSymbol} paired`;
   $("#detailQuoteAsset").textContent = quoteSymbol === "ETH" ? "Native ETH" : (launch.quoteAddress || RWI_ADDRESS);
   $("#tradeRouteLabel").textContent = launch.directQuote ? "Direct Uniswap v4" : "RWI-routed Uniswap";
-  $("#dextoolsMarketDescription").textContent = `Connecting to this token’s live ${quoteSymbol} market.`;
+  $("#geckoTerminalMarketDescription").textContent = `Connecting to this token’s live ${quoteSymbol} market.`;
   $("#detailPool").textContent = launch.poolId || launch.pool;
   $("#detailPoolLabel").textContent = launch.poolId ? "v4 pool ID" : "Pool";
   renderTokenMetadata(metadata);
@@ -1780,7 +1780,7 @@ window.RWITokenPage = {
   legacyV3TradePath, settlementAssetConfig, directQuoteAssetConfig, selectSettlementAsset,
   readTradeUsdValue, tradeInputAsset, parseTradeAssetUnits, readTradeAmount, quoteDirectTrade,
   getTradeQuote: () => state.tradeQuote,
-  selectDexScreenerPair, tokenMarketValues, tokenMarketChange24h, renderDexScreenerPair, renderDextoolsChart,
+  selectDexScreenerPair, tokenMarketValues, tokenMarketChange24h, renderDexScreenerPair, renderGeckoTerminalChart,
   quoteFromSqrtPrice, rwiUsdPriceFromPairs, readOnchainMarketValues, formatUsdPrice,
 };
 if (window.RWI_TOKEN_PAGE_TEST_MODE) window.RWITokenPage.__testState = state;
