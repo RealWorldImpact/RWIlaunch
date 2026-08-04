@@ -1,8 +1,8 @@
 window.RWI_QUOTE_FACTORY_CONFIG = Object.freeze({
   "chainId": 4663,
-  "factoryAddress": "0x60C288E299F6C73A0a4Fe8E037138226cC42E088",
-  "hookAddress": "0x60C288E299F6C73A0a4Fe8E037138226cC42E088",
-  "deploymentBlock": 27193034,
+  "factoryAddress": "0x424Ee23D5873F6Cc38247B79795893Bc9Bfce088",
+  "hookAddress": "0x424Ee23D5873F6Cc38247B79795893Bc9Bfce088",
+  "deploymentBlock": 27588038,
   "sourceVerified": true,
   "independentAuditComplete": false,
   "protocol": "Uniswap v4",
@@ -23,6 +23,20 @@ window.RWI_QUOTE_FACTORY_CONFIG = Object.freeze({
   "swapRouter02": "0xCaf681a66D020601342297493863E78C959E5cb2",
   "wethUsdgOraclePool": "0x52e65B17fB6E5BA00Ed806f37Afcd2DaA50271Ca",
   "targetMarketCapUsd": 10000,
-  "runtimeCodeHash": "0x6637e221c956031be0d7d782fb40f72a06dd0f22f90d19e15f15fa7e2c788ae4",
-  "launchesPaused": false
+  "initialActiveTokenBps": 9000,
+  "stagedTokenBps": 1000,
+  "stagedTickOffset": 2200,
+  "stagedActivationPriceMultiple": 1.246,
+  "runtimeCodeHash": "0x9971e65ca9b04429569498321e3c505fcc2c2bf20f3e7773513f3627e98cf0aa",
+  "launchesPaused": false,
+  "legacyFactories": [
+    {
+      "address": "0x60C288E299F6C73A0a4Fe8E037138226cC42E088",
+      "deploymentBlock": 27193034,
+      "protocol": "Uniswap v4",
+      "feeMode": "internal-match-eth-90-10",
+      "runtimeCodeHash": "0x6637e221c956031be0d7d782fb40f72a06dd0f22f90d19e15f15fa7e2c788ae4",
+      "launchesDeprecated": true
+    }
+  ]
 });
