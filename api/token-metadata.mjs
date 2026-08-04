@@ -16,7 +16,11 @@ const CHAIN_ID = 4663;
 const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 const DEFAULT_FACTORY = "0x0Fb46f019eBf66D0767E891f8fACe687F1156088";
 const FACTORY_ADDRESS = process.env.RWI_FACTORY_ADDRESS || DEFAULT_FACTORY;
-const QUOTE_FACTORY_ADDRESS = process.env.RWI_QUOTE_FACTORY_ADDRESS || "0x60C288E299F6C73A0a4Fe8E037138226cC42E088";
+const QUOTE_FACTORY_ADDRESS = process.env.RWI_QUOTE_FACTORY_ADDRESS || "0x424Ee23D5873F6Cc38247B79795893Bc9Bfce088";
+const LEGACY_QUOTE_FACTORY_ADDRESSES = [
+  "0x60C288E299F6C73A0a4Fe8E037138226cC42E088",
+  ...(process.env.RWI_LEGACY_QUOTE_FACTORY_ADDRESSES || "").split(","),
+].map((address) => address.trim()).filter((address) => isAddress(address));
 const MAX_REQUEST_BYTES = 2_500_000;
 const MAX_LOGO_BYTES = 1_500_000;
 const METADATA_PREFIX = "rwi-launchpad/metadata/";
@@ -94,7 +98,8 @@ function sha256(value) {
 
 function canonicalPayload(input) {
   const factoryAddress = cleanAddress(input.factoryAddress || FACTORY_ADDRESS, "factory");
-  const allowedFactories = [FACTORY_ADDRESS, QUOTE_FACTORY_ADDRESS].filter((address) => isAddress(address)).map((address) => getAddress(address).toLowerCase());
+  const allowedFactories = [FACTORY_ADDRESS, QUOTE_FACTORY_ADDRESS, ...LEGACY_QUOTE_FACTORY_ADDRESSES]
+    .filter((address) => isAddress(address)).map((address) => getAddress(address).toLowerCase());
   if (!allowedFactories.includes(factoryAddress.toLowerCase())) throw new Error("This launch factory is not approved for public metadata.");
   return {
     factoryAddress,
