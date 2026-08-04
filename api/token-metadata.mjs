@@ -16,6 +16,7 @@ const CHAIN_ID = 4663;
 const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 const DEFAULT_FACTORY = "0x0Fb46f019eBf66D0767E891f8fACe687F1156088";
 const FACTORY_ADDRESS = process.env.RWI_FACTORY_ADDRESS || DEFAULT_FACTORY;
+const QUOTE_FACTORY_ADDRESS = process.env.RWI_QUOTE_FACTORY_ADDRESS || "0x60C288E299F6C73A0a4Fe8E037138226cC42E088";
 const MAX_REQUEST_BYTES = 2_500_000;
 const MAX_LOGO_BYTES = 1_500_000;
 const METADATA_PREFIX = "rwi-launchpad/metadata/";
@@ -27,6 +28,10 @@ const FACTORY_ABI = [
 const LAUNCH_INTERFACE = new Interface([
   "function launch((string name,string symbol,uint256 devBuyRwiAmount,uint256 minimumDevBuyTokenOut) params) returns (address token,bytes32 poolId,uint256 positionTokenId,uint256 devBuyTokenAmount)",
   "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
+]);
+const QUOTE_LAUNCH_INTERFACE = new Interface([
+  "function launch((string name,string symbol,uint8 quoteAsset,uint256 devBuyQuoteAmount,uint256 minimumDevBuyTokenOut) params) payable returns (address token,bytes32 poolId,uint256 positionTokenId,uint256 devBuyTokenAmount)",
+  "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialQuoteAmount,bool liquidityPermanentlyLocked)",
 ]);
 const CORS_HEADERS = Object.freeze({
   "access-control-allow-origin": "*",
@@ -88,7 +93,11 @@ function sha256(value) {
 }
 
 function canonicalPayload(input) {
+  const factoryAddress = cleanAddress(input.factoryAddress || FACTORY_ADDRESS, "factory");
+  const allowedFactories = [FACTORY_ADDRESS, QUOTE_FACTORY_ADDRESS].filter((address) => isAddress(address)).map((address) => getAddress(address).toLowerCase());
+  if (!allowedFactories.includes(factoryAddress.toLowerCase())) throw new Error("This launch factory is not approved for public metadata.");
   return {
+    factoryAddress,
     tokenAddress: cleanAddress(input.tokenAddress, "token"),
     creator: cleanAddress(input.creator, "creator"),
     poolId: cleanPoolId(input.poolId),
@@ -100,11 +109,15 @@ function canonicalPayload(input) {
   };
 }
 
+function payloadFactoryAddress(payload) {
+  return getAddress(payload.factoryAddress || FACTORY_ADDRESS);
+}
+
 export function metadataSigningMessage(payload) {
   return [
     "RWI Launchpad public token metadata",
     `Chain ID: ${CHAIN_ID}`,
-    `Factory: ${FACTORY_ADDRESS.toLowerCase()}`,
+    `Factory: ${String(payload.factoryAddress || FACTORY_ADDRESS).toLowerCase()}`,
     `Token: ${payload.tokenAddress.toLowerCase()}`,
     `Creator: ${payload.creator.toLowerCase()}`,
     `Pool ID: ${payload.poolId.toLowerCase()}`,
@@ -129,7 +142,7 @@ export function launchMetadataAuthorizationMessage(payload) {
     "RWI Launchpad launch metadata authorization",
     "Version: 1",
     `Chain ID: ${CHAIN_ID}`,
-    `Factory: ${FACTORY_ADDRESS.toLowerCase()}`,
+    `Factory: ${String(payload.factoryAddress || FACTORY_ADDRESS).toLowerCase()}`,
     `Creator: ${creator.toLowerCase()}`,
     `Name: ${name}`,
     `Symbol: ${symbol}`,
@@ -221,7 +234,7 @@ async function writeTokenList() {
 }
 
 async function verifyLaunch(payload, provider = new JsonRpcProvider(RPC_URL, CHAIN_ID, { staticNetwork: true })) {
-  const factory = new Contract(FACTORY_ADDRESS, FACTORY_ABI, provider);
+  const factory = new Contract(payloadFactoryAddress(payload), FACTORY_ABI, provider);
   const token = new Contract(payload.tokenAddress, [
     "function name() view returns (string)",
     "function symbol() view returns (string)",
@@ -245,28 +258,33 @@ export async function verifyLaunchTransactionAuthorization(payload, transactionH
     provider.getTransactionReceipt(hash),
   ]);
   if (!transaction || !receipt || Number(receipt.status) !== 1) throw new Error("The authorized launch transaction is not confirmed.");
-  if (!transaction.to || getAddress(transaction.to) !== getAddress(FACTORY_ADDRESS)) throw new Error("The authorization transaction did not call the active factory.");
+  const factoryAddress = payloadFactoryAddress(payload);
+  if (!transaction.to || getAddress(transaction.to) !== factoryAddress) throw new Error("The authorization transaction did not call the approved factory.");
   if (getAddress(transaction.from) !== payload.creator) throw new Error("The launch transaction was not signed by this token's creator.");
 
   const calldata = String(transaction.data || "").toLowerCase();
-  const launchSelector = LAUNCH_INTERFACE.getFunction("launch").selector.toLowerCase();
+  const launchInterfaces = [LAUNCH_INTERFACE, QUOTE_LAUNCH_INTERFACE];
+  const launchSelectors = launchInterfaces.map((entry) => entry.getFunction("launch").selector.toLowerCase());
   const expectedCommitment = launchMetadataCommitment(payload).slice(2).toLowerCase();
-  if (!calldata.startsWith(launchSelector) || calldata.length < launchSelector.length + 64 || !calldata.endsWith(expectedCommitment)) {
+  if (!launchSelectors.some((selector) => calldata.startsWith(selector)) || calldata.length < 72 || !calldata.endsWith(expectedCommitment)) {
     throw new Error("The launch transaction does not authorize this public logo and metadata.");
   }
 
   let launchedEvent = null;
   for (const log of receipt.logs || []) {
-    if (!log?.address || getAddress(log.address) !== getAddress(FACTORY_ADDRESS)) continue;
-    try {
-      const parsed = LAUNCH_INTERFACE.parseLog(log);
-      if (parsed?.name === "TokenLaunched") {
-        launchedEvent = parsed;
-        break;
+    if (!log?.address || getAddress(log.address) !== factoryAddress) continue;
+    for (const launchInterface of launchInterfaces) {
+      try {
+        const parsed = launchInterface.parseLog(log);
+        if (parsed?.name === "TokenLaunched") {
+          launchedEvent = parsed;
+          break;
+        }
+      } catch {
+        // Non-launch factory logs are ignored.
       }
-    } catch {
-      // Non-launch factory logs are ignored.
     }
+    if (launchedEvent) break;
   }
   if (!launchedEvent
     || getAddress(launchedEvent.args.token) !== payload.tokenAddress
@@ -317,7 +335,7 @@ async function publish(request) {
     const metadata = {
       schemaVersion: 2,
       chainId: CHAIN_ID,
-      factoryAddress: getAddress(FACTORY_ADDRESS),
+      factoryAddress: payloadFactoryAddress(payload),
       tokenAddress: payload.tokenAddress,
       creator: payload.creator,
       poolId: payload.poolId,
