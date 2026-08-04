@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260803-instant-pages" />
+    <link rel="stylesheet" href="styles.css?v=20260803-geckoterminal-chart" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -47,7 +47,7 @@
           </div>
         </section>
 
-        <section class="compact-market-chart" id="tokenMarketLive" aria-label="Live DEXTools token chart">
+        <section class="compact-market-chart" id="tokenMarketLive" aria-label="Live GeckoTerminal token chart">
           <header class="compact-market-header">
             <div class="compact-market-price">
               <span><i></i> Live token price</span>
@@ -56,12 +56,12 @@
             </div>
             <div class="compact-market-actions">
               <span><small>24h</small><strong id="dexChange24h">—</strong></span>
-              <a id="dextoolsMarketLink" href="#" target="_blank" rel="noreferrer">DEXTools ↗</a>
+              <a id="geckoTerminalMarketLink" href="#" target="_blank" rel="noreferrer">GeckoTerminal ↗</a>
             </div>
           </header>
-          <div class="dextools-chart-shell">
-            <iframe id="dextoolsChart" title="Live DEXTools token price chart" loading="eager" referrerpolicy="strict-origin-when-cross-origin" allow="clipboard-write; fullscreen" allowfullscreen hidden></iframe>
-            <div class="dextools-chart-status" id="dextoolsChartStatus" role="status"><strong>Loading DEXTools chart</strong><span id="dextoolsMarketDescription">Connecting to this token’s live RWI market.</span></div>
+          <div class="geckoterminal-chart-shell">
+            <iframe id="geckoTerminalChart" title="Live GeckoTerminal token price chart" loading="eager" referrerpolicy="strict-origin-when-cross-origin" allow="clipboard-write; fullscreen" allowfullscreen hidden></iframe>
+            <div class="geckoterminal-chart-status" id="geckoTerminalChartStatus" role="status"><strong>Loading GeckoTerminal chart</strong><span id="geckoTerminalMarketDescription">Connecting to this token’s live RWI market.</span></div>
           </div>
           <footer class="compact-market-footer" id="dexMarketUpdated" aria-live="polite">Connecting to live market data…</footer>
         </section>
@@ -143,13 +143,13 @@
     </footer>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="vendor/ethers.umd.min.js?v=20260803-dextools-restored"></script>
-    <script src="factory-config.js?v=20260803-dextools-restored"></script>
-    <script src="factory-abi.js?v=20260803-dextools-restored"></script>
+    <script src="vendor/ethers.umd.min.js?v=20260803-geckoterminal-chart"></script>
+    <script src="factory-config.js?v=20260803-geckoterminal-chart"></script>
+    <script src="factory-abi.js?v=20260803-geckoterminal-chart"></script>
     <script src="quote-factory-live-config.js?v=20260803-factory-60c288"></script>
     <script src="quote-factory-abi.js?v=20260803-factory-60c288"></script>
-    <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
-    <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
-  <script src="token.js?v=20260803-usdg-cross-settlement-fix"></script>
+    <script src="profile-registry-config.js?v=20260803-geckoterminal-chart"></script>
+    <script src="profile-registry-abi.js?v=20260803-geckoterminal-chart"></script>
+  <script src="token.js?v=20260803-geckoterminal-chart"></script>
   </body>
 </html>
