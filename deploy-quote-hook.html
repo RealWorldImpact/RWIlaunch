@@ -26,7 +26,7 @@
   <body>
     <main>
       <h1>Deploy the ETH/USDG hook.</h1>
-      <p>This performs an unaudited immutable Robinhood Chain deployment. Your wallet will confirm a CREATE2 helper transaction and then the hook deployment.</p>
+      <p>This performs an unaudited immutable Robinhood Chain deployment through the validated permissionless CREATE2 helper. Your wallet will confirm one hook deployment transaction.</p>
       <section class="facts">
         <div><span>Creator revenue</span><strong>90% · native ETH</strong></div>
         <div><span>Developer revenue</span><strong>10% · native ETH</strong></div>
@@ -52,7 +52,7 @@
       const DEV_WALLET = "0x9CD7C9196A4C1836A3DF089cb210272e07e6A5e5";
       const button = document.querySelector("#deploy");
       const status = document.querySelector("#status");
-      let helper = null;
+      const HELPER_ADDRESS = "0x54c40c9B378738b85Ab72029a5B7AE139A366016";
       let mined = null;
 
       function normalizeRuntime(bytecode, references = {}) {
@@ -93,27 +93,22 @@
 
       async function deploy() {
         if (!window.ethereum?.request) throw new Error("Open this page in a browser with an EVM wallet.");
-        if (!window.ethers || !window.RWI_QUOTE_FACTORY_DEPLOYMENT?.bytecode || !window.RWI_HOOK_DEPLOYER_DEPLOYMENT?.bytecode) throw new Error("The reviewed deployment bundle did not load.");
+        if (!window.ethers || !window.RWI_QUOTE_FACTORY_DEPLOYMENT?.bytecode || !window.RWI_HOOK_DEPLOYER_DEPLOYMENT?.abi) throw new Error("The reviewed deployment bundle did not load.");
         await ethereum.request({ method: "eth_requestAccounts" });
         await switchChain();
         const provider = new ethers.BrowserProvider(window.ethereum);
         const signer = await provider.getSigner();
         if ((await provider.getNetwork()).chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain.");
 
-        if (!helper) {
-          status.textContent = "Transaction 1 of 2 · confirm the CREATE2 helper deployment in your wallet.";
-          const helperFactory = new ethers.ContractFactory(window.RWI_HOOK_DEPLOYER_DEPLOYMENT.abi, window.RWI_HOOK_DEPLOYER_DEPLOYMENT.bytecode, signer);
-          helper = await helperFactory.deploy();
-          status.textContent = `CREATE2 helper submitted · ${helper.deploymentTransaction().hash}`;
-          await helper.waitForDeployment();
-        }
+        const helperCode = await provider.getCode(HELPER_ADDRESS);
+        if (helperCode === "0x" || (window.RWI_HOOK_DEPLOYER_DEPLOYMENT.deployedBytecode && ethers.keccak256(helperCode) !== ethers.keccak256(window.RWI_HOOK_DEPLOYER_DEPLOYMENT.deployedBytecode))) throw new Error("The validated CREATE2 helper does not match the reviewed build.");
 
         if (!mined) {
           status.textContent = "Finding a hook address with the exact Uniswap permission bits…";
-          mined = await mineSalt(await helper.getAddress(), ethers.keccak256(window.RWI_QUOTE_FACTORY_DEPLOYMENT.bytecode));
+          mined = await mineSalt(HELPER_ADDRESS, ethers.keccak256(window.RWI_QUOTE_FACTORY_DEPLOYMENT.bytecode));
         }
-        status.textContent = `Transaction 2 of 2 · confirm immutable hook deployment at ${mined.address}.`;
-        const helperWithSigner = new ethers.Contract(await helper.getAddress(), window.RWI_HOOK_DEPLOYER_DEPLOYMENT.abi, signer);
+        status.textContent = `Confirm the immutable hook deployment at ${mined.address}.`;
+        const helperWithSigner = new ethers.Contract(HELPER_ADDRESS, window.RWI_HOOK_DEPLOYER_DEPLOYMENT.abi, signer);
         const transaction = await helperWithSigner.deploy(mined.salt, window.RWI_QUOTE_FACTORY_DEPLOYMENT.bytecode, { gasLimit: 28_000_000 });
         status.textContent = `Hook submitted · ${transaction.hash}`;
         const receipt = await transaction.wait();
@@ -141,7 +136,7 @@
         catch (error) {
           status.textContent = error?.shortMessage || error?.message || "Deployment failed.";
           button.disabled = false;
-          button.textContent = helper ? "Resume deployment" : "Connect wallet and deploy";
+          button.textContent = "Connect wallet and deploy";
         }
       });
     </script>
