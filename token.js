@@ -1,7 +1,10 @@
 const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
+const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({});
+const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || Object.freeze([]);
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
+const MULTI_QUOTE_FEE_MODE = "internal-match-eth-90-10";
 const LEGACY_V4_FACTORY_ABI = Object.freeze([
   "function launches(address token) view returns (address creator,bytes32 poolId,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount,int24 tickLower,int24 tickUpper)",
 ]);
@@ -71,7 +74,7 @@ const KNOWN_LAUNCHES = Object.freeze({
 const $ = (selector) => document.querySelector(selector);
 const state = {
   token: null, creator: null, pool: null, poolId: null, positionTokenId: null,
-  tokenSymbol: "TOKEN", tokenDecimals: 18, settlementAsset: "ETH",
+  tokenSymbol: "TOKEN", tokenDecimals: 18, quoteSymbol: "RWI", settlementAsset: "ETH",
   imageUrl: null, creatorImageUrl: null, tradeDirection: "buy", tradeSource: null,
   tradeQuote: null, tradeQuoteRequest: 0, tradeInFlight: false,
   directTradeIntegrationsValidated: false,
@@ -101,6 +104,12 @@ function locallyDeployedFactoryAddress() {
 
 function configuredFactorySources() {
   const sources = [];
+  if (isAddress(QUOTE_FACTORY_CONFIG.factoryAddress)) sources.push({
+    address: QUOTE_FACTORY_CONFIG.factoryAddress,
+    current: true,
+    protocol: "Uniswap v4",
+    feeMode: MULTI_QUOTE_FEE_MODE,
+  });
   const localReplacement = locallyDeployedFactoryAddress();
   const currentAddress = localReplacement || (isAddress(FACTORY_CONFIG.factoryAddress) ? FACTORY_CONFIG.factoryAddress : null);
   if (currentAddress) sources.push({
@@ -124,6 +133,7 @@ function configuredFactoryAddresses() {
 
 function factoryAbiForSource(source) {
   if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  if (source.feeMode === MULTI_QUOTE_FEE_MODE) return QUOTE_FACTORY_ABI;
   return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
 }
 
@@ -182,9 +192,9 @@ function formatSupply(raw, decimals) {
   return trimmed ? `${grouped}.${trimmed}` : grouped;
 }
 
-function displayedTokenDescription(value) {
+function displayedTokenDescription(value, quoteSymbol = "RWI") {
   const text = String(value || "").trim();
-  if (!text) return "A fixed-supply token launched directly into permanently locked TOKEN / RWI liquidity.";
+  if (!text) return `A fixed-supply token launched directly into permanently locked TOKEN / ${quoteSymbol} liquidity.`;
   if (text.length === 280 && !/[.!?\u2026][\"')\]]?$/.test(text)) {
     const finalSpace = text.lastIndexOf(" ");
     const completeText = finalSpace > text.length - 32 ? text.slice(0, finalSpace) : text;
@@ -236,16 +246,19 @@ function dexScreenerPairTokens(pair) {
   };
 }
 
-function isRwiTokenPair(pair, tokenAddress) {
+function isLaunchTokenPair(pair, tokenAddress, launch) {
   const { base, quote } = dexScreenerPairTokens(pair);
-  return (sameAddress(base, tokenAddress) && sameAddress(quote, RWI_ADDRESS))
-    || (sameAddress(quote, tokenAddress) && sameAddress(base, RWI_ADDRESS));
+  const expectedQuotes = launch?.quoteSymbol === "ETH" ? [window.ethers.ZeroAddress, WETH_ADDRESS] : [launch?.quoteAddress || RWI_ADDRESS];
+  return expectedQuotes.some((expected) => (
+    (sameAddress(base, tokenAddress) && sameAddress(quote, expected))
+      || (sameAddress(quote, tokenAddress) && sameAddress(base, expected))
+  ));
 }
 
 function selectDexScreenerPair(pairs, tokenAddress, launch) {
   const launchPool = launch?.poolId || launch?.pool || "";
   return (Array.isArray(pairs) ? pairs : [])
-    .filter((pair) => pair?.chainId === DEXSCREENER_CHAIN_ID && pair?.dexId === "uniswap" && isRwiTokenPair(pair, tokenAddress))
+    .filter((pair) => pair?.chainId === DEXSCREENER_CHAIN_ID && pair?.dexId === "uniswap" && isLaunchTokenPair(pair, tokenAddress, launch))
     .sort((left, right) => {
       const leftExact = launchPool && String(left.pairAddress).toLowerCase() === String(launchPool).toLowerCase() ? 1 : 0;
       const rightExact = launchPool && String(right.pairAddress).toLowerCase() === String(launchPool).toLowerCase() ? 1 : 0;
@@ -259,7 +272,7 @@ function tokenMarketValues(pair, tokenAddress) {
   const nativePrice = finiteNumber(pair?.priceNative);
   const baseUsdPrice = finiteNumber(pair?.priceUsd);
   if (sameAddress(base, tokenAddress)) return { usd: baseUsdPrice, rwi: nativePrice };
-  if (sameAddress(quote, tokenAddress) && sameAddress(base, RWI_ADDRESS) && nativePrice && nativePrice > 0) {
+  if (sameAddress(quote, tokenAddress) && nativePrice && nativePrice > 0) {
     return { usd: baseUsdPrice === null ? null : baseUsdPrice / nativePrice, rwi: 1 / nativePrice };
   }
   return { usd: null, rwi: null };
@@ -296,7 +309,7 @@ async function readTokenRwiPriceOnchain(tokenAddress, launch, provider) {
   if (launch?.poolId) {
     const stateView = new window.ethers.Contract(V4_STATE_VIEW, V4_STATE_VIEW_ABI, provider);
     const slot0 = await stateView.getSlot0(launch.poolId);
-    return quoteFromSqrtPrice(slot0.sqrtPriceX96 ?? slot0[0], BigInt(tokenAddress) < BigInt(RWI_ADDRESS));
+    return quoteFromSqrtPrice(slot0.sqrtPriceX96 ?? slot0[0], BigInt(tokenAddress) < BigInt(launch.quoteAddress || RWI_ADDRESS));
   }
   if (launch?.pool) return readV3Quote(launch.pool, tokenAddress, provider);
   return null;
@@ -352,7 +365,12 @@ async function readOnchainMarketValues(tokenAddress, launch) {
   if (!rwi) throw new Error("The Uniswap pool price is unavailable.");
   let usd = null;
   try {
-    usd = rwi * await readRwiUsdPrice(provider);
+    const quoteUsd = launch.quoteSymbol === "USDG"
+      ? 1
+      : launch.quoteSymbol === "ETH"
+        ? await ensureEthUsdPrice(provider)
+        : await readRwiUsdPrice(provider);
+    usd = rwi * quoteUsd;
   } catch {
     // The RWI-denominated pool price remains useful while its USD reference recovers.
   }
@@ -401,11 +419,12 @@ function renderOnchainMarketPrice(values, pair, tokenAddress) {
   state.dexScreenerPair = pair || { onchain: true };
   state.tokenRwiPrice = finiteNumber(values.rwi);
   state.tokenUsdPrice = finiteNumber(values.usd);
-  if (!state.rwiUsdPrice && state.tokenRwiPrice && state.tokenUsdPrice) state.rwiUsdPrice = state.tokenUsdPrice / state.tokenRwiPrice;
+  if (state.dexScreenerLaunch?.quoteSymbol === "RWI" && !state.rwiUsdPrice && state.tokenRwiPrice && state.tokenUsdPrice) state.rwiUsdPrice = state.tokenUsdPrice / state.tokenRwiPrice;
+  const quoteSymbol = state.dexScreenerLaunch?.quoteSymbol || "RWI";
   const priceElement = $("#dexPriceUsd");
-  priceElement.textContent = values.usd ? formatUsdPrice(values.usd) : `${formatTokenRatio(values.rwi)} RWI`;
-  priceElement.title = values.usd ? `$${values.usd.toLocaleString("en-US", { maximumFractionDigits: 18 })}` : "Live TOKEN/RWI Uniswap spot price";
-  $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} RWI per token`;
+  priceElement.textContent = values.usd ? formatUsdPrice(values.usd) : `${formatTokenRatio(values.rwi)} ${quoteSymbol}`;
+  priceElement.title = values.usd ? `$${values.usd.toLocaleString("en-US", { maximumFractionDigits: 18 })}` : `Live TOKEN/${quoteSymbol} Uniswap spot price`;
+  $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} ${quoteSymbol} per token`;
   setDexMarketChange(pair ? tokenMarketChange24h(pair, tokenAddress) : null);
   if (pair?.pairAddress) renderDextoolsChart(String(pair.pairAddress));
   const updated = new Date();
@@ -418,9 +437,9 @@ function renderDexScreenerPair(pair, tokenAddress) {
   const values = tokenMarketValues(pair, tokenAddress);
   state.tokenRwiPrice = finiteNumber(values.rwi);
   state.tokenUsdPrice = finiteNumber(values.usd);
-  if (!state.rwiUsdPrice && state.tokenRwiPrice && state.tokenUsdPrice) state.rwiUsdPrice = state.tokenUsdPrice / state.tokenRwiPrice;
+  if (state.dexScreenerLaunch?.quoteSymbol === "RWI" && !state.rwiUsdPrice && state.tokenRwiPrice && state.tokenUsdPrice) state.rwiUsdPrice = state.tokenUsdPrice / state.tokenRwiPrice;
   $("#dexPriceUsd").textContent = formatUsdPrice(values.usd);
-  $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} RWI per token`;
+  $("#dexPriceRwi").textContent = `${formatTokenRatio(values.rwi)} ${state.dexScreenerLaunch?.quoteSymbol || "RWI"} per token`;
   setDexMarketChange(tokenMarketChange24h(pair, tokenAddress));
   const pairAddress = String(pair.pairAddress || "");
   renderDextoolsChart(pairAddress);
@@ -481,10 +500,11 @@ function setDirectTradeStatus(message, warning = false) {
 
 function directTradePoolKey() {
   if (!state.token || !state.tradeSource?.address) throw new Error("The v4 launch source is unavailable.");
-  const tokenIs0 = BigInt(state.token) < BigInt(RWI_ADDRESS);
+  const quoteAddress = state.tradeSource.quoteAddress || RWI_ADDRESS;
+  const tokenIs0 = BigInt(state.token) < BigInt(quoteAddress);
   return [
-    tokenIs0 ? state.token : RWI_ADDRESS,
-    tokenIs0 ? RWI_ADDRESS : state.token,
+    tokenIs0 ? state.token : quoteAddress,
+    tokenIs0 ? quoteAddress : state.token,
     Number(FACTORY_CONFIG.poolFee || 10_000),
     Number(FACTORY_CONFIG.poolTickSpacing || 200),
     state.tradeSource.address,
@@ -492,8 +512,9 @@ function directTradePoolKey() {
 }
 
 function directTradeCurrencies() {
-  const inputCurrency = state.tradeDirection === "buy" ? RWI_ADDRESS : state.token;
-  const outputCurrency = state.tradeDirection === "buy" ? state.token : RWI_ADDRESS;
+  const quoteAddress = state.tradeSource?.quoteAddress || RWI_ADDRESS;
+  const inputCurrency = state.tradeDirection === "buy" ? quoteAddress : state.token;
+  const outputCurrency = state.tradeDirection === "buy" ? state.token : quoteAddress;
   const poolKey = directTradePoolKey();
   return { inputCurrency, outputCurrency, poolKey, zeroForOne: sameAddress(inputCurrency, poolKey[0]) };
 }
@@ -707,7 +728,33 @@ async function quoteDirectTrade({ quiet = false } = {}) {
       "function quoteExactInputSingle(((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) params) returns (uint256 amountOut,uint256 gasEstimate)",
     ], provider);
 
-    if (buying) {
+    if (state.tradeSource.directQuote) {
+      const [directAmountOut] = await quoter.quoteExactInputSingle.staticCall([poolKey, zeroForOne, tradeAmount.amount, "0x"]);
+      if (requestId !== state.tradeQuoteRequest) return null;
+      if (directAmountOut <= 0n) throw new Error("The direct pool returned no output for that amount.");
+      const minimumAmountOut = applySlippage(directAmountOut, DIRECT_TRADE_HOP_SLIPPAGE_BPS);
+      state.tradeQuote = {
+        routeProtocol: "v4",
+        directQuote: true,
+        direction: state.tradeDirection,
+        amountIn: tradeAmount.amount,
+        amountOut: directAmountOut,
+        minimumAmountOut,
+        quoteAmount: buying ? tradeAmount.amount : directAmountOut,
+        minimumQuoteOut: buying ? 0n : minimumAmountOut,
+        settlementAsset: state.settlementAsset,
+        settlement,
+        walletInputCurrency: buying ? settlement.address : state.token,
+        walletInputDecimals: buying ? settlement.decimals : state.tokenDecimals,
+        inputSymbol: tradeAmount.symbol,
+        inputCurrency,
+        outputCurrency,
+        poolKey,
+        zeroForOne,
+        usdValue: tradeAmount.usdValue,
+      };
+      $("#tradeQuote").textContent = formatTradeUnits(minimumAmountOut, buying ? state.tokenSymbol : settlement.symbol, buying ? state.tokenDecimals : settlement.decimals);
+    } else if (buying) {
       const bridgeInputPath = v3BridgeExactInputPath(state.settlementAsset, "buy");
       const bridgeMaximumRwi = await quoteV3ExactInput(provider, bridgeInputPath, tradeAmount.amount);
       const rwiAmount = applySlippage(bridgeMaximumRwi, DIRECT_TRADE_HOP_SLIPPAGE_BPS);
@@ -884,18 +931,22 @@ function encodeV4SwapCommand(quote) {
   ], [[
     quote.poolKey,
     quote.zeroForOne,
-    quote.direction === "buy" ? quote.rwiAmount : quote.amountIn,
-    quote.direction === "buy" ? quote.minimumAmountOut : quote.minimumRwiOut,
+    quote.direction === "buy" ? (quote.directQuote ? quote.quoteAmount : quote.rwiAmount) : quote.amountIn,
+    quote.direction === "buy" ? quote.minimumAmountOut : (quote.directQuote ? quote.minimumQuoteOut : quote.minimumRwiOut),
     0,
     "0x",
   ]]);
   if (quote.direction === "buy") {
-    const settleParams = coder.encode(["address", "uint256", "bool"], [RWI_ADDRESS, quote.rwiAmount, false]);
+    const quoteAddress = state.tradeSource?.quoteAddress || RWI_ADDRESS;
+    const payerIsUser = Boolean(quote.directQuote && !sameAddress(quoteAddress, window.ethers.ZeroAddress));
+    const settleParams = coder.encode(["address", "uint256", "bool"], [quoteAddress, quote.directQuote ? quote.quoteAmount : quote.rwiAmount, payerIsUser]);
     const takeAllParams = coder.encode(["address", "uint256"], [state.token, quote.minimumAmountOut]);
     return coder.encode(["bytes", "bytes[]"], ["0x060b0f", [swapParams, settleParams, takeAllParams]]);
   }
   const settleParams = coder.encode(["address", "uint256", "bool"], [state.token, quote.amountIn, true]);
-  const takeParams = coder.encode(["address", "address", "uint256"], [RWI_ADDRESS, ROUTER_ADDRESS_THIS, 0]);
+  const quoteAddress = state.tradeSource?.quoteAddress || RWI_ADDRESS;
+  const recipient = quote.directQuote ? ROUTER_MSG_SENDER : ROUTER_ADDRESS_THIS;
+  const takeParams = coder.encode(["address", "address", "uint256"], [quoteAddress, recipient, 0]);
   return coder.encode(["bytes", "bytes[]"], ["0x060b0e", [swapParams, settleParams, takeParams]]);
 }
 
@@ -928,7 +979,11 @@ function encodeRoutedTrade(quote, deadline) {
   const buying = quote.direction === "buy";
   let nativeValue = 0n;
 
-  if (quote.routeProtocol === "v3") {
+  if (quote.directQuote) {
+    commands.push("0x10");
+    inputs.push(encodeV4SwapCommand(quote));
+    if (buying && isEth) nativeValue = quote.amountIn;
+  } else if (quote.routeProtocol === "v3") {
     if (buying && isEth) {
       commands.push("0x0b");
       inputs.push(encodeWrapEthCommand(quote.amountIn));
@@ -1120,10 +1175,22 @@ async function executeDirectTrade() {
 
 function setupDirectTrade(launch) {
   state.tradeSource = ["Uniswap v4", "Uniswap v3"].includes(launch.protocol)
-    ? { address: launch.factoryAddress, protocol: launch.protocol, poolAddress: launch.pool, poolFee: null }
+    ? {
+      address: launch.factoryAddress,
+      protocol: launch.protocol,
+      poolAddress: launch.pool,
+      poolFee: null,
+      quoteAddress: launch.quoteAddress || RWI_ADDRESS,
+      quoteSymbol: launch.quoteSymbol || "RWI",
+      directQuote: Boolean(launch.directQuote),
+    }
     : null;
   $("#directV4Trade").hidden = !state.tradeSource;
   if (!state.tradeSource) return;
+  document.querySelectorAll("[data-settlement-asset]").forEach((button) => {
+    button.hidden = Boolean(launch.directQuote && button.dataset.settlementAsset !== launch.quoteSymbol);
+  });
+  if (launch.directQuote) state.settlementAsset = launch.quoteSymbol;
   $("#directTradeButton").textContent = directTradeButtonText();
   selectTradeDirection("buy");
   refreshPoolActivation();
@@ -1396,7 +1463,14 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#detailAddress").textContent = address;
   $("#detailMonogram").textContent = symbol.charAt(0) || "?";
   $("#detailSupply").textContent = formatSupply(supply, decimals);
-  $("#detailPair").textContent = `${symbol} / RWI`;
+  const quoteSymbol = launch.quoteSymbol || "RWI";
+  state.quoteSymbol = quoteSymbol;
+  $("#detailPair").textContent = `${symbol} / ${quoteSymbol}`;
+  $("#detailMarketMode").textContent = `Direct TOKEN / ${quoteSymbol} market`;
+  $("#detailMarketPairing").textContent = `${quoteSymbol} paired`;
+  $("#detailQuoteAsset").textContent = quoteSymbol === "ETH" ? "Native ETH" : (launch.quoteAddress || RWI_ADDRESS);
+  $("#tradeRouteLabel").textContent = launch.directQuote ? "Direct Uniswap v4" : "RWI-routed Uniswap";
+  $("#dextoolsMarketDescription").textContent = `Connecting to this token’s live ${quoteSymbol} market.`;
   $("#detailPool").textContent = launch.poolId || launch.pool;
   $("#detailPoolLabel").textContent = launch.poolId ? "v4 pool ID" : "Pool";
   renderTokenMetadata(metadata);
@@ -1425,7 +1499,7 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
 }
 
 function renderTokenMetadata(metadata = {}) {
-  $("#detailDescription").textContent = displayedTokenDescription(metadata.description);
+  $("#detailDescription").textContent = displayedTokenDescription(metadata.description, state.quoteSymbol);
   renderTokenLinks(metadata.links);
   if (metadata.imageUrl) {
     $("#detailArt").style.backgroundImage = `url("${metadata.imageUrl}")`;
@@ -1478,6 +1552,9 @@ async function loadTokenPage() {
     ]), 12_000, "Robinhood Chain did not return token data within 12 seconds.");
     const launch = factoryLaunch.launch;
     const isV4 = factoryLaunch.source.protocol === "Uniswap v4";
+    const directQuote = factoryLaunch.source.feeMode === MULTI_QUOTE_FEE_MODE;
+    const quoteSymbol = directQuote ? (Number(launch.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+    const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? USDG_ADDRESS : RWI_ADDRESS;
     const pool = isV4 ? null : String(launch.pool);
     const poolId = isV4 ? String(launch.poolId) : null;
     if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !(isV4 ? isPoolId(poolId) : isAddress(pool))) {
@@ -1501,6 +1578,9 @@ async function loadTokenPage() {
         liquidityPermanentlyLocked: Boolean(launch.liquidityPermanentlyLocked),
         tickLower: isV4 ? Number(launch.tickLower) : null,
         tickUpper: isV4 ? Number(launch.tickUpper) : null,
+        quoteSymbol,
+        quoteAddress,
+        directQuote,
       },
       metadata: resolvedMetadata,
       creatorProfile: fallbackCreatorProfile,
