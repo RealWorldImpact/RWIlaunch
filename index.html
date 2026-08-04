@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#ccfe06" />
     <meta
       name="description"
-      content="RWI Launchpad — create tokens on Robinhood Chain, paired with $RWI, $ETH, or $USDG."
+    content="RWI Launchpad — create tokens on Robinhood Chain, paired with $RWI, $ETH, or $USDG."
     />
     <title>RWI Launchpad · Robinhood Chain</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -154,10 +154,10 @@
                 </div>
 
                 <fieldset class="quote-selector" id="quoteSelector">
-                  <legend>Permanent trading pair</legend>
-                  <label><input type="radio" name="quoteAsset" value="RWI" checked /><span><span class="quote-asset-mark quote-asset-mark-rwi" aria-hidden="true">RWI</span><strong>$RWI</strong><small>Creator earns 100%</small></span></label>
-                  <label><input type="radio" name="quoteAsset" value="ETH" /><span><span class="quote-asset-mark quote-asset-mark-eth" aria-hidden="true"><img src="assets/eth-logo.svg" alt="" /></span><strong>$ETH</strong><small>Creator 90% · Platform 10%</small></span></label>
-                  <label><input type="radio" name="quoteAsset" value="USDG" /><span><span class="quote-asset-mark quote-asset-mark-usdg" aria-hidden="true"><img src="assets/usdg-logo.svg" alt="" /></span><strong>$USDG</strong><small>Creator 90% · Platform 10%</small></span></label>
+              <legend>Permanent trading pair</legend>
+              <label><input type="radio" name="quoteAsset" value="RWI" checked /><span><span class="quote-asset-mark quote-asset-mark-rwi" aria-hidden="true">RWI</span><strong>$RWI</strong><small>ETH and USDG trades route through RWI / WETH</small></span></label>
+              <label><input type="radio" name="quoteAsset" value="ETH" /><span><span class="quote-asset-mark quote-asset-mark-eth" aria-hidden="true"><img src="assets/eth-logo.svg" alt="" /></span><strong>$ETH</strong><small>Creator 90% · Platform 10%</small></span></label>
+              <label><input type="radio" name="quoteAsset" value="USDG" /><span><span class="quote-asset-mark quote-asset-mark-usdg" aria-hidden="true"><img src="assets/usdg-logo.svg" alt="" /></span><strong>$USDG</strong><small>Creator 90% · Platform 10%</small></span></label>
                 </fieldset>
 
                 <div class="pair-box compact-pair-box">
@@ -329,14 +329,14 @@
             </div>
             <div class="revenue-summary">
               <div><span>Fee recipient</span><strong id="feeRecipient">Connected creator</strong></div>
-              <div><span>Creator share</span><strong>100% RWI · 90% ETH/USDG</strong></div>
+          <div><span>Creator share</span><strong>100% RWI · 90% ETH/USDG</strong></div>
               <div><span>LP custody</span><strong>Locked forever</strong></div>
             </div>
             <section class="developer-revenue" id="developerRevenue" hidden aria-labelledby="developerRevenueTitle">
               <div>
                 <span>Platform revenue</span>
                 <strong id="developerRevenueTitle">Developer ETH</strong>
-                <small>10% from ETH and USDG launches</small>
+              <small>10% from ETH and USDG launches</small>
               </div>
               <div class="developer-revenue-balance">
                 <span id="developerEthPending">0 ETH</span>
@@ -347,7 +347,7 @@
             <div class="revenue-list" id="revenueList" aria-live="polite">
               <div class="dashboard-empty">Connect your wallet to load creator revenue.</div>
             </div>
-            <p class="revenue-note">Internal-match launches collect LP fees without selling into the token pool. Token fees wait for organic buys and are matched at the current pool price. Creator claims transfer escrowed ETH only. RWI pairs send 100% to creators; ETH and USDG pairs send 90% to creators and 10% to the platform developer wallet.</p>
+        <p class="revenue-note">Internal-match launches collect LP fees without selling into the token pool. Token fees wait for organic buys and are matched at the current pool price. Creator claims transfer escrowed ETH only. RWI pairs send 100% to creators; ETH and USDG pairs send 90% to creators and 10% to the platform developer wallet.</p>
           </div>
         </div>
       </section>
