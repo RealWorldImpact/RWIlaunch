@@ -416,6 +416,435 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="factory-config.js?v=20260804-progressive-hooks-live-1"></script>
+    <script src="factory-abi.js?v=20260804-progressive-hooks-live-1"></script>
+  <script src="quote-factory-live-config.js?v=20260804-progressive-hooks-live-1"></script>
+  <script src="quote-factory-abi.js?v=20260804-progressive-hooks-live-1"></script>
+  <script src="quote-factory-deployment.js?v=20260804-progressive-hooks-live-1"></script>
+    <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
+    <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
+    <script src="profile-registry-deployment.js?v=20260803-dextools-restored"></script>
+  <script src="app-quote-live.js?v=20260804-progressive-hooks-live-1"></script>
+  </body>
+</html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ccfe06" />
+    <meta
+      name="description"
+    content="RWI Launchpad — create tokens on Robinhood Chain, paired with $RWI, $ETH, or $USDG."
+    />
+    <title>RWI Launchpad · Robinhood Chain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css?v=20260803-crop-controls" />
+    <link rel="stylesheet" href="pair-selector-v2.css" />
+  </head>
+  <body class="home-page-body">
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="RWI Launchpad home">
+        <span class="brand-mark">RWI</span>
+        <span class="brand-divider">/</span>
+        <span>Launchpad</span>
+      </a>
+
+      <nav class="desktop-nav" aria-label="Primary navigation">
+        <a class="active" href="#launch">Launch</a>
+        <a href="#discover" data-discover-open aria-haspopup="dialog" aria-controls="discoverModal" aria-expanded="false">Discover</a>
+        <a href="#dashboard" data-dashboard-open aria-haspopup="dialog" aria-controls="dashboardModal" aria-expanded="false">Dashboard</a>
+        <a href="#mechanism">How it works</a>
+      </nav>
+
+      <div class="header-actions">
+        <span class="network-chip"><i></i> Robinhood Chain</span>
+        <button class="discover-header-button" type="button" data-discover-open aria-haspopup="dialog" aria-controls="discoverModal" aria-expanded="false">Discover</button>
+        <button class="dashboard-header-button" type="button" data-dashboard-open aria-haspopup="dialog" aria-controls="dashboardModal" aria-expanded="false">Dashboard</button>
+        <button class="button button-dark wallet-button" id="walletButton" type="button">
+          Connect wallet
+        </button>
+      </div>
+    </header>
+
+    <main id="top">
+      <div class="ticker" aria-label="Launchpad information">
+        <span class="preview-label">Uniswap v4 hook integration</span>
+        <span>·</span>
+        <span>$RWI liquidity on Uniswap</span>
+        <span>·</span>
+        <span>$10,000 dual-TWAP openings</span>
+      </div>
+      <div class="wallet-origin-warning" id="walletOriginWarning" hidden>
+        Wallet connection is disabled in file previews. Open this launchpad from localhost, its HTTPS deployment, or Robinhood Wallet's Web3 browser.
+      </div>
+
+      <section class="hero" id="launch">
+        <div class="hero-copy">
+          <p class="eyebrow">01 — The launchpad</p>
+          <h1>Launch onchain.<br /><em>Pair with impact.</em></h1>
+          <p class="hero-intro">
+            Create a token on Robinhood Chain in minutes. Every launch opens against
+            <strong>$RWI on Uniswap</strong>, making impact the common currency of a new onchain economy.
+          </p>
+          <div class="direct-launch-note">
+            <strong>$10K opening · no graduation.</strong>
+            <span>Protected 30-minute RWI/WETH + WETH/USDG Uniswap prices set the TOKEN / RWI opening tick—no oracle credentials.</span>
+          </div>
+        </div>
+
+        <div class="launch-shell">
+          <section class="builder" aria-labelledby="builderTitle">
+            <div class="builder-header">
+              <div>
+                <p class="eyebrow">One-click launch</p>
+                <h2 id="builderTitle">Name it. Launch it.</h2>
+              </div>
+              <div class="builder-meta">
+                <div class="draft-tools">
+                  <span id="draftStatus">Draft ready</span>
+                  <button id="resetDraft" type="button">Reset</button>
+                </div>
+              </div>
+            </div>
+
+            <form id="launchForm" novalidate>
+              <div class="form-panel is-active one-click-form">
+                <div class="identity-grid">
+                  <div class="upload-wrap">
+                    <label class="field-label" for="tokenImage">Token image <small>Required</small></label>
+                    <label class="upload-zone" for="tokenImage" id="uploadZone" tabindex="0">
+                      <input id="tokenImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-required="true" />
+                      <span class="upload-art" id="uploadArt">+</span>
+                      <span class="upload-title">Drop image or browse</span>
+                      <span class="field-hint">PNG, JPG, WEBP, GIF · max 5MB · crop after upload</span>
+                    </label>
+                    <p class="listing-note" id="logoStatus">Every logo is standardized to a square 512×512 PNG, verified after launch, and automatically published when public storage is connected.</p>
+                    <div class="image-actions">
+                      <button class="remove-image" id="editImage" type="button" hidden>Adjust crop</button>
+                      <button class="remove-image" id="downloadLogo" type="button" hidden>Download logo</button>
+                      <button class="remove-image" id="removeImage" type="button" hidden>Remove image</button>
+                    </div>
+                  </div>
+
+                  <div class="identity-fields">
+                    <label class="field">
+                      <span class="field-label">Token name <small>Required</small></span>
+                      <input id="tokenName" type="text" maxlength="32" autocomplete="off" aria-required="true" />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">Ticker <small>Required</small></span>
+                      <span class="input-prefix-wrap"><span aria-hidden="true">$</span><input id="tokenTicker" type="text" maxlength="10" autocomplete="off" aria-required="true" /></span>
+                    </label>
+                  </div>
+                </div>
+
+                <label class="field">
+                  <span class="field-label-row"><span class="field-label">Description <small>Optional</small></span><span id="descriptionCount">0 / 500</span></span>
+                  <textarea id="tokenDescription" maxlength="500" rows="4"></textarea>
+                </label>
+
+                <details class="optional-fields">
+                  <summary>Social links <span>Optional</span></summary>
+                  <div class="social-grid">
+                    <label class="field"><span class="field-label">Website</span><input id="website" type="url" placeholder="https://" /></label>
+                    <label class="field"><span class="field-label">X / Twitter</span><input id="twitter" type="text" placeholder="@handle" /></label>
+                    <label class="field"><span class="field-label">Telegram</span><input id="telegram" type="text" placeholder="t.me/community" /></label>
+                  </div>
+                </details>
+
+                <div class="one-click-heading">
+                  <span>Fixed launch rules</span>
+                  <strong>No liquidity settings. No allocation choices.</strong>
+                </div>
+
+                <div class="fixed-launch-grid" aria-label="Fixed launch rules">
+                  <div class="fixed-rule-card">
+                    <span>Total supply</span>
+                    <strong>1,000,000,000</strong>
+                    <small>ERC-20 · 18 decimals · no future minting.</small>
+                  </div>
+                  <div class="fixed-rule-card pool-rule-card">
+                    <span>Locked pool inventory</span>
+                    <strong>100% allocation</strong>
+                    <small>Creator receives 0 allocated tokens; every purchase is a real market swap.</small>
+                  </div>
+                  <div class="fixed-rule-card">
+                    <span>Opening valuation</span>
+                    <strong>$10,000 FDV</strong>
+                    <small>Oracle-derived at launch, then rounded to the nearest Uniswap tick.</small>
+                  </div>
+                </div>
+
+                <fieldset class="quote-selector" id="quoteSelector">
+              <legend>Permanent trading pair</legend>
+              <label><input type="radio" name="quoteAsset" value="RWI" checked /><span><span class="quote-asset-mark quote-asset-mark-rwi" aria-hidden="true">RWI</span><strong>$RWI</strong><small>ETH and USDG trades route through RWI / WETH</small></span></label>
+              <label><input type="radio" name="quoteAsset" value="ETH" /><span><span class="quote-asset-mark quote-asset-mark-eth" aria-hidden="true"><img src="assets/eth-logo.svg" alt="" /></span><strong>$ETH</strong><small>Creator 90% · Platform 10%</small></span></label>
+              <label><input type="radio" name="quoteAsset" value="USDG" /><span><span class="quote-asset-mark quote-asset-mark-usdg" aria-hidden="true"><img src="assets/usdg-logo.svg" alt="" /></span><strong>$USDG</strong><small>Creator 90% · Platform 10%</small></span></label>
+                </fieldset>
+
+                <div class="pair-box compact-pair-box">
+                  <div class="pair-token">
+                    <div class="rwi-symbol"><span>RWI</span></div>
+                    <div><span>Permanent Uniswap pair</span><strong id="fixedPairLabel">TOKEN / $RWI</strong></div>
+                  </div>
+                  <div class="venue-mark"><span>Pool fee</span><strong>1%</strong></div>
+                  <div class="pair-links">
+                    <a href="https://robinhoodchain.blockscout.com/token/0x2286397228be256529BE1ae9ed8D7d16549e9C6A" target="_blank" rel="noreferrer">$RWI 0x2286…9C6A ↗</a>
+                    <button id="copyRwiAddress" type="button">Copy CA</button>
+                  </div>
+                </div>
+
+                <div class="integration-panel">
+                  <div class="integration-title"><span><i></i> Uniswap v4 + dual-TWAP protection</span><strong>Robinhood Chain · 4663</strong></div>
+                  <div class="integration-links">
+                    <a href="https://robinhoodchain.blockscout.com/address/0x8366a39CC670B4001A1121B8F6A443A643e40951" target="_blank" rel="noreferrer">v4 PoolManager 0x8366…0951 ↗</a>
+                    <a href="https://robinhoodchain.blockscout.com/address/0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94" target="_blank" rel="noreferrer">v4 Quoter 0x8Dc1…8F94 ↗</a>
+                    <a href="https://robinhoodchain.blockscout.com/address/0x8876789976dEcBfCbBbe364623C63652db8C0904" target="_blank" rel="noreferrer">Universal Router 0x8876…0904 ↗</a>
+                    <a href="https://robinhoodchain.blockscout.com/address/0x000000000022D473030F116dDEE9F6B43aC78BA3" target="_blank" rel="noreferrer">Permit2 0x0000…BA3 ↗</a>
+                    <a href="https://robinhoodchain.blockscout.com/address/0xFf6AA24815d1274a9bE0CfD17C7c7489Cd40A697" target="_blank" rel="noreferrer">RWI/WETH TWAP 0xFf6A…A697 ↗</a>
+                    <a href="https://robinhoodchain.blockscout.com/address/0x52e65B17fB6E5BA00Ed806f37Afcd2DaA50271Ca" target="_blank" rel="noreferrer">WETH/USDG TWAP 0x52e6…71Ca ↗</a>
+                  </div>
+                  <p id="factoryIntegrationStatus">Dual-TWAP v4 hook pending deployment · internal review only</p>
+                  <button class="factory-deploy-button" id="deployFactoryButton" type="button" hidden>Deploy v4 hook →</button>
+                </div>
+
+                <label class="checkbox-row locked-rule">
+                  <input id="lockLiquidity" type="checkbox" checked disabled />
+                  <span class="fake-checkbox">✓</span>
+                  <span><strong>100% of supply is allocated to liquidity and the LP is locked forever</strong><small>Irreversible · creator claims net LP revenue only in ETH · no graduation</small></span>
+                </label>
+
+                <div class="launch-consent">
+                  Launching confirms the token does not impersonate another project and acknowledges that the initial liquidity can never be withdrawn. Network gas is shown in your wallet.
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <span class="form-message" id="formMessage" aria-live="polite"></span>
+                <span class="one-click-note">Review launch details before wallet confirmation</span>
+                <button class="button button-dark launch-button one-click-button" id="launchButton" type="submit">Launch token →</button>
+              </div>
+            </form>
+          </section>
+
+          <aside class="preview-card" aria-label="Live token preview">
+            <div class="preview-sticky">
+              <div class="preview-topline"><span>Live preview</span><span>Robinhood · 4663</span></div>
+              <div class="preview-image" id="previewImage"><span id="previewMonogram"><b id="previewMonogramText">?</b></span></div>
+              <div class="preview-content">
+                <div class="preview-name-row">
+                  <div>
+                    <p id="previewTicker" hidden></p>
+                    <h3 id="previewName">Your token</h3>
+                  </div>
+                  <span class="status-badge">Direct pool</span>
+                </div>
+                <p class="preview-description" id="previewDescription">Description optional · name, ticker, and cropped logo required. Public listing files are generated after launch.</p>
+
+                <div class="preview-stats">
+                  <div><span>Pair</span><strong id="previewPair">TOKEN / RWI</strong></div>
+                  <div><span>Upfront liquidity</span><strong id="previewLiquidity">0 RWI upfront</strong></div>
+                </div>
+
+                <div class="setup-head"><span>Launch readiness</span><strong id="setupValue">0%</strong></div>
+                <div class="setup-progress" id="setupProgress" role="progressbar" aria-label="Launch readiness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="setupBar"></i></div>
+                <p class="preview-footnote">$10K dual-TWAP target · TOKEN / RWI · creator revenue paid in ETH · no graduation</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="mechanism" id="mechanism">
+        <div class="section-heading">
+          <p class="eyebrow">02 — The mechanism</p>
+          <h2>Straight to market.<br /><em>No graduation.</em></h2>
+        </div>
+        <div class="mechanism-grid">
+          <article><span>01</span><h3>Deploy</h3><p>Name it and describe it. A standard ERC-20 with exactly 1 billion tokens and no future minting is created on Robinhood Chain.</p></article>
+          <article><span>02</span><h3>Price + pool</h3><p>Protected Uniswap TWAPs set a tick-rounded $10,000 opening valuation, then the selected TOKEN / RWI, ETH, or USDG v4 pool is seeded directly.</p></article>
+          <article><span>03</span><h3>Trade</h3><p>Trading starts from the Uniswap pool once confirmed. There is no threshold, migration, or graduation step.</p></article>
+        </div>
+      </section>
+
+      <div class="modal-backdrop discover-backdrop" id="discoverModal" role="dialog" aria-modal="true" aria-labelledby="discoverTitle" hidden>
+        <section class="discover-modal" id="discover">
+          <button class="discover-close" id="discoverClose" type="button" aria-label="Close Discover Tokens">×</button>
+          <header class="discover-modal-heading">
+            <div>
+              <p class="eyebrow">03 — Live launch directory</p>
+              <h2 id="discoverTitle">Discover Tokens</h2>
+            </div>
+            <p>Explore every launch in one place. Compare current market caps, find the latest tokens, and open any market for details or trading.</p>
+          </header>
+
+          <div class="discover-toolbar">
+            <span id="discoverSummary" role="status" aria-live="polite">Loading live launches…</span>
+            <div class="discover-toolbar-actions">
+              <button class="discover-view-toggle" id="discoverViewToggle" type="button" aria-controls="discoverTokenGrid" aria-pressed="false">Show newest launches →</button>
+              <button id="refreshDiscover" type="button">Refresh markets ↻</button>
+            </div>
+          </div>
+
+          <section class="discover-group" aria-labelledby="discoverViewTitle">
+            <div class="discover-group-heading">
+              <div><span id="discoverViewKicker">Leaderboard</span><h3 id="discoverViewTitle">Highest market cap</h3></div>
+              <p id="discoverViewDescription">Live USD estimates from each token's selected Uniswap market.</p>
+            </div>
+            <div class="token-grid discover-token-grid" id="discoverTokenGrid" aria-live="polite">
+              <div class="discover-loading">Ranking live markets…</div>
+            </div>
+          </section>
+        </section>
+      </div>
+
+      <div class="modal-backdrop creator-dashboard-backdrop" id="dashboardModal" role="dialog" aria-modal="true" aria-labelledby="dashboardTitle" hidden>
+      <section class="creator-dashboard creator-dashboard-modal" id="dashboard">
+        <button class="modal-close" id="dashboardClose" type="button" aria-label="Close creator dashboard">×</button>
+        <div class="dashboard-heading">
+          <div>
+            <p class="eyebrow">04 — Creator dashboard</p>
+            <h2 id="dashboardTitle">Your launches.<br /><em>Your revenue.</em></h2>
+          </div>
+          <p>Manage your creator identity and claim new-token LP revenue as native ETH.</p>
+        </div>
+
+        <div class="dashboard-gate" id="dashboardGate">
+          <div><span>Wallet required</span><strong>Connect the creator wallet to load its tokens and fee positions.</strong></div>
+          <button class="button button-lime" id="dashboardConnect" type="button">Connect creator wallet</button>
+        </div>
+
+        <div class="dashboard-content" id="dashboardContent" hidden>
+          <aside class="profile-panel">
+            <div class="panel-kicker"><span>Creator profile</span><strong id="profileWallet">0x0000…0000</strong></div>
+            <div class="profile-registry-status" id="profileRegistryStatus">
+              <div><span>Shared profile registry</span><strong id="profileRegistryIndicator">Checking deployment…</strong></div>
+              <button id="deployProfileRegistry" type="button" hidden>Deploy registry</button>
+            </div>
+            <form id="creatorProfileForm">
+              <div class="profile-avatar-row">
+                <label class="profile-avatar" id="profileAvatar" for="profileImage"><span id="profileAvatarText">?</span></label>
+                <div>
+                  <label class="profile-image-button" for="profileImage">Update profile picture</label>
+                  <button class="profile-image-remove" id="removeProfileImage" type="button">Remove picture</button>
+                  <input id="profileImage" type="file" accept="image/png,image/jpeg,image/webp" />
+                  <small>Auto-cropped and compressed for permanent onchain availability.</small>
+                </div>
+              </div>
+              <label class="field">
+                <span class="field-label">Creator name</span>
+                <input id="creatorName" type="text" maxlength="40" placeholder="Your display name" />
+              </label>
+              <label class="field">
+                <span class="field-label-row"><span class="field-label">Short bio</span><span id="creatorBioCount">0 / 160</span></span>
+                <textarea id="creatorBio" maxlength="160" rows="4" placeholder="Tell token holders who you are."></textarea>
+              </label>
+              <button class="button button-lime profile-save" id="saveCreatorProfile" type="submit">Publish profile onchain</button>
+              <p class="profile-storage-note" id="profileStatus">Connect the shared registry to publish a globally visible profile.</p>
+            </form>
+          </aside>
+
+          <div class="revenue-panel">
+            <div class="revenue-header">
+              <div><span>Token revenue</span><strong id="creatorTokenCount">0 launches</strong></div>
+              <button id="refreshRevenue" type="button">Refresh ↻</button>
+            </div>
+            <div class="revenue-summary">
+              <div><span>Fee recipient</span><strong id="feeRecipient">Connected creator</strong></div>
+          <div><span>Creator share</span><strong>100% RWI · 90% ETH/USDG</strong></div>
+              <div><span>LP custody</span><strong>Locked forever</strong></div>
+            </div>
+            <section class="developer-revenue" id="developerRevenue" hidden aria-labelledby="developerRevenueTitle">
+              <div>
+                <span>Platform revenue</span>
+                <strong id="developerRevenueTitle">Developer ETH</strong>
+              <small>10% from ETH and USDG launches</small>
+              </div>
+              <div class="developer-revenue-balance">
+                <span id="developerEthPending">0 ETH</span>
+                <strong id="developerUsdPending">$0.00</strong>
+              </div>
+              <button class="claim-revenue" id="claimDeveloperRevenue" type="button" disabled>Nothing to claim</button>
+            </section>
+            <div class="revenue-list" id="revenueList" aria-live="polite">
+              <div class="dashboard-empty">Connect your wallet to load creator revenue.</div>
+            </div>
+        <p class="revenue-note">Internal-match launches collect LP fees without selling into the token pool. Token fees wait for organic buys and are matched at the current pool price. Creator claims transfer escrowed ETH only. RWI pairs send 100% to creators; ETH and USDG pairs send 90% to creators and 10% to the platform developer wallet.</p>
+          </div>
+        </div>
+      </section>
+      </div>
+    </main>
+
+    <footer>
+      <div class="footer-brand">RWI / LAUNCHPAD</div>
+      <p>Tokens launch directly into permanently locked RWI, ETH, or USDG liquidity on Uniswap.</p>
+      <nav aria-label="Footer"><a href="https://rwihood.org/" target="_blank" rel="noreferrer">RWIhood.org ↗</a><a href="https://robinhoodchain.blockscout.com/token/0x2286397228be256529BE1ae9ed8D7d16549e9C6A" target="_blank" rel="noreferrer">$RWI Explorer ↗</a></nav>
+      <small>Experimental software. Tokens carry risk. Verify contracts and do your own research.</small>
+    </footer>
+
+    <div class="modal-backdrop" id="launchModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+      <div class="launch-modal">
+        <button class="modal-close" id="modalClose" type="button" aria-label="Close">×</button>
+        <p class="eyebrow">One-click launch</p>
+        <h2 id="modalTitle">Review your launch.</h2>
+        <div class="modal-token" id="modalToken">
+          <div class="modal-avatar" id="modalAvatar">?</div>
+          <div><span id="modalTicker">$TOKEN</span><strong id="modalName">Your token</strong></div>
+        </div>
+        <p class="modal-copy" id="modalCopy">The token launches with exactly 1 billion tokens at a tick-rounded $10,000 valuation. An optional dev buy uses ETH to acquire the required RWI automatically, then buys through the locked TOKEN / RWI pool.</p>
+        <div class="modal-dev-buy" id="modalDevBuy">
+          <label for="devBuyUsd"><span>Optional dev buy</span><small>USD value</small></label>
+          <div class="modal-dev-buy-input"><span aria-hidden="true">$</span><input id="devBuyUsd" type="text" inputmode="decimal" autocomplete="off" aria-label="Optional dev buy in USD" /><strong>USD</strong></div>
+          <p id="devBuyEstimate">Leave blank or enter 0 to skip. ETH is converted to RWI automatically.</p>
+          <div class="modal-dev-buy-balance"><span>Wallet ETH balance</span><strong id="walletEthBalance">Connect wallet</strong></div>
+        </div>
+        <div class="modal-actions">
+          <button class="button button-lime" id="modalWallet" type="button">Launch Token</button>
+          <button class="button button-outline" id="downloadBrief" type="button">Download launch brief</button>
+          <button class="button button-outline" id="uniswapTradeButton" type="button" hidden>Open direct trader →</button>
+        </div>
+        <p class="modal-note" id="modalNote">This immutable custom factory has not been independently audited. Proceed only if you explicitly accept that risk.</p>
+      </div>
+    </div>
+
+    <div class="modal-backdrop crop-backdrop" id="cropModal" role="dialog" aria-modal="true" aria-labelledby="cropTitle" hidden>
+      <div class="crop-modal">
+        <button class="modal-close" id="cropClose" type="button" aria-label="Cancel image crop">×</button>
+        <p class="eyebrow">Token artwork</p>
+        <h2 id="cropTitle">Crop your logo.</h2>
+        <p class="crop-intro">Drag to reposition. Use the slider to zoom. The saved logo is always a listing-ready 512×512 PNG.</p>
+        <div class="crop-stage" id="cropStage">
+          <canvas id="cropCanvas" width="512" height="512" aria-label="Token logo crop preview"></canvas>
+          <span class="crop-ring" aria-hidden="true"></span>
+        </div>
+        <div class="crop-controls">
+          <label for="cropZoom">
+            <span class="crop-control-head"><span>Zoom</span><output id="cropZoomValue" for="cropZoom">100%</output></span>
+            <span class="crop-zoom-row">
+              <span aria-hidden="true">−</span>
+              <input id="cropZoom" type="range" min="1" max="3" step="0.01" value="1" aria-valuetext="100%" />
+              <span aria-hidden="true">+</span>
+            </span>
+          </label>
+          <button id="cropReset" type="button">Reset</button>
+        </div>
+        <div class="crop-actions">
+          <button class="button button-outline" id="cropCancel" type="button">Cancel</button>
+          <button class="button button-lime" id="cropApply" type="button">Use this crop</button>
+        </div>
+        <p class="crop-note">Square PNG · 512×512 · transparent areas use the launchpad background</p>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="factory-config.js?v=20260803-dextools-restored"></script>
     <script src="factory-abi.js?v=20260803-dextools-restored"></script>
   <script src="quote-factory-live-config.js?v=20260804-staged-hook-live"></script>
