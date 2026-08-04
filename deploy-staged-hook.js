@@ -8,9 +8,11 @@ const CHAIN = Object.freeze({
 const DEVELOPER_WALLET = "0x9CD7C9196A4C1836A3DF089cb210272e07e6A5e5";
 const REQUIRED_FLAGS = 0x2088n;
 const HOOK_MASK = 0x3fffn;
-const DEPLOYMENT = window.RWI_QUOTE_FACTORY_DEPLOYMENT || {};
+const RWI_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || {};
+const QUOTE_DEPLOYMENT = window.RWI_QUOTE_FACTORY_DEPLOYMENT || {};
 const DEPLOYER = window.RWI_HOOK_DEPLOYER_DEPLOYMENT || {};
-const ABI = window.RWI_QUOTE_FACTORY_ABI || [];
+const RWI_ABI = window.RWI_FACTORY_ABI || [];
+const QUOTE_ABI = window.RWI_QUOTE_FACTORY_ABI || [];
 const discoveredProviders = new Map();
 const state = { wallet: null, account: null, deploying: false, result: null };
 const $ = (selector) => document.querySelector(selector);
@@ -92,28 +94,57 @@ function normalizeImmutableSlots(bytecode, references = {}) {
   return bytes.join("");
 }
 
-async function validateDeployment(provider, address) {
-  const network = await provider.getNetwork();
-  if (network.chainId !== 4663n) throw new Error("The hook was not deployed on Robinhood Chain.");
+async function validateRuntime(provider, address, deployment) {
   const code = await provider.getCode(address);
   if (code === "0x") throw new Error("No hook bytecode was deployed.");
-  if ((code.length - 2) / 2 > 24_576) throw new Error("The deployed runtime exceeds the EVM contract-size limit.");
-  if ((BigInt(address) & HOOK_MASK) !== REQUIRED_FLAGS) throw new Error("The hook address has invalid Uniswap v4 permission bits.");
-  const expected = normalizeImmutableSlots(DEPLOYMENT.deployedBytecode, DEPLOYMENT.immutableReferences);
-  const actual = normalizeImmutableSlots(code, DEPLOYMENT.immutableReferences);
-  if (!expected || actual !== expected) throw new Error("The deployed runtime does not match this staged build.");
-  const hook = new window.ethers.Contract(address, ABI, provider);
-  const [developer, activeBps, stagedBps, offset, poolAllocation, locked, creatorShare, developerShare] = await Promise.all([
-    hook.developerWallet(), hook.INITIAL_ACTIVE_TOKEN_BPS(), hook.STAGED_TOKEN_BPS(), hook.STAGED_TICK_OFFSET(),
+  const runtimeBytes = (code.length - 2) / 2;
+  if (runtimeBytes > 24_576) throw new Error("The deployed runtime exceeds the EVM contract-size limit.");
+  if ((BigInt(address) & HOOK_MASK) !== REQUIRED_FLAGS) {
+    throw new Error("The hook address has invalid Uniswap v4 permission bits.");
+  }
+  const expected = normalizeImmutableSlots(deployment.deployedBytecode, deployment.immutableReferences);
+  const actual = normalizeImmutableSlots(code, deployment.immutableReferences);
+  if (!expected || actual !== expected) throw new Error("The deployed runtime does not match this progressive build.");
+  return { runtimeCodeHash: window.ethers.keccak256(code), runtimeBytes };
+}
+
+async function validateRwiHook(provider, address) {
+  const runtime = await validateRuntime(provider, address, RWI_DEPLOYMENT);
+  const hook = new window.ethers.Contract(address, RWI_ABI, provider);
+  const [rwi, activeBps, stagedBps, stagedCount, poolAllocation, locked, creatorShare] = await Promise.all([
+    hook.RWI(), hook.INITIAL_ACTIVE_TOKEN_BPS(), hook.STAGED_TOKEN_BPS(), hook.STAGED_POSITION_COUNT(),
+    hook.POOL_ALLOCATION_BPS(), hook.LIQUIDITY_PERMANENTLY_LOCKED(), hook.CREATOR_LP_FEE_SHARE_BPS(),
+  ]);
+  if (!sameAddress(rwi, "0x2286397228be256529BE1ae9ed8D7d16549e9C6A")) throw new Error("RWI address mismatch.");
+  if (activeBps !== 2500n || stagedBps !== 7500n || stagedCount !== 10n || poolAllocation !== 10000n || !locked) {
+    throw new Error("RWI staged-liquidity or permanent-lock rules do not match.");
+  }
+  if (creatorShare !== 10000n) throw new Error("RWI creator revenue share mismatch.");
+  return runtime;
+}
+
+async function validateQuoteHook(provider, address) {
+  const runtime = await validateRuntime(provider, address, QUOTE_DEPLOYMENT);
+  const hook = new window.ethers.Contract(address, QUOTE_ABI, provider);
+  const [developer, activeBps, stagedBps, stagedCount, poolAllocation, locked, creatorShare, developerShare] = await Promise.all([
+    hook.developerWallet(), hook.INITIAL_ACTIVE_TOKEN_BPS(), hook.STAGED_TOKEN_BPS(), hook.STAGED_POSITION_COUNT(),
     hook.POOL_ALLOCATION_BPS(), hook.LIQUIDITY_PERMANENTLY_LOCKED(),
     hook.CREATOR_LP_FEE_SHARE_BPS(), hook.DEVELOPER_LP_FEE_SHARE_BPS(),
   ]);
   if (!sameAddress(developer, DEVELOPER_WALLET)) throw new Error("Developer wallet mismatch.");
-  if (activeBps !== 9000n || stagedBps !== 1000n || offset !== 2200n || poolAllocation !== 10000n || !locked) {
-    throw new Error("Staged liquidity or permanent-lock rules do not match.");
+  if (activeBps !== 2500n || stagedBps !== 7500n || stagedCount !== 10n || poolAllocation !== 10000n || !locked) {
+    throw new Error("ETH/USDG staged-liquidity or permanent-lock rules do not match.");
   }
-  if (creatorShare !== 9000n || developerShare !== 1000n) throw new Error("Revenue split mismatch.");
-  return { runtimeCodeHash: window.ethers.keccak256(code), runtimeBytes: (code.length - 2) / 2 };
+  if (creatorShare !== 9000n || developerShare !== 1000n) throw new Error("ETH/USDG revenue split mismatch.");
+  return runtime;
+}
+
+async function deployHook(helper, mined, deployment, label) {
+  setStatus(`${label} · confirm deployment at ${mined.address}.`);
+  const tx = await helper.deploy(mined.salt, deployment.bytecode, { gasLimit: 28_000_000 });
+  setStatus(`${label} submitted · ${tx.hash}\nWaiting for confirmation…`);
+  const receipt = await tx.wait();
+  return { address: mined.address, block: receipt.blockNumber, transaction: tx.hash, salt: mined.salt };
 }
 
 async function deploy() {
@@ -121,47 +152,54 @@ async function deploy() {
   state.deploying = true;
   syncButtons();
   try {
-    if (!DEPLOYMENT.bytecode || !DEPLOYER.bytecode || !DEPLOYER.abi?.length || !ABI.length) {
-      throw new Error("The reviewed deployment bundle is incomplete.");
-    }
+    if (
+      !RWI_DEPLOYMENT.bytecode || !QUOTE_DEPLOYMENT.bytecode || !DEPLOYER.bytecode
+      || !DEPLOYER.abi?.length || !RWI_ABI.length || !QUOTE_ABI.length
+    ) throw new Error("The reviewed dual-hook deployment bundle is incomplete.");
+
     const wallet = await walletProvider();
     await ensureChain(wallet);
     const provider = new window.ethers.BrowserProvider(wallet);
+    const network = await provider.getNetwork();
+    if (network.chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain.");
     const signer = await provider.getSigner();
     const account = await signer.getAddress();
     if (!sameAddress(account, DEVELOPER_WALLET)) throw new Error("The connected signer is not the developer wallet.");
 
-    setStatus("Transaction 1 of 2 · confirm the small CREATE2 helper deployment in your wallet.");
+    setStatus("Step 1 of 3 · confirm the small CREATE2 helper deployment.");
     const helperFactory = new window.ethers.ContractFactory(DEPLOYER.abi, DEPLOYER.bytecode, signer);
     const helper = await helperFactory.deploy();
     const helperTx = helper.deploymentTransaction();
-    setStatus(`Transaction 1 submitted · ${helperTx.hash}\nWaiting for the CREATE2 helper…`);
+    setStatus(`Step 1 submitted · ${helperTx.hash}\nWaiting for the CREATE2 helper…`);
     await helper.waitForDeployment();
     const helperAddress = await helper.getAddress();
-
-    setStatus("Finding an address with the exact Uniswap v4 hook permission bits. No wallet action is needed.");
-    const mined = mineSalt(helperAddress, window.ethers.keccak256(DEPLOYMENT.bytecode));
-    setStatus(`Transaction 2 of 2 · confirm deployment of the immutable hook at ${mined.address}.`);
     const helperWithSigner = new window.ethers.Contract(helperAddress, DEPLOYER.abi, signer);
-    const hookTx = await helperWithSigner.deploy(mined.salt, DEPLOYMENT.bytecode, { gasLimit: 28_000_000 });
-    setStatus(`Transaction 2 submitted · ${hookTx.hash}\nWaiting for the staged hook…`);
-    const receipt = await hookTx.wait();
-    const validation = await validateDeployment(provider, mined.address);
+
+    setStatus("Preparing two permissioned hook addresses. No wallet action is needed.");
+    const rwiMined = mineSalt(helperAddress, window.ethers.keccak256(RWI_DEPLOYMENT.bytecode));
+    const quoteMined = mineSalt(helperAddress, window.ethers.keccak256(QUOTE_DEPLOYMENT.bytecode));
+    const rwiResult = await deployHook(helperWithSigner, rwiMined, RWI_DEPLOYMENT, "Step 2 of 3 · $RWI hook");
+    const rwiValidation = await validateRwiHook(provider, rwiResult.address);
+    const quoteResult = await deployHook(helperWithSigner, quoteMined, QUOTE_DEPLOYMENT, "Step 3 of 3 · ETH/USDG hook");
+    const quoteValidation = await validateQuoteHook(provider, quoteResult.address);
+
     state.result = {
-      address: mined.address,
-      deploymentBlock: receipt.blockNumber,
-      deploymentTransaction: hookTx.hash,
       helperAddress,
       helperTransaction: helperTx.hash,
-      salt: mined.salt,
-      ...validation,
+      rwiHook: { ...rwiResult, ...rwiValidation },
+      ethUsdgHook: { ...quoteResult, ...quoteValidation },
     };
-    $("#hookAddress").textContent = mined.address;
-    $("#explorerLink").href = `${CHAIN.blockExplorerUrls[0]}/address/${mined.address}`;
+    $("#rwiHookAddress").textContent = rwiResult.address;
+    $("#quoteHookAddress").textContent = quoteResult.address;
+    $("#rwiExplorerLink").href = `${CHAIN.blockExplorerUrls[0]}/address/${rwiResult.address}`;
+    $("#quoteExplorerLink").href = `${CHAIN.blockExplorerUrls[0]}/address/${quoteResult.address}`;
     $("#deployResult").hidden = false;
-    setStatus(`Deployment validated · block ${receipt.blockNumber}\nRuntime ${validation.runtimeBytes.toLocaleString()} bytes · hash ${validation.runtimeCodeHash}`);
+    setStatus(
+      `Both deployments validated · blocks ${rwiResult.block} and ${quoteResult.block}\n`
+      + `$RWI ${rwiValidation.runtimeBytes.toLocaleString()} bytes · ETH/USDG ${quoteValidation.runtimeBytes.toLocaleString()} bytes`,
+    );
   } catch (error) {
-    setStatus(String(error?.shortMessage || error?.message || "Deployment failed.").slice(0, 600));
+    setStatus(String(error?.shortMessage || error?.message || "Deployment failed.").slice(0, 700));
   } finally {
     state.deploying = false;
     syncButtons();
@@ -171,7 +209,7 @@ async function deploy() {
 async function copyResult() {
   if (!state.result) return;
   await navigator.clipboard.writeText(JSON.stringify(state.result, null, 2));
-  setStatus("Deployment details copied. The hook still needs source verification and launchpad configuration.");
+  setStatus("Both deployment records copied. Source verification and launchpad configuration are still required.");
 }
 
 $("#connectWallet").addEventListener("click", connect);
