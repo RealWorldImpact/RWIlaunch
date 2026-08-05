@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260805-circle-logos-flat-1" />
+    <link rel="stylesheet" href="styles.css?v=20260805-launch-form-cleanup-1" />
     <link rel="stylesheet" href="pair-selector-v2.css?v=20260804-circular-logo-ui-1" />
   </head>
   <body class="home-page-body">
@@ -173,34 +173,15 @@
                   </div>
                 </div>
 
-                <div class="integration-panel">
-                  <div class="integration-title"><span><i></i> Uniswap v4 + dual-TWAP protection</span><strong>Robinhood Chain · 4663</strong></div>
-                  <div class="integration-links">
-                    <a href="https://robinhoodchain.blockscout.com/address/0x8366a39CC670B4001A1121B8F6A443A643e40951" target="_blank" rel="noreferrer">v4 PoolManager 0x8366…0951 ↗</a>
-                    <a href="https://robinhoodchain.blockscout.com/address/0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94" target="_blank" rel="noreferrer">v4 Quoter 0x8Dc1…8F94 ↗</a>
-                    <a href="https://robinhoodchain.blockscout.com/address/0x8876789976dEcBfCbBbe364623C63652db8C0904" target="_blank" rel="noreferrer">Universal Router 0x8876…0904 ↗</a>
-                    <a href="https://robinhoodchain.blockscout.com/address/0x000000000022D473030F116dDEE9F6B43aC78BA3" target="_blank" rel="noreferrer">Permit2 0x0000…BA3 ↗</a>
-                    <a href="https://robinhoodchain.blockscout.com/address/0xFf6AA24815d1274a9bE0CfD17C7c7489Cd40A697" target="_blank" rel="noreferrer">RWI/WETH TWAP 0xFf6A…A697 ↗</a>
-                    <a href="https://robinhoodchain.blockscout.com/address/0x52e65B17fB6E5BA00Ed806f37Afcd2DaA50271Ca" target="_blank" rel="noreferrer">WETH/USDG TWAP 0x52e6…71Ca ↗</a>
-                  </div>
-                  <p id="factoryIntegrationStatus">Dual-TWAP v4 hook pending deployment · internal review only</p>
-                  <button class="factory-deploy-button" id="deployFactoryButton" type="button" hidden>Deploy v4 hook →</button>
-                </div>
-
-                <label class="checkbox-row locked-rule">
+                <div class="launch-runtime-controls" hidden aria-hidden="true">
+                  <p id="factoryIntegrationStatus"></p>
+                  <button id="deployFactoryButton" type="button" hidden></button>
                   <input id="lockLiquidity" type="checkbox" checked disabled />
-                  <span class="fake-checkbox">✓</span>
-                  <span><strong>100% of supply is allocated to liquidity and the LP is locked forever</strong><small>Irreversible · creator claims net LP revenue only in ETH · no graduation</small></span>
-                </label>
-
-                <div class="launch-consent">
-                  Launching confirms the token does not impersonate another project and acknowledges that the initial liquidity can never be withdrawn. Network gas is shown in your wallet.
                 </div>
               </div>
 
               <div class="form-actions">
                 <span class="form-message" id="formMessage" aria-live="polite"></span>
-                <span class="one-click-note">Review launch details before wallet confirmation</span>
                 <button class="button button-dark launch-button one-click-button" id="launchButton" type="submit">Launch token →</button>
               </div>
             </form>
