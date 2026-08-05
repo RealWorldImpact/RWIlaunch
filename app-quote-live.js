@@ -2,7 +2,7 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260805-creator-dashboard-perf-2";
+const RELEASE_VERSION = "20260805-post-launch-redirect-1";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
@@ -1146,8 +1146,9 @@ function clearImage() {
   $("#downloadLogo").hidden = true;
   $("#removeImage").hidden = true;
   $("#downloadBrief").textContent = "Download launch brief";
-  deleteLogoAsset(DRAFT_LOGO_KEY).catch(() => {});
+  const storedLogoDeletion = deleteLogoAsset(DRAFT_LOGO_KEY).catch(() => {});
   updatePreview();
+  return storedLogoDeletion;
 }
 
 function draftValues() {
@@ -1197,7 +1198,12 @@ function restoreDraft() {
   }
 }
 
-function resetDraft() {
+async function resetDraft({ announce = true } = {}) {
+  clearTimeout(state.saveTimer);
+  state.saveTimer = null;
+  clearTimeout(scheduleDevBuyEstimate.timer);
+  scheduleDevBuyEstimate.timer = null;
+  updateDevBuyEstimate.requestId = (updateDevBuyEstimate.requestId || 0) + 1;
   localStorage.removeItem(DRAFT_KEY);
   fields.name.value = "";
   fields.ticker.value = "";
@@ -1206,13 +1212,27 @@ function resetDraft() {
   fields.twitter.value = "";
   fields.telegram.value = "";
   fields.devBuy.value = "";
+  state.pendingDevBuyRwiAmount = 0n;
   const rwiQuote = document.querySelector('input[name="quoteAsset"][value="RWI"]');
   if (rwiQuote) rwiQuote.checked = true;
-  clearImage();
+  $$('[aria-invalid="true"]').forEach((element) => element.removeAttribute("aria-invalid"));
+  $("#formMessage").textContent = "";
+  const optionalFields = $(".optional-fields");
+  if (optionalFields) optionalFields.open = false;
+  const storedLogoDeletion = clearImage();
   updatePreview();
+  updateDevBuyEstimate();
   renderIntegrationStatus();
   $("#draftStatus").textContent = "Fresh draft";
-  toast("Draft reset.");
+  if (announce) toast("Draft reset.");
+  await storedLogoDeletion;
+}
+
+async function completeSuccessfulLaunch(address) {
+  if (!isAddress(address)) return;
+  const tokenPage = tokenDetailHref(address);
+  await resetDraft({ announce: false });
+  window.location.assign(tokenPage);
 }
 
 function currentWalletProvider() {
@@ -3482,8 +3502,8 @@ async function launchOnQuoteFactory() {
     $("#modalNote").textContent = `Token ${String(launchEvent.args.token).slice(0, 8)}… · liquidity locked forever · creator earns 90% in ETH · developer accrues 10% in ETH.${liquidityVerificationWarning ? ` Verification warning: ${liquidityVerificationWarning}` : ""}`;
     $("#uniswapTradeButton").hidden = false;
     toast(`Token launched in a locked ${quoteSymbol} pool.`);
-    await readEthBalance();
-    loadRecentLaunches({ force: true });
+    await completeSuccessfulLaunch(state.lastTokenAddress);
+    return;
   } catch (error) {
     const message = readableWalletError(error);
     $("#modalNote").textContent = message;
@@ -3746,6 +3766,10 @@ async function launchOnUniswap() {
     toast(publicMetadataPublication
       ? "Token launched and its public logo was verified."
       : "Token launched directly into $RWI liquidity on Uniswap.");
+    if (state.lastTokenAddress) {
+      await completeSuccessfulLaunch(state.lastTokenAddress);
+      return;
+    }
     await readEthBalance();
     loadRecentLaunches();
   } catch (error) {
