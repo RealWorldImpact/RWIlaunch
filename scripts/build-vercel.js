@@ -5,6 +5,7 @@ const projectRoot = path.resolve(__dirname, "..");
 const outputRoot = path.join(projectRoot, "vercel-site");
 const publicFiles = [
   "index.html",
+  "discover.html",
   "token.html",
   "creator.html",
   "deploy-staged-hook.html",
@@ -12,6 +13,7 @@ const publicFiles = [
   "pair-selector-v2.css",
   "app.js",
   "app-quote-live.js",
+  "discover.js",
   "token.js",
   "creator.js",
   "deploy-staged-hook.js",
@@ -32,7 +34,9 @@ const publicFiles = [
   "rwi-launchpad-manifest.json",
   "geckoterminal-integration.json",
   "assets/eth-logo.svg",
+  "assets/eth-logo.png",
   "assets/usdg-logo.svg",
+  "assets/usdg-logo.png",
   "assets/testcoin.png",
   "tokens/0xc29d66d54d2ed13fffdc89323e5a9d70c197eaec.json",
   "api/token-metadata.mjs",
