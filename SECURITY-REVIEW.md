@@ -7,8 +7,6 @@ Status: internal review and automated testing complete; independent audit not co
 
 - `contracts/DirectRWIV4LaunchHook.sol`
 - `contracts/RobinhoodRWIV4LaunchHook.sol`
-- `contracts/DirectEthUsdgV4LaunchHook.sol`
-- `contracts/test/TestableEthUsdgV4LaunchHook.sol`
 - `contracts/RWIV4HookDeployer.sol`
 - `contracts/RWILaunchToken.sol`
 - `contracts/libraries/RWIOracleMath.sol`
@@ -16,8 +14,6 @@ Status: internal review and automated testing complete; independent audit not co
 - Deployment, verification, configuration, browser integration, and contract tests
 
 The legacy v3 factories remain configured only for existing token discovery and creator claims. They are not the production path for new launches.
-
-The permissionless-settlement changes apply only to the replacement ETH/USDG hook. The RWI hook and all previously deployed immutable hooks retain their deployed behavior.
 
 ## Enforced invariants
 
@@ -55,10 +51,6 @@ The permissionless-settlement changes apply only to the replacement ETH/USDG hoo
 | Currency ordering | A token that sorts above RWI makes token inventory currency1; initializing at that position's exclusive upper boundary reports zero active liquidity. | The corrected factory searches up to 256 deterministic CREATE2 salts and deploys only a token address below RWI. Tests assert the ordering and lower-bound range. The first deployed v4 hook is deprecated for new launches. |
 | Dev-buy ordering | A creator purchase executed before the permanent position exists could become an allocation or use a different price path. | The hook first deploys the complete supply, initializes the pool, locks the token-only position, records the launch, and only then executes the optional exact-input v4 swap. The entire launch reverts below the creator's minimum token output. |
 | Dev-buy approval | An unlimited approval would expose unnecessary RWI. | The browser requests only the configured dev-buy amount and skips approval when the existing allowance is sufficient. The hook pulls exactly `devBuyRwiAmount`. |
-| Permissionless settlement | A third party can choose when ETH/USDG fees are collected and converted. | The caller cannot choose either recipient. Creator ETH remains keyed to the launch position, the developer share always pays the immutable developer wallet, and the 90/10 split is fixed. Timing control and transaction-ordering risk remain. |
-| Automated USDG conversion | A keeper could pass a weak minimum output or settle during a poor market. | The hook overrides a weak caller value with a 95%-of-protected-TWAP floor. This bounds but does not eliminate slippage, MEV, oracle lag, depeg, or pool-liquidity risk; settlement can revert when the floor cannot be met. |
-| Automatic collection | Settling all positions moves newly realized token fees into internal inventory. | The launched token is never sold. Inventory is matched only against future organic buys, but the internally matched portion of those buys bypasses the AMM curve and therefore creates less chart price impact. |
-| Keeper liveness | A smart contract cannot initiate its own transaction. | The dashboard batches up to six positions plus the developer claim through verified canonical Multicall3. A wallet or independently operated keeper must still submit and fund the transaction. |
 
 ## Test coverage
 
@@ -80,10 +72,6 @@ The local test suite verifies four scenarios covering:
 - native ETH escrow and protected 30-minute ETH/USD estimate
 - zero v4 or v3 swap calls during the final ETH claim
 - shared creator profile registry behavior
-- outsider-triggered ETH/USDG fee collection with immutable creator and developer recipients
-- outsider-triggered USDG conversion rejecting 94% and accepting 99% of the protected oracle value
-- outsider-triggered developer claim paying the immutable developer wallet exactly
-- no token-pool swap during fee collection, native revenue matching, or the final developer claim
 
 ## Deployment gates
 
