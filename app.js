@@ -2,7 +2,7 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260804-circular-logo-ui-1";
+const RELEASE_VERSION = "20260805-creator-dashboard-perf-1";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
@@ -132,6 +132,11 @@ const state = {
   profileAvatarMimeType: 0,
   profileAvatarObjectUrl: null,
   profileVersion: 0n,
+  profileLoadAccount: null,
+  profileLoadPromise: null,
+  profileLoadedAt: 0,
+  profileRegistryValidationAddress: null,
+  profileRegistryValidationPromise: null,
   profileSaveInFlight: false,
   profileRegistryDeploymentInFlight: false,
   walletProvider: null,
@@ -154,6 +159,33 @@ const discoveredWalletProviders = new Map();
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const approvedImageHashes = new Set();
+const LOG_QUERY_CONCURRENCY = 6;
+let activeLogQueries = 0;
+const pendingLogQueries = [];
+
+async function withLogQuerySlot(task) {
+  if (activeLogQueries >= LOG_QUERY_CONCURRENCY) await new Promise((resolve) => pendingLogQueries.push(resolve));
+  activeLogQueries += 1;
+  try {
+    return await task();
+  } finally {
+    activeLogQueries -= 1;
+    pendingLogQueries.shift()?.();
+  }
+}
+
+async function queryFilterWithRetry(contract, filter, fromBlock, toBlock, attempts = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await withLogQuerySlot(() => contract.queryFilter(filter, fromBlock, toBlock));
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
 
 window.addEventListener?.("eip6963:announceProvider", (event) => {
   const detail = event?.detail;
@@ -615,17 +647,31 @@ function renderProfileRegistryStatus() {
 
 async function validateProfileRegistryDeployment(provider, address) {
   if (!isAddress(address)) throw new Error("Invalid profile registry address.");
-  const network = await provider.getNetwork();
-  if (network.chainId !== 4663n) throw new Error("Profile registry must be deployed on Robinhood Chain.");
-  const code = await provider.getCode(address);
-  if (code === "0x") throw new Error("No profile registry bytecode exists at that address.");
-  if (!PROFILE_REGISTRY_DEPLOYMENT.deployedBytecode || code.toLowerCase() !== PROFILE_REGISTRY_DEPLOYMENT.deployedBytecode.toLowerCase()) {
-    throw new Error("Profile registry bytecode does not match this reviewed build.");
+  const normalizedAddress = address.toLowerCase();
+  if (state.profileRegistryValidationAddress !== normalizedAddress || !state.profileRegistryValidationPromise) {
+    state.profileRegistryValidationAddress = normalizedAddress;
+    state.profileRegistryValidationPromise = (async () => {
+      const network = await provider.getNetwork();
+      if (network.chainId !== 4663n) throw new Error("Profile registry must be deployed on Robinhood Chain.");
+      const code = await provider.getCode(address);
+      if (code === "0x") throw new Error("No profile registry bytecode exists at that address.");
+      if (!PROFILE_REGISTRY_DEPLOYMENT.deployedBytecode || code.toLowerCase() !== PROFILE_REGISTRY_DEPLOYMENT.deployedBytecode.toLowerCase()) {
+        throw new Error("Profile registry bytecode does not match this reviewed build.");
+      }
+      const registry = new window.ethers.Contract(address, PROFILE_REGISTRY_ABI, provider);
+      const [version, maxAvatarBytes] = await Promise.all([registry.CODE_VERSION(), registry.MAX_AVATAR_BYTES()]);
+      if (version !== 1n || maxAvatarBytes !== BigInt(PROFILE_AVATAR_MAX_BYTES)) throw new Error("Profile registry limits do not match this interface.");
+      return true;
+    })().catch((error) => {
+      if (state.profileRegistryValidationAddress === normalizedAddress) {
+        state.profileRegistryValidationAddress = null;
+        state.profileRegistryValidationPromise = null;
+      }
+      throw error;
+    });
   }
-  const registry = new window.ethers.Contract(address, PROFILE_REGISTRY_ABI, provider);
-  const [version, maxAvatarBytes] = await Promise.all([registry.CODE_VERSION(), registry.MAX_AVATAR_BYTES()]);
-  if (version !== 1n || maxAvatarBytes !== BigInt(PROFILE_AVATAR_MAX_BYTES)) throw new Error("Profile registry limits do not match this interface.");
-  return registry;
+  await state.profileRegistryValidationPromise;
+  return new window.ethers.Contract(address, PROFILE_REGISTRY_ABI, provider);
 }
 
 function normalizeImmutableSlots(bytecode, immutableReferences) {
@@ -1467,19 +1513,58 @@ function applyProfileToEditor(profile, source) {
   renderProfileAvatar();
 }
 
-async function queryProfileAvatarEvent(registry, provider, creator, version) {
+async function blockAtOrBeforeTimestamp(provider, targetTimestamp, firstBlock, latestBlock) {
+  let low = firstBlock;
+  let high = latestBlock;
+  let candidate = firstBlock;
+  for (let attempt = 0; attempt < 24 && low <= high; attempt += 1) {
+    const middle = Math.floor((low + high) / 2);
+    const block = await provider.getBlock(middle);
+    if (!block) break;
+    if (Number(block.timestamp) <= targetTimestamp) {
+      candidate = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return candidate;
+}
+
+async function queryProfileAvatarEvent(registry, provider, creator, version, updatedAt = 0) {
   if (!version) return null;
   const latestBlock = await provider.getBlockNumber();
   const firstBlock = configuredProfileRegistryBlock();
   if (!firstBlock || firstBlock > latestBlock) throw new Error("Profile registry deployment block is unavailable.");
   const filter = registry.filters.ProfileUpdated(creator, version);
-  const logs = [];
-  const chunkSize = 50_000;
-  for (let fromBlock = firstBlock; fromBlock <= latestBlock; fromBlock += chunkSize) {
-    const toBlock = Math.min(latestBlock, fromBlock + chunkSize - 1);
-    logs.push(...await registry.queryFilter(filter, fromBlock, toBlock));
+  if (updatedAt > 0) {
+    try {
+      const nearbyBlock = await blockAtOrBeforeTimestamp(provider, updatedAt, firstBlock, latestBlock);
+      const nearbyLogs = await queryFilterWithRetry(
+        registry,
+        filter,
+        Math.max(firstBlock, nearbyBlock - 2_000),
+        Math.min(latestBlock, nearbyBlock + 2_000),
+      );
+      if (nearbyLogs.length) return nearbyLogs.at(-1);
+    } catch {
+      // Fall back to a bounded reverse scan when timestamp lookup is unavailable.
+    }
   }
-  return logs.at(-1) || null;
+  const chunkSize = 50_000;
+  for (let toBlock = latestBlock; toBlock >= firstBlock; toBlock -= chunkSize * 3) {
+    const floor = Math.max(firstBlock, toBlock - chunkSize * 3 + 1);
+    const ranges = [];
+    for (let fromBlock = floor; fromBlock <= toBlock; fromBlock += chunkSize) {
+      ranges.push([fromBlock, Math.min(toBlock, fromBlock + chunkSize - 1)]);
+    }
+    const results = await Promise.allSettled(ranges.map(([fromBlock, endBlock]) => queryFilterWithRetry(registry, filter, fromBlock, endBlock)));
+    const logs = results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value)
+      .sort((left, right) => Number(right.blockNumber) - Number(left.blockNumber));
+    if (logs.length) return logs[0];
+    if (!results.some((result) => result.status === "fulfilled")) throw results[0].reason;
+  }
+  return null;
 }
 
 async function readOnchainCreatorProfile(address) {
@@ -1490,20 +1575,27 @@ async function readOnchainCreatorProfile(address) {
   const profile = await registry.profiles(address);
   const version = BigInt(profile.version);
   if (!version) return null;
-  const event = await queryProfileAvatarEvent(registry, provider, address, version);
-  const avatarBytes = event ? window.ethers.getBytes(event.args.avatar) : new Uint8Array();
-  if (window.ethers.keccak256(avatarBytes) !== profile.avatarHash) throw new Error("Onchain avatar data does not match the registry hash.");
-  return {
+  const avatarMimeType = Number(profile.avatarMimeType);
+  const baseProfile = {
     name: profile.name,
     bio: profile.bio,
     version,
     updatedAt: Number(profile.updatedAt),
-    avatarMimeType: Number(profile.avatarMimeType),
-    avatarBytes,
+    avatarMimeType: 0,
+    avatarBytes: new Uint8Array(),
   };
+  if (!avatarMimeType) return baseProfile;
+  try {
+    const event = await queryProfileAvatarEvent(registry, provider, address, version, Number(profile.updatedAt));
+    const avatarBytes = event ? window.ethers.getBytes(event.args.avatar) : new Uint8Array();
+    if (window.ethers.keccak256(avatarBytes) !== profile.avatarHash) throw new Error("Onchain avatar data does not match the registry hash.");
+    return { ...baseProfile, avatarMimeType, avatarBytes };
+  } catch {
+    return baseProfile;
+  }
 }
 
-async function loadCreatorProfile() {
+async function loadCreatorProfileNow() {
   if (!state.account) return;
   const requestedAccount = state.account;
   const local = readLocalCreatorProfile(requestedAccount);
@@ -1545,6 +1637,24 @@ async function loadCreatorProfile() {
   }
 }
 
+async function loadCreatorProfile({ force = false } = {}) {
+  if (!state.account) return;
+  const requestedAccount = state.account;
+  if (!force && state.profileLoadPromise && sameAddress(state.profileLoadAccount, requestedAccount)) {
+    return state.profileLoadPromise;
+  }
+  if (!force && sameAddress(state.profileLoadAccount, requestedAccount) && Date.now() - state.profileLoadedAt < 60_000) return;
+  state.profileLoadAccount = requestedAccount;
+  const request = loadCreatorProfileNow();
+  state.profileLoadPromise = request;
+  try {
+    await request;
+    if (sameAddress(state.account, requestedAccount)) state.profileLoadedAt = Date.now();
+  } finally {
+    if (state.profileLoadPromise === request) state.profileLoadPromise = null;
+  }
+}
+
 function setRevenueMessage(message) {
   const list = $("#revenueList");
   list.textContent = "";
@@ -1566,6 +1676,9 @@ function renderDashboardAccess() {
     state.profileAvatarBytes = null;
     state.profileAvatarMimeType = 0;
     state.profileVersion = 0n;
+    state.profileLoadAccount = null;
+    state.profileLoadPromise = null;
+    state.profileLoadedAt = 0;
     $("#creatorTokenCount").textContent = "0 launches";
     setRevenueMessage("Connect your wallet to load creator revenue.");
     return;
@@ -1668,7 +1781,6 @@ async function claimDeveloperRevenue() {
       claimed += entry.pending;
     }
     toast(`Claimed ${feeLabel(claimed, "ETH")} to the developer wallet.`);
-    await loadDeveloperRevenue(provider);
   } catch (error) {
     toast(readableWalletError(error).replace(/^Launch reverted:/, "Claim reverted:"));
   } finally {
@@ -1886,7 +1998,7 @@ async function saveCreatorProfile(event) {
     $("#profileStatus").textContent = `Profile transaction submitted · ${transaction.hash.slice(0, 10)}…`;
     await transaction.wait();
     toast("Creator profile published onchain.");
-    await loadCreatorProfile();
+    await loadCreatorProfile({ force: true });
   } catch (error) {
     $("#profileStatus").textContent = readableWalletError(error).replace(/^Launch reverted:/, "Profile update reverted:");
     toast($("#profileStatus").textContent);
@@ -1931,15 +2043,23 @@ async function deployProfileRegistry() {
   }
 }
 
-async function queryCreatorLaunchLogs(contract, provider, creator, deploymentBlock = 0) {
-  const latestBlock = await provider.getBlockNumber();
+async function queryCreatorLaunchLogs(contract, provider, creator, deploymentBlock = 0, latestBlock = null) {
+  const chainHead = latestBlock ?? await provider.getBlockNumber();
   const firstBlock = Number(deploymentBlock || 0);
   const filter = contract.filters.TokenLaunched(null, creator, null);
   const logs = [];
   const chunkSize = 50_000;
-  for (let fromBlock = firstBlock; fromBlock <= latestBlock; fromBlock += chunkSize) {
-    const toBlock = Math.min(latestBlock, fromBlock + chunkSize - 1);
-    logs.push(...await contract.queryFilter(filter, fromBlock, toBlock));
+  const ranges = [];
+  for (let fromBlock = firstBlock; fromBlock <= chainHead; fromBlock += chunkSize) {
+    ranges.push([fromBlock, Math.min(chainHead, fromBlock + chunkSize - 1)]);
+  }
+  for (let index = 0; index < ranges.length; index += 3) {
+    const results = await Promise.allSettled(
+      ranges.slice(index, index + 3).map(([fromBlock, toBlock]) => queryFilterWithRetry(contract, filter, fromBlock, toBlock)),
+    );
+    const completed = results.filter((result) => result.status === "fulfilled");
+    completed.forEach((result) => logs.push(...result.value));
+    if (!completed.length) throw results[0].reason;
   }
   return logs;
 }
@@ -2722,12 +2842,15 @@ async function loadCreatorDashboard({ silent = false } = {}) {
     const provider = new window.ethers.BrowserProvider(currentWalletProvider());
     const network = await provider.getNetwork();
     if (network.chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain to load creator revenue.");
-    const developerRevenuePromise = loadDeveloperRevenue(provider);
-    const launchGroups = await Promise.all(sources.map(async (source) => {
+    const latestBlock = await provider.getBlockNumber();
+    const developerRevenuePromise = loadDeveloperRevenue(provider).catch(() => {});
+    const launchResults = await Promise.allSettled(sources.map(async (source) => {
       const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), provider);
-      const logs = await queryCreatorLaunchLogs(factory, provider, requestedAccount, source.deploymentBlock);
+      const logs = await queryCreatorLaunchLogs(factory, provider, requestedAccount, source.deploymentBlock, latestBlock);
       return Promise.all(logs.map((log) => readCreatorLaunch(log, provider, factory, source)));
     }));
+    const launchGroups = launchResults.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    if (!launchGroups.length) throw launchResults[0]?.reason || new Error("Creator launch history is unavailable.");
     const launches = launchGroups.flat();
     if (requestId !== state.dashboardRequestId || !sameAddress(state.account, requestedAccount)) return;
     state.creatorLaunches = launches.sort((left, right) => right.blockNumber - left.blockNumber);
