@@ -13,6 +13,7 @@ const TOKEN_SUPPLY = 1_000_000_000n;
 const SWAP_SCAN_BLOCKS = 750_000;
 const MAX_TRADES = 30;
 const CHUNK_SIZE = 50_000;
+const LOG_QUERY_CONCURRENCY = 6;
 const LEGACY_V4_FACTORY_ABI = Object.freeze([
   "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
 ]);
@@ -31,6 +32,32 @@ const KNOWN_IMAGES = Object.freeze({
 
 const $ = (selector) => document.querySelector(selector);
 const state = { avatarUrl: null };
+let activeLogQueries = 0;
+const pendingLogQueries = [];
+
+async function withLogQuerySlot(task) {
+  if (activeLogQueries >= LOG_QUERY_CONCURRENCY) await new Promise((resolve) => pendingLogQueries.push(resolve));
+  activeLogQueries += 1;
+  try {
+    return await task();
+  } finally {
+    activeLogQueries -= 1;
+    pendingLogQueries.shift()?.();
+  }
+}
+
+async function queryFilterWithRetry(contract, filter, fromBlock, toBlock, attempts = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await withLogQuerySlot(() => contract.queryFilter(filter, fromBlock, toBlock));
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
 
 function isAddress(value) {
   return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value);
@@ -82,7 +109,7 @@ async function queryLogsInBatches(contract, filter, firstBlock, latestBlock) {
   const logs = [];
   for (let index = 0; index < ranges.length; index += 3) {
     const batches = await Promise.allSettled(
-      ranges.slice(index, index + 3).map(([from, to]) => contract.queryFilter(filter, from, to)),
+      ranges.slice(index, index + 3).map(([from, to]) => queryFilterWithRetry(contract, filter, from, to)),
     );
     const completed = batches.filter((batch) => batch.status === "fulfilled");
     completed.forEach((batch) => logs.push(...batch.value));
@@ -179,39 +206,80 @@ async function imageAllowed(blob) {
   }
 }
 
-async function queryLatestProfileEvent(registry, creator, version, provider, latestBlock) {
+async function blockAtOrBeforeTimestamp(provider, targetTimestamp, firstBlock, latestBlock) {
+  let low = firstBlock;
+  let high = latestBlock;
+  let candidate = firstBlock;
+  for (let attempt = 0; attempt < 24 && low <= high; attempt += 1) {
+    const middle = Math.floor((low + high) / 2);
+    const block = await provider.getBlock(middle);
+    if (!block) break;
+    if (Number(block.timestamp) <= targetTimestamp) {
+      candidate = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return candidate;
+}
+
+async function queryLatestProfileEvent(registry, creator, version, updatedAt, provider, latestBlock) {
   const firstBlock = Number(PROFILE_REGISTRY_CONFIG.deploymentBlock || 0);
   const filter = registry.filters.ProfileUpdated(creator, version);
+  if (updatedAt > 0) {
+    try {
+      const nearbyBlock = await blockAtOrBeforeTimestamp(provider, updatedAt, firstBlock, latestBlock);
+      const nearbyLogs = await queryFilterWithRetry(
+        registry,
+        filter,
+        Math.max(firstBlock, nearbyBlock - 2_000),
+        Math.min(latestBlock, nearbyBlock + 2_000),
+      );
+      if (nearbyLogs.length) return nearbyLogs.at(-1);
+    } catch {
+      // Fall through to the reverse scan when timestamp lookup is unavailable.
+    }
+  }
   for (let to = latestBlock; to >= firstBlock; to -= CHUNK_SIZE * 3) {
     const floor = Math.max(firstBlock, to - CHUNK_SIZE * 3 + 1);
     const ranges = [];
     for (let from = floor; from <= to; from += CHUNK_SIZE) ranges.push([from, Math.min(to, from + CHUNK_SIZE - 1)]);
-    const batches = await Promise.all(ranges.map(([from, end]) => registry.queryFilter(filter, from, end)));
-    const logs = batches.flat().sort((left, right) => Number(right.blockNumber) - Number(left.blockNumber));
+    const batches = await Promise.allSettled(ranges.map(([from, end]) => queryFilterWithRetry(registry, filter, from, end)));
+    const logs = batches.filter((batch) => batch.status === "fulfilled").flatMap((batch) => batch.value)
+      .sort((left, right) => Number(right.blockNumber) - Number(left.blockNumber));
     if (logs.length) return logs[0];
+    if (!batches.some((batch) => batch.status === "fulfilled")) throw batches[0].reason;
   }
   return null;
 }
 
-async function loadProfile(creator, provider, latestBlock) {
+async function loadProfile(creator, provider, latestBlock, onProfile = null) {
   if (!isAddress(PROFILE_REGISTRY_CONFIG.address) || !PROFILE_REGISTRY_ABI.length) return { name: "Launch creator", bio: "This wallet creates tokens on RWI Launch.", avatar: null, source: "Creator wallet recorded onchain" };
   try {
     const registry = new window.ethers.Contract(PROFILE_REGISTRY_CONFIG.address, PROFILE_REGISTRY_ABI, provider);
     const profile = await registry.profiles(creator);
     const version = BigInt(profile.version);
     if (!version) return { name: "Launch creator", bio: "This wallet creates tokens on RWI Launch.", avatar: null, source: "Creator wallet recorded onchain" };
-    const event = await queryLatestProfileEvent(registry, creator, version, provider, latestBlock);
-    const avatarBytes = event ? window.ethers.getBytes(event.args.avatar) : new Uint8Array();
-    let avatar = null;
-    const mime = profileMimeType(profile.avatarMimeType);
-    if (avatarBytes.length && mime && window.ethers.keccak256(avatarBytes) === profile.avatarHash) {
-      const blob = new Blob([avatarBytes], { type: mime });
-      if (await imageAllowed(blob)) {
-        state.avatarUrl = URL.createObjectURL(blob);
-        avatar = state.avatarUrl;
+    const baseProfile = { name: profile.name || "Launch creator", bio: profile.bio || "This wallet creates tokens on RWI Launch.", avatar: null, source: `Onchain profile v${version}` };
+    onProfile?.(baseProfile);
+    if (!Number(profile.avatarMimeType)) return baseProfile;
+    try {
+      const event = await queryLatestProfileEvent(registry, creator, version, Number(profile.updatedAt), provider, latestBlock);
+      const avatarBytes = event ? window.ethers.getBytes(event.args.avatar) : new Uint8Array();
+      let avatar = null;
+      const mime = profileMimeType(profile.avatarMimeType);
+      if (avatarBytes.length && mime && window.ethers.keccak256(avatarBytes) === profile.avatarHash) {
+        const blob = new Blob([avatarBytes], { type: mime });
+        if (await imageAllowed(blob)) {
+          state.avatarUrl = URL.createObjectURL(blob);
+          avatar = state.avatarUrl;
+        }
       }
+      return { ...baseProfile, avatar };
+    } catch {
+      return baseProfile;
     }
-    return { name: profile.name || "Launch creator", bio: profile.bio || "This wallet creates tokens on RWI Launch.", avatar, source: `Onchain profile v${version}` };
   } catch {
     return { name: "Launch creator", bio: "This wallet creates tokens on RWI Launch.", avatar: null, source: "Creator wallet recorded onchain" };
   }
@@ -225,9 +293,17 @@ async function queryRecentSwapLogs(launch, provider, latestBlock) {
   const contract = new window.ethers.Contract(address, launch.poolId ? V4_SWAP_ABI : V3_SWAP_ABI, provider);
   const filter = launch.poolId ? contract.filters.Swap(launch.poolId) : contract.filters.Swap();
   const logs = [];
-  for (let to = latestBlock; to >= firstBlock && logs.length < 12; to -= CHUNK_SIZE) {
-    const from = Math.max(firstBlock, to - CHUNK_SIZE + 1);
-    logs.push(...await contract.queryFilter(filter, from, to));
+  const ranges = [];
+  for (let to = latestBlock; to >= firstBlock; to -= CHUNK_SIZE) {
+    ranges.push([Math.max(firstBlock, to - CHUNK_SIZE + 1), to]);
+  }
+  for (let index = 0; index < ranges.length && logs.length < 12; index += 3) {
+    const batches = await Promise.allSettled(
+      ranges.slice(index, index + 3).map(([from, to]) => queryFilterWithRetry(contract, filter, from, to)),
+    );
+    const completed = batches.filter((batch) => batch.status === "fulfilled");
+    completed.forEach((batch) => logs.push(...batch.value));
+    if (!completed.length) throw batches[0].reason;
   }
   return logs.map((log) => {
     const args = log.args || contract.interface.parseLog(log)?.args;
@@ -333,7 +409,7 @@ function renderTrades(trades) {
   list.textContent = "";
   $("#creatorTradeCount").textContent = String(trades.length);
   if (!trades.length) {
-    list.innerHTML = '<div class="creator-panel-empty">No recent swaps were found in this creator’s token/RWI markets.</div>';
+    list.innerHTML = '<div class="creator-panel-empty">No recent swaps were found in this creator’s token markets.</div>';
     return;
   }
   trades.forEach((trade) => {
@@ -377,7 +453,10 @@ async function loadCreatorPage() {
     renderProfile(normalizedCreator, profile, launches);
     const provider = new window.ethers.JsonRpcProvider(RPC_URL, 4663, { staticNetwork: true });
     const latestBlock = await provider.getBlockNumber();
-    const profilePromise = loadProfile(creator, provider, latestBlock).then((loadedProfile) => {
+    const profilePromise = loadProfile(creator, provider, latestBlock, (baseProfile) => {
+      profile = baseProfile;
+      renderProfile(normalizedCreator, profile, launches);
+    }).then((loadedProfile) => {
       profile = loadedProfile;
       renderProfile(normalizedCreator, profile, launches);
       return profile;
