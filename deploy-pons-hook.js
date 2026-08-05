@@ -98,12 +98,12 @@ async function validateDeployment(provider, address) {
 
   const hook = new window.ethers.Contract(address, PONS_ABI, provider);
   const [developer, pons, weth, usdg, manager, stateView, swapRouter, ponsWethPool, wethUsdgPool,
-    activeBps, stagedBps, stagedCount, allocation, locked, creatorShare, developerShare, ethUsd, ponsUsd] = await Promise.all([
+    activeBps, stagedBps, stagedCount, allocation, locked, creatorShare, developerShare, ethUsd] = await Promise.all([
     hook.developerWallet(), hook.PONS(), hook.WETH(), hook.USDG(), hook.UNISWAP_V4_POOL_MANAGER(),
     hook.UNISWAP_V4_STATE_VIEW(), hook.SWAP_ROUTER_02(), hook.PONS_WETH_ORACLE_POOL(), hook.WETH_USDG_ORACLE_POOL(),
     hook.INITIAL_ACTIVE_TOKEN_BPS(), hook.STAGED_TOKEN_BPS(), hook.STAGED_POSITION_COUNT(), hook.POOL_ALLOCATION_BPS(),
     hook.LIQUIDITY_PERMANENTLY_LOCKED(), hook.CREATOR_LP_FEE_SHARE_BPS(), hook.DEVELOPER_LP_FEE_SHARE_BPS(),
-    hook.ethUsdPriceE18(), hook.rwiUsdPriceE18(),
+    hook.ethUsdPriceE18(),
   ]);
   const expectedAddresses = [
     [developer, DEVELOPER_WALLET, "developer wallet"], [pons, PONS_ADDRESS, "PONS"],
@@ -122,7 +122,7 @@ async function validateDeployment(provider, address) {
     throw new Error("The progressive-liquidity or permanent-lock rules do not match.");
   }
   if (creatorShare !== 9_000n || developerShare !== 1_000n) throw new Error("The 90/10 ETH revenue split does not match.");
-  if (ethUsd === 0n || ponsUsd === 0n) throw new Error("Protected launch pricing is unavailable.");
+  if (ethUsd === 0n) throw new Error("Protected ETH/USD launch pricing is unavailable.");
   return { runtimeCodeHash: window.ethers.keccak256(code), runtimeBytes };
 }
 

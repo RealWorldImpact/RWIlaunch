@@ -1,4 +1,5 @@
 const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
+const PONS_ADDRESS = "0x39dBED3a2bd333467115dE45665cC57F813C4571";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
@@ -17,6 +18,9 @@ const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
 const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({});
 const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || Object.freeze([]);
 const QUOTE_FACTORY_DEPLOYMENT = window.RWI_QUOTE_FACTORY_DEPLOYMENT || Object.freeze({});
+const PONS_FACTORY_CONFIG = window.RWI_PONS_FACTORY_CONFIG || Object.freeze({});
+const PONS_FACTORY_ABI = window.RWI_PONS_FACTORY_ABI || Object.freeze([]);
+const PONS_FACTORY_DEPLOYMENT = window.RWI_PONS_FACTORY_DEPLOYMENT || Object.freeze({});
 const DEVELOPER_WALLET = "0x9CD7C9196A4C1836A3DF089cb210272e07e6A5e5";
 let FACTORY_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || Object.freeze({});
 let factoryDeploymentBundlePromise = null;
@@ -24,6 +28,7 @@ let ethersLibraryPromise = null;
 const HOOK_DEPLOYER_DEPLOYMENT = window.RWI_HOOK_DEPLOYER_DEPLOYMENT || Object.freeze({});
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
 const MULTI_QUOTE_FEE_MODE = "internal-match-eth-90-10";
+const PONS_FEE_MODE = "internal-match-eth-90-10-pons";
 const LEGACY_V4_FACTORY_ABI = Object.freeze([
   "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
   "event FeesClaimedInEth(uint256 indexed positionTokenId,address indexed creator,uint256 tokenFees,uint256 rwiFees,uint256 rwiFromToken,uint256 ethAmount)",
@@ -216,8 +221,16 @@ function quoteFactoryAddress() {
   return isAddress(QUOTE_FACTORY_CONFIG.factoryAddress) ? QUOTE_FACTORY_CONFIG.factoryAddress : null;
 }
 
+function ponsFactoryAddress() {
+  return isAddress(PONS_FACTORY_CONFIG.factoryAddress) ? PONS_FACTORY_CONFIG.factoryAddress : null;
+}
+
 function isMultiQuoteMode(sourceOrMode) {
   return (typeof sourceOrMode === "string" ? sourceOrMode : sourceOrMode?.feeMode) === MULTI_QUOTE_FEE_MODE;
+}
+
+function isPonsMode(sourceOrMode) {
+  return (typeof sourceOrMode === "string" ? sourceOrMode : sourceOrMode?.feeMode) === PONS_FEE_MODE;
 }
 
 function cleanTicker(value) {
@@ -386,7 +399,18 @@ function updatePreview() {
   const pairSymbol = $(".pair-token .rwi-symbol > span");
   if (pairSymbol) pairSymbol.textContent = quote;
   const pairLinks = $(".pair-links");
-  if (pairLinks) pairLinks.hidden = quote !== "RWI";
+  const quoteAddresses = {
+    RWI: RWI_ADDRESS,
+    USDG: QUOTE_FACTORY_CONFIG.usdgAddress,
+    PONS: PONS_ADDRESS,
+  };
+  const quoteAddress = quoteAddresses[quote];
+  if (pairLinks) pairLinks.hidden = !isAddress(quoteAddress);
+  const pairQuoteLink = $("#pairQuoteLink");
+  if (pairQuoteLink && isAddress(quoteAddress)) {
+    pairQuoteLink.href = `https://robinhoodchain.blockscout.com/token/${quoteAddress}`;
+    pairQuoteLink.textContent = `$${quote} ${quoteAddress.slice(0, 6)}…${quoteAddress.slice(-4)} ↗`;
+  }
   const footnote = $(".preview-footnote");
   if (footnote) footnote.textContent = `$10K protected-TWAP target · TOKEN / ${quote} · creator revenue paid in ETH · no graduation`;
   $("#descriptionCount").textContent = `${fields.description.value.length} / ${TOKEN_DESCRIPTION_MAX_LENGTH}`;
@@ -460,6 +484,12 @@ async function updateDevBuyEstimate() {
     } catch {
       if (requestId === updateDevBuyEstimate.requestId) estimate.textContent = "The ETH amount will be calculated again immediately before launch.";
     }
+    return;
+  }
+  if (selectedQuote === "PONS") {
+    estimate.textContent = ponsFactoryAddress()
+      ? `${formatUnits(usdAmount, 18, 2)} USD of PONS will buy through the new locked pool.`
+      : "The PONS launch hook must be deployed and configured before this pair can launch.";
     return;
   }
   estimate.textContent = "Estimating the RWI purchase amount…";
@@ -547,6 +577,19 @@ function configuredFactoryDeploymentBlock() {
 
 function configuredFactorySources() {
   const sources = [];
+  const ponsAddress = ponsFactoryAddress();
+  if (ponsAddress) sources.push({
+    address: ponsAddress,
+    deploymentBlock: Number(PONS_FACTORY_CONFIG.deploymentBlock || 0),
+    current: true,
+    protocol: "Uniswap v4",
+    feeMode: PONS_FEE_MODE,
+    runtimeCodeHash: PONS_FACTORY_CONFIG.runtimeCodeHash || null,
+  });
+  for (const entry of PONS_FACTORY_CONFIG.legacyFactories || []) {
+    if (!isAddress(entry?.address) || sources.some((source) => sameAddress(source.address, entry.address))) continue;
+    sources.push({ ...entry, deploymentBlock: Number(entry.deploymentBlock || 0), current: false, protocol: "Uniswap v4", feeMode: PONS_FEE_MODE });
+  }
   const quoteAddress = quoteFactoryAddress();
   if (quoteAddress) sources.push({
     address: quoteAddress,
@@ -597,6 +640,7 @@ function configuredFactorySources() {
 
 function factoryAbiForSource(source) {
   if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  if (isPonsMode(source)) return PONS_FACTORY_ABI;
   if (isMultiQuoteMode(source)) return QUOTE_FACTORY_ABI;
   return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
 }
@@ -692,32 +736,33 @@ function normalizeImmutableSlots(bytecode, immutableReferences) {
 function renderIntegrationStatus() {
   const status = $("#factoryIntegrationStatus");
   const quoteSymbol = selectedQuoteAsset();
-  const multiQuote = quoteSymbol !== "RWI";
-  const config = multiQuote ? QUOTE_FACTORY_CONFIG : FACTORY_CONFIG;
-  const factoryAddress = multiQuote ? quoteFactoryAddress() : configuredFactoryAddress();
+  const ponsMode = quoteSymbol === "PONS";
+  const multiQuote = quoteSymbol === "ETH" || quoteSymbol === "USDG";
+  const config = ponsMode ? PONS_FACTORY_CONFIG : multiQuote ? QUOTE_FACTORY_CONFIG : FACTORY_CONFIG;
+  const factoryAddress = ponsMode ? ponsFactoryAddress() : multiQuote ? quoteFactoryAddress() : configuredFactoryAddress();
   if (!factoryAddress) {
     status.textContent = !multiQuote && FACTORY_CONFIG.allowBrowserDeployment
       ? "Launch factory compiled · ready for wallet deployment"
-      : `${multiQuote ? "ETH/USDG" : "RWI"} v4 hook pending deployment · internal review only`;
+      : `${ponsMode ? "PONS" : multiQuote ? "ETH/USDG" : "RWI"} v4 hook pending deployment · internal review only`;
     status.classList.remove("is-live");
     status.parentElement?.classList.remove("is-live");
-    $("#deployFactoryButton").hidden = multiQuote || !FACTORY_CONFIG.allowBrowserDeployment;
+    $("#deployFactoryButton").hidden = ponsMode || multiQuote || !FACTORY_CONFIG.allowBrowserDeployment;
     return;
   }
   const localReplacement = !multiQuote && usingLocalReplacementFactory();
-  const paused = multiQuote ? Boolean(config.launchesPaused) : effectiveLaunchesPaused();
+  const paused = ponsMode || multiQuote ? Boolean(config.launchesPaused) : effectiveLaunchesPaused();
   const stateLabel = localReplacement
     ? "Locally validated replacement hook active"
     : config.sourceVerified
     ? (config.independentAuditComplete ? "Source-verified audited factory live" : "Source-verified unaudited factory live")
     : "Launch factory active locally";
-  const marketLabel = multiQuote ? "ETH/USDG" : "RWI";
+  const marketLabel = ponsMode ? "PONS" : multiQuote ? "ETH/USDG" : "RWI";
   status.textContent = paused
     ? `New ${marketLabel} launches paused · existing markets remain available · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`
     : `${stateLabel} · ${marketLabel} · ${factoryAddress.slice(0, 6)}…${factoryAddress.slice(-4)}`;
   status.classList.toggle("is-live", !paused);
   status.parentElement?.classList.toggle("is-live", !paused);
-  const canDeployReplacement = Boolean(!multiQuote && FACTORY_CONFIG.allowBrowserDeployment && FACTORY_CONFIG.launchesPaused && !localReplacement);
+  const canDeployReplacement = Boolean(!ponsMode && !multiQuote && FACTORY_CONFIG.allowBrowserDeployment && FACTORY_CONFIG.launchesPaused && !localReplacement);
   $("#deployFactoryButton").hidden = !canDeployReplacement;
   if (canDeployReplacement) $("#deployFactoryButton").textContent = "Deploy corrected v4 hook →";
 }
@@ -1192,7 +1237,7 @@ function restoreDraft() {
     fields.website.value = draft.website || "";
     fields.twitter.value = draft.twitter || "";
     fields.telegram.value = draft.telegram || "";
-    const restoredQuote = ["RWI", "ETH", "USDG"].includes(draft.quoteAsset) ? draft.quoteAsset : "RWI";
+    const restoredQuote = ["RWI", "ETH", "USDG", "PONS"].includes(draft.quoteAsset) ? draft.quoteAsset : "RWI";
     const quoteInput = document.querySelector(`input[name="quoteAsset"][value="${restoredQuote}"]`);
     if (quoteInput) quoteInput.checked = true;
     $("#draftStatus").textContent = "Draft restored";
@@ -1748,8 +1793,8 @@ async function loadDeveloperRevenue(provider = null) {
   renderDeveloperRevenueAccess();
   if (!state.account || !sameAddress(state.account, DEVELOPER_WALLET)) return;
   const button = $("#claimDeveloperRevenue");
-  const sources = configuredFactorySources().filter((source) => isMultiQuoteMode(source));
-  if (!sources.length || !QUOTE_FACTORY_ABI.length) {
+  const sources = configuredFactorySources().filter((source) => isMultiQuoteMode(source) || isPonsMode(source));
+  if (!sources.length) {
     $("#developerEthPending").textContent = "Factory pending";
     $("#developerUsdPending").textContent = "—";
     button.textContent = "Nothing to claim";
@@ -1759,7 +1804,7 @@ async function loadDeveloperRevenue(provider = null) {
   try {
     const readProvider = provider || new window.ethers.BrowserProvider(currentWalletProvider());
     const results = await Promise.allSettled(sources.map(async (source) => {
-      const factory = new window.ethers.Contract(source.address, QUOTE_FACTORY_ABI, readProvider);
+      const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), readProvider);
       const [configuredWallet, pending] = await Promise.all([
         factory.developerWallet(), factory.claimableDeveloperEthRewards(),
       ]);
@@ -1803,7 +1848,7 @@ async function claimDeveloperRevenue() {
     const sources = configuredFactorySources().filter((source) => isMultiQuoteMode(source));
     const claimable = [];
     for (const source of sources) {
-      const factory = new window.ethers.Contract(source.address, QUOTE_FACTORY_ABI, signer);
+      const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), signer);
       const [configuredWallet, pending] = await Promise.all([
         factory.developerWallet(), factory.claimableDeveloperEthRewards(),
       ]);
@@ -2129,7 +2174,8 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
   const positionTokenId = BigInt(args.positionTokenId);
   const tokenContract = new window.ethers.Contract(token, ["function name() view returns (string)", "function symbol() view returns (string)"], provider);
   const multiQuote = isMultiQuoteMode(source);
-  const internalMatch = source.feeMode === INTERNAL_MATCH_FEE_MODE || multiQuote;
+  const ponsMode = isPonsMode(source);
+  const internalMatch = source.feeMode === INTERNAL_MATCH_FEE_MODE || multiQuote || ponsMode;
   const ethOnly = source.feeMode !== "tokens";
   const launchRecordPromise = multiQuote ? factory.launches(token) : Promise.resolve(null);
   const feePreview = internalMatch
@@ -2160,7 +2206,7 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
     launchRecordPromise,
   ]);
   const launchRecord = launchRecordResult.status === "fulfilled" ? launchRecordResult.value : null;
-  const quoteSymbol = multiQuote ? (Number(launchRecord?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+  const quoteSymbol = ponsMode ? "PONS" : multiQuote ? (Number(launchRecord?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
   let fees = {
     tokenFees: null,
     rwiFees: null,
@@ -2221,7 +2267,7 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
     internalMatch,
     multiQuote,
     quoteSymbol,
-    quoteToken: launchRecord?.quoteToken ? String(launchRecord.quoteToken) : RWI_ADDRESS,
+    quoteToken: launchRecord?.quoteToken ? String(launchRecord.quoteToken) : ponsMode ? PONS_ADDRESS : RWI_ADDRESS,
     ethOnly,
     blockNumber: Number(eventLog.blockNumber || 0),
   };
@@ -2296,8 +2342,8 @@ async function readDiscoverLaunch(eventLog, provider, factory, source) {
     launchRecordPromise,
   ]);
   const launchRecord = launchRecordResult.status === "fulfilled" ? launchRecordResult.value : null;
-  const quoteSymbol = isMultiQuoteMode(source) ? (Number(launchRecord?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
-  const quoteAddress = quoteSymbol === "RWI" ? RWI_ADDRESS : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : window.ethers.ZeroAddress;
+  const quoteSymbol = isPonsMode(source) ? "PONS" : isMultiQuoteMode(source) ? (Number(launchRecord?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+  const quoteAddress = quoteSymbol === "PONS" ? PONS_ADDRESS : quoteSymbol === "RWI" ? RWI_ADDRESS : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : window.ethers.ZeroAddress;
   const publicMetadata = publicMetadataResult.status === "fulfilled" ? publicMetadataResult.value : null;
   const localMetadata = readLocalTokenMetadata(token);
   return {
@@ -2438,6 +2484,16 @@ async function readDiscoverQuoteUsdPrice(launch, provider) {
     const oracleAddress = quoteFactoryAddress() || configuredFactoryAddress();
     const oracle = new window.ethers.Contract(oracleAddress, ["function ethUsdPriceE18() view returns (uint256)"], provider);
     return Number(window.ethers.formatUnits(await oracle.ethUsdPriceE18(), 18));
+  }
+  if (launch.quoteSymbol === "PONS") {
+    const oracleAddress = ponsFactoryAddress();
+    if (!oracleAddress) throw new Error("PONS/USD price unavailable");
+    const oracle = new window.ethers.Contract(oracleAddress, ["function ethUsdPriceE18() view returns (uint256)"], provider);
+    const [ethUsdRaw, wethPerPons] = await Promise.all([
+      oracle.ethUsdPriceE18(),
+      readDiscoverV3Quote(PONS_FACTORY_CONFIG.ponsWethOraclePool, PONS_ADDRESS, provider),
+    ]);
+    return Number(window.ethers.formatUnits(ethUsdRaw, 18)) * wethPerPons;
   }
   return readDiscoverRwiUsdPrice(provider);
 }
@@ -3196,9 +3252,58 @@ async function validateQuoteFactoryDeployment(provider, address) {
   return window.ethers.keccak256(code);
 }
 
+async function validatePonsFactoryDeployment(provider, address) {
+  const network = await provider.getNetwork();
+  if (network.chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain.");
+  const code = await provider.getCode(address);
+  if (code === "0x") throw new Error("The PONS launch factory is not deployed.");
+  const expected = normalizeImmutableSlots(PONS_FACTORY_DEPLOYMENT.deployedBytecode, PONS_FACTORY_DEPLOYMENT.immutableReferences || {});
+  const actual = normalizeImmutableSlots(code, PONS_FACTORY_DEPLOYMENT.immutableReferences || {});
+  if (!expected || actual !== expected) throw new Error("The PONS factory bytecode does not match this build.");
+  if ((BigInt(address) & 0x3fffn) !== 0x2088n) throw new Error("The PONS factory has invalid v4 hook permissions.");
+  const factory = new window.ethers.Contract(address, PONS_FACTORY_ABI, provider);
+  const [
+    developer, pons, weth, usdg, poolManager, stateView, swapRouter, ponsWethPool, wethUsdgPool,
+    immutablePons, creatorShare, developerShare, locked, targetCap, activeBps, stagedBps, stagedPositionCount,
+  ] = await Promise.all([
+    factory.developerWallet(), factory.PONS(), factory.WETH(), factory.USDG(), factory.UNISWAP_V4_POOL_MANAGER(),
+    factory.UNISWAP_V4_STATE_VIEW(), factory.SWAP_ROUTER_02(), factory.PONS_WETH_ORACLE_POOL(),
+    factory.WETH_USDG_ORACLE_POOL(), factory.rwi(), factory.CREATOR_LP_FEE_SHARE_BPS(),
+    factory.DEVELOPER_LP_FEE_SHARE_BPS(), factory.LIQUIDITY_PERMANENTLY_LOCKED(),
+    factory.TARGET_MARKET_CAP_USD_E18(), factory.INITIAL_ACTIVE_TOKEN_BPS(), factory.STAGED_TOKEN_BPS(),
+    factory.STAGED_POSITION_COUNT(),
+  ]);
+  const checks = [
+    [developer, DEVELOPER_WALLET, "developer wallet"], [pons, PONS_ADDRESS, "PONS"],
+    [weth, PONS_FACTORY_CONFIG.wethAddress, "WETH"], [usdg, PONS_FACTORY_CONFIG.usdgAddress, "USDG"],
+    [poolManager, PONS_FACTORY_CONFIG.uniswapV4PoolManager, "PoolManager"],
+    [stateView, PONS_FACTORY_CONFIG.uniswapV4StateView, "StateView"],
+    [swapRouter, PONS_FACTORY_CONFIG.swapRouter02, "SwapRouter02"],
+    [ponsWethPool, PONS_FACTORY_CONFIG.ponsWethOraclePool, "PONS/WETH oracle pool"],
+    [wethUsdgPool, PONS_FACTORY_CONFIG.wethUsdgOraclePool, "WETH/USDG oracle pool"],
+    [immutablePons, PONS_ADDRESS, "immutable PONS"],
+  ];
+  for (const [value, expectedValue, label] of checks) {
+    if (!sameAddress(value, expectedValue)) throw new Error(`PONS factory ${label} mismatch.`);
+  }
+  if (
+    creatorShare !== 9_000n || developerShare !== 1_000n || !locked || targetCap !== 10_000n * 10n ** 18n
+    || activeBps !== 2_500n || stagedBps !== 7_500n || stagedPositionCount !== 10n
+  ) throw new Error("The PONS launch or 90/10 revenue rules do not match this build.");
+  return window.ethers.keccak256(code);
+}
+
 async function validateConfiguredFeeFactory(provider, address) {
   const source = configuredFactorySource(address);
   if (!source) throw new Error("This token factory is not in the launchpad configuration.");
+  if (isPonsMode(source) && source.current) return validatePonsFactoryDeployment(provider, address);
+  if (isPonsMode(source)) {
+    const code = await provider.getCode(address);
+    if (code === "0x" || !source.runtimeCodeHash || window.ethers.keccak256(code).toLowerCase() !== String(source.runtimeCodeHash).toLowerCase()) {
+      throw new Error("Legacy PONS factory bytecode does not match its verified configuration.");
+    }
+    return source.runtimeCodeHash;
+  }
   if (isMultiQuoteMode(source) && source.current) return validateQuoteFactoryDeployment(provider, address);
   if (isMultiQuoteMode(source)) {
     const code = await provider.getCode(address);
@@ -3274,7 +3379,7 @@ function openLaunchConfirmation() {
   const quote = selectedQuoteAsset();
   $("#modalNote").textContent = quote === "RWI"
     ? "Enter an optional USD dev buy or leave it blank. If used, ETH swaps to RWI first; no existing RWI balance is required."
-    : `Enter an optional USD dev buy or leave it blank. ${quote === "ETH" ? "ETH is sent with the launch transaction" : "USDG approval is requested only when a dev buy is entered"}.`;
+    : `Enter an optional USD dev buy or leave it blank. ${quote === "ETH" ? "ETH is sent with the launch transaction" : `${quote} approval is requested only when a dev buy is entered`}.`;
   $("#modalWallet").textContent = "Launch Token";
   $("#modalWallet").dataset.action = "confirm-launch";
   $("#launchModal").hidden = false;
@@ -3546,7 +3651,167 @@ async function launchOnQuoteFactory() {
   }
 }
 
+async function launchOnPonsFactory() {
+  const factoryAddress = ponsFactoryAddress();
+  if (!factoryAddress || PONS_FACTORY_CONFIG.launchesPaused) {
+    $("#modalNote").textContent = "The immutable PONS v4 hook must be deployed, source verified, and configured before this pair can launch.";
+    toast("PONS launches are pending the new hook deployment.");
+    return;
+  }
+  try {
+    await ensureEthersLibrary();
+  } catch (error) {
+    toast(error?.message || "The wallet library did not load. Refresh and try again.");
+    return;
+  }
+  if (!window.ethers || !PONS_FACTORY_ABI.length) return toast("The PONS launch integration did not load. Refresh and try again.");
+  if (!state.account && !(await connectWallet())) return;
+  const firstFailure = validateForm();
+  if (firstFailure) {
+    closeModal();
+    showValidation(firstFailure);
+    return;
+  }
+
+  const ethers = window.ethers;
+  const button = $("#modalWallet");
+  delete button.dataset.action;
+  state.launchInFlight = true;
+  button.disabled = true;
+  try {
+    button.textContent = "Preparing PONS launch…";
+    await assertImageAllowed(state.imageFile, "token-logo");
+    await ensureRobinhoodChain();
+    const provider = new ethers.BrowserProvider(currentWalletProvider());
+    const signer = await provider.getSigner();
+    const signerAddress = await signer.getAddress();
+    state.account = signerAddress;
+    await validatePonsFactoryDeployment(provider, factoryAddress);
+    const launchFactory = new ethers.Contract(factoryAddress, PONS_FACTORY_ABI, signer);
+
+    button.textContent = "Binding public logo to launch…";
+    const launchMetadataAuthorization = await prepareLaunchMetadataAuthorization(signerAddress, factoryAddress);
+    const devBuyUsdAmount = configuredDevBuyUsdAmount();
+    let devBuyPonsAmount = 0n;
+    if (devBuyUsdAmount > 0n) {
+      button.textContent = "Reading protected PONS price…";
+      const [ethUsdRaw, wethPerPons] = await Promise.all([
+        launchFactory.ethUsdPriceE18(),
+        readDiscoverV3Quote(PONS_FACTORY_CONFIG.ponsWethOraclePool, PONS_ADDRESS, provider),
+      ]);
+      const ponsUsd = Number(ethers.formatUnits(ethUsdRaw, 18)) * wethPerPons;
+      const usdValue = Number(ethers.formatUnits(devBuyUsdAmount, 18));
+      if (!Number.isFinite(ponsUsd) || ponsUsd <= 0) throw new Error("The protected PONS price is unavailable.");
+      devBuyPonsAmount = ethers.parseUnits((usdValue / ponsUsd).toFixed(18), 18);
+      if (devBuyPonsAmount === 0n) throw new Error("The optional PONS dev buy is too small.");
+    }
+
+    let params = {
+      name: fields.name.value.trim(),
+      symbol: cleanTicker(fields.ticker.value),
+      devBuyRwiAmount: devBuyPonsAmount,
+      minimumDevBuyTokenOut: 0n,
+    };
+    button.textContent = "Checking protected launch price…";
+    const zeroBuyCalldata = launchFactory.interface.encodeFunctionData("launch", [{ ...params, devBuyRwiAmount: 0n }]);
+    await provider.call({
+      from: signerAddress,
+      to: factoryAddress,
+      data: `${zeroBuyCalldata}${launchMetadataAuthorization.commitment.slice(2)}`,
+      gasLimit: 28_000_000,
+    });
+
+    if (devBuyPonsAmount > 0n) {
+      const pons = new ethers.Contract(PONS_ADDRESS, [
+        "function balanceOf(address) view returns (uint256)",
+        "function allowance(address,address) view returns (uint256)",
+        "function approve(address,uint256) returns (bool)",
+      ], signer);
+      const [balance, allowance] = await Promise.all([pons.balanceOf(signerAddress), pons.allowance(signerAddress, factoryAddress)]);
+      if (BigInt(balance) < devBuyPonsAmount) throw new Error("This wallet does not have enough PONS for the selected dev buy. Leave it blank to launch without one.");
+      if (BigInt(allowance) < devBuyPonsAmount) {
+        button.textContent = "Approve PONS dev buy…";
+        await (await pons.approve(factoryAddress, devBuyPonsAmount)).wait();
+      }
+      button.textContent = "Simulating PONS dev buy…";
+      const quote = await launchFactory.launch.staticCall(params, { gasLimit: 28_000_000 });
+      const tokenOut = BigInt(quote.devBuyTokenAmount);
+      if (tokenOut === 0n) throw new Error("The optional PONS dev buy returned no tokens.");
+      params = { ...params, minimumDevBuyTokenOut: tokenOut * (10_000n - DEV_BUY_SLIPPAGE_BPS) / 10_000n };
+    }
+
+    button.textContent = "Confirm launch in wallet…";
+    $("#modalNote").textContent = "$10,000 opening valuation · permanently locked TOKEN / PONS pool · 90% creator ETH revenue · 10% developer ETH revenue.";
+    const calldata = launchFactory.interface.encodeFunctionData("launch", [params]);
+    const transactionRequest = { to: factoryAddress, data: `${calldata}${launchMetadataAuthorization.commitment.slice(2)}` };
+    const gasLimit = await safeLaunchGasLimit(provider, { ...transactionRequest, from: signerAddress });
+    const transaction = await signer.sendTransaction({ ...transactionRequest, gasLimit });
+    button.textContent = "Creating PONS pool…";
+    const receipt = await transaction.wait();
+    let launchEvent = null;
+    for (const log of receipt.logs) {
+      try {
+        const parsed = launchFactory.interface.parseLog(log);
+        if (parsed?.name === "TokenLaunched") launchEvent = parsed;
+      } catch {}
+    }
+    if (!launchEvent) throw new Error("The launch confirmed without a readable TokenLaunched event.");
+
+    let liquidityVerificationWarning = null;
+    try {
+      await verifyNewLaunchLiquidity(provider, launchFactory, launchEvent.args.token, launchEvent.args.poolId);
+    } catch (error) {
+      liquidityVerificationWarning = String(error?.message || "The live liquidity check could not be completed.").slice(0, 220);
+    }
+    state.lastLaunchTx = transaction.hash;
+    state.lastTokenAddress = launchEvent.args.token;
+    state.lastPoolAddress = null;
+    state.lastPoolId = launchEvent.args.poolId;
+    let publication = null;
+    let publicationWarning = null;
+    try {
+      await persistLaunchedTokenAssets(state.lastTokenAddress, state.lastPoolId);
+      button.textContent = "Publishing public logo…";
+      publication = await publishLaunchedTokenAssets(signer, state.lastTokenAddress, state.lastPoolId, {
+        factoryAddress,
+        imageFile: launchMetadataAuthorization.imageFile,
+        name: launchMetadataAuthorization.payload.name,
+        symbol: launchMetadataAuthorization.payload.symbol,
+        description: launchMetadataAuthorization.payload.description,
+        links: launchMetadataAuthorization.payload.links,
+        launchTxHash: transaction.hash,
+        metadataCommitment: launchMetadataAuthorization.commitment,
+      });
+    } catch (error) {
+      saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolId, null);
+      publicationWarning = String(error?.message || "The public logo could not be published.").slice(0, 220);
+    }
+    $("#modalTitle").textContent = "Your token is live.";
+    $("#modalDevBuy").hidden = true;
+    $("#modalCopy").textContent = publication
+      ? "The TOKEN / PONS pool and its creator-verified logo are live."
+      : `The TOKEN / PONS pool is live.${publicationWarning ? ` Logo warning: ${publicationWarning}` : ""}`;
+    $("#modalNote").textContent = `Liquidity locked forever · creator earns 90% in ETH · developer accrues 10% in ETH.${liquidityVerificationWarning ? ` Verification warning: ${liquidityVerificationWarning}` : ""}`;
+    $("#uniswapTradeButton").hidden = false;
+    toast("Token launched in a locked PONS pool.");
+    await completeSuccessfulLaunch(state.lastTokenAddress);
+  } catch (error) {
+    const message = readableWalletError(error);
+    $("#modalNote").textContent = message;
+    if (!state.lastLaunchTx) {
+      button.dataset.action = "confirm-launch";
+      button.textContent = "Launch Token";
+    }
+    toast(message);
+  } finally {
+    state.launchInFlight = false;
+    button.disabled = false;
+    renderAccount();
+  }
+}
+
 async function launchOnUniswap() {
+  if (selectedQuoteAsset() === "PONS") return launchOnPonsFactory();
   if (selectedQuoteAsset() !== "RWI") return launchOnQuoteFactory();
   const factoryAddress = configuredFactoryAddress();
   if (!factoryAddress) {
@@ -3870,17 +4135,24 @@ async function syncWallet() {
 }
 
 async function copyRwiAddress() {
+  const quote = selectedQuoteAsset();
+  const address = quote === "PONS"
+    ? PONS_ADDRESS
+    : quote === "USDG"
+      ? QUOTE_FACTORY_CONFIG.usdgAddress
+      : RWI_ADDRESS;
+  if (!isAddress(address)) return toast("The selected pair contract is unavailable.");
   try {
-    await navigator.clipboard.writeText(RWI_ADDRESS);
+    await navigator.clipboard.writeText(address);
   } catch {
     const helper = document.createElement("textarea");
-    helper.value = RWI_ADDRESS;
+    helper.value = address;
     document.body.appendChild(helper);
     helper.select();
     document.execCommand("copy");
     helper.remove();
   }
-  toast("$RWI contract address copied.");
+  toast(`$${quote} contract address copied.`);
 }
 
 function downloadFile(blob, fileName) {

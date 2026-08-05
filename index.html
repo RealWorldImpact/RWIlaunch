@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#ccfe06" />
     <meta
       name="description"
-    content="RWI Launchpad — create tokens on Robinhood Chain, paired with $RWI, $ETH, or $USDG."
+    content="RWI Launchpad — create tokens on Robinhood Chain, paired with $RWI, $ETH, $USDG, or $PONS."
     />
     <title>RWI Launchpad · Robinhood Chain</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -136,6 +136,7 @@
               <label><input type="radio" name="quoteAsset" value="RWI" checked /><span><span class="quote-asset-mark quote-asset-mark-rwi" aria-hidden="true">RWI</span><strong>$RWI</strong><small>Creator 100% · RWI-routed trading</small></span></label>
               <label><input type="radio" name="quoteAsset" value="ETH" /><span><span class="quote-asset-mark quote-asset-mark-eth" aria-hidden="true"><img src="assets/eth-logo.png" alt="" /></span><strong>$ETH</strong><small>Creator 90% · Platform 10%</small></span></label>
               <label><input type="radio" name="quoteAsset" value="USDG" /><span><span class="quote-asset-mark quote-asset-mark-usdg" aria-hidden="true"><img src="assets/usdg-logo.png" alt="" /></span><strong>$USDG</strong><small>Creator 90% · Platform 10%</small></span></label>
+              <label><input type="radio" name="quoteAsset" value="PONS" /><span><span class="quote-asset-mark quote-asset-mark-pons" aria-hidden="true">PONS</span><strong>$PONS</strong><small>Creator 90% · Platform 10%</small></span></label>
                 </fieldset>
 
                 <div class="pair-box compact-pair-box">
@@ -145,7 +146,7 @@
                   </div>
                   <div class="venue-mark"><span>Pool fee</span><strong>1%</strong></div>
                   <div class="pair-links">
-                    <a href="https://robinhoodchain.blockscout.com/token/0x2286397228be256529BE1ae9ed8D7d16549e9C6A" target="_blank" rel="noreferrer">$RWI 0x2286…9C6A ↗</a>
+                    <a id="pairQuoteLink" href="https://robinhoodchain.blockscout.com/token/0x2286397228be256529BE1ae9ed8D7d16549e9C6A" target="_blank" rel="noreferrer">$RWI 0x2286…9C6A ↗</a>
                     <button id="copyRwiAddress" type="button">Copy CA</button>
                   </div>
                 </div>
@@ -199,7 +200,7 @@
         </div>
         <div class="mechanism-grid">
           <article><span>01</span><h3>Deploy</h3><p>Name it and describe it. A standard ERC-20 with exactly 1 billion tokens and no future minting is created on Robinhood Chain.</p></article>
-          <article><span>02</span><h3>Price + pool</h3><p>Protected Uniswap TWAPs set a tick-rounded $10,000 opening valuation, then the selected TOKEN / RWI, ETH, or USDG v4 pool is seeded directly.</p></article>
+          <article><span>02</span><h3>Price + pool</h3><p>Protected Uniswap TWAPs set a tick-rounded $10,000 opening valuation, then the selected TOKEN / RWI, ETH, USDG, or PONS v4 pool is seeded directly.</p></article>
           <article><span>03</span><h3>Trade</h3><p>Trading starts from the Uniswap pool once confirmed. There is no threshold, migration, or graduation step.</p></article>
         </div>
       </section>
@@ -257,14 +258,14 @@
             </div>
             <div class="revenue-summary">
               <div><span>Fee recipient</span><strong id="feeRecipient">Connected creator</strong></div>
-          <div><span>Creator share</span><strong>100% RWI · 90% ETH/USDG</strong></div>
+          <div><span>Creator share</span><strong>100% RWI · 90% ETH/USDG/PONS</strong></div>
               <div><span>LP custody</span><strong>Locked forever</strong></div>
             </div>
             <section class="developer-revenue" id="developerRevenue" hidden aria-labelledby="developerRevenueTitle">
               <div>
                 <span>Platform revenue</span>
                 <strong id="developerRevenueTitle">Developer ETH</strong>
-              <small>10% from ETH and USDG launches</small>
+              <small>10% from ETH, USDG, and PONS launches</small>
               </div>
               <div class="developer-revenue-balance">
                 <span id="developerEthPending">0 ETH</span>
@@ -275,7 +276,7 @@
             <div class="revenue-list" id="revenueList" aria-live="polite">
               <div class="dashboard-empty">Connect your wallet to load creator revenue.</div>
             </div>
-        <p class="revenue-note">Internal-match launches collect LP fees without selling into the token pool. Token fees wait for organic buys and are matched at the current pool price. Creator claims transfer escrowed ETH only. RWI pairs send 100% to creators; ETH and USDG pairs send 90% to creators and 10% to the platform developer wallet.</p>
+        <p class="revenue-note">Internal-match launches collect LP fees without selling into the token pool. Token fees wait for organic buys and are matched at the current pool price. Creator claims transfer escrowed ETH only. RWI pairs send 100% to creators; ETH, USDG, and PONS pairs send 90% to creators and 10% to the platform developer wallet.</p>
           </div>
         </div>
       </section>
@@ -284,7 +285,7 @@
 
     <footer>
       <div class="footer-brand">RWI / LAUNCHPAD</div>
-      <p>Tokens launch directly into permanently locked RWI, ETH, or USDG liquidity on Uniswap.</p>
+      <p>Tokens launch directly into permanently locked RWI, ETH, USDG, or PONS liquidity on Uniswap.</p>
       <nav aria-label="Footer"><a href="https://rwihood.org/" target="_blank" rel="noreferrer">RWIhood.org ↗</a><a href="https://robinhoodchain.blockscout.com/token/0x2286397228be256529BE1ae9ed8D7d16549e9C6A" target="_blank" rel="noreferrer">$RWI Explorer ↗</a></nav>
       <small>Experimental software. Tokens carry risk. Verify contracts and do your own research.</small>
     </footer>
@@ -349,9 +350,12 @@
   <script src="quote-factory-live-config.js?v=20260804-progressive-hooks-live-1"></script>
   <script src="quote-factory-abi.js?v=20260804-progressive-hooks-live-1"></script>
   <script src="quote-factory-deployment.js?v=20260804-progressive-hooks-live-1"></script>
+  <script src="pons-factory-live-config.js?v=20260805-pons-pair-1"></script>
+  <script src="pons-factory-abi.js?v=20260805-pons-pair-1"></script>
+  <script src="pons-factory-deployment.js?v=20260805-pons-pair-1"></script>
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-deployment.js?v=20260803-dextools-restored"></script>
-  <script src="app-quote-live.js?v=20260805-discover-page-1"></script>
+  <script src="app-quote-live.js?v=20260805-pons-pair-1"></script>
   </body>
 </html>
