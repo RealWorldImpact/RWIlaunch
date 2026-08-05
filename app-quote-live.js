@@ -2,7 +2,7 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260804-progressive-hooks-live-1";
+const RELEASE_VERSION = "20260804-circular-logo-ui-1";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
@@ -943,7 +943,7 @@ function setProcessedLogo(file, { persist = true } = {}) {
   $("#previewImage").style.backgroundImage = `url("${state.imageUrl}")`;
   $("#modalAvatar").style.backgroundImage = `url("${state.imageUrl}")`;
   $("#modalAvatar").textContent = "";
-  $("#logoStatus").textContent = `Logo ready · ${LOGO_SIZE}×${LOGO_SIZE} PNG · ${file.name}`;
+  $("#logoStatus").textContent = `Circular logo ready · ${LOGO_SIZE}×${LOGO_SIZE} PNG · ${file.name}`;
   $("#editImage").hidden = false;
   $("#downloadLogo").hidden = false;
   $("#removeImage").hidden = false;
@@ -1058,7 +1058,7 @@ function openCropper(file, completion = null) {
 async function applyCrop() {
   const button = $("#cropApply");
   button.disabled = true;
-  button.textContent = "Preparing PNG…";
+    button.textContent = "Preparing logo…";
   try {
     drawCrop();
     const blob = await new Promise((resolve) => $("#cropCanvas").toBlob(resolve, "image/png"));
@@ -1075,12 +1075,12 @@ async function applyCrop() {
       setProcessedLogo(file);
     }
     closeCropper();
-    toast("Square 512×512 logo ready.");
+    toast("Circular logo ready.");
   } catch (error) {
     toast(error?.code === "IMAGE_REJECTED" ? error.message : "The crop could not be saved. Try again.");
   } finally {
     button.disabled = false;
-    button.textContent = "Use this crop";
+    button.textContent = "Use logo";
   }
 }
 
@@ -1095,7 +1095,7 @@ function clearImage() {
   $("#previewImage").classList.remove("has-image");
   $("#previewImage").style.backgroundImage = "";
   $("#modalAvatar").style.backgroundImage = "";
-  $("#logoStatus").textContent = "Every logo is standardized to a square 512×512 PNG, verified after launch, and automatically published when public storage is connected.";
+  $("#logoStatus").textContent = "Circular preview · exported as a listing-ready 512×512 PNG.";
   $("#editImage").hidden = true;
   $("#downloadLogo").hidden = true;
   $("#removeImage").hidden = true;
