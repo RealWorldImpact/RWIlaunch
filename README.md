@@ -28,6 +28,16 @@ The result is rounded to a valid 200-tick v4 boundary, so the exact opening valu
 
 This is a USDG-referenced target, not a guarantee of a real-world USD value. A USDG depeg, thin markets, delayed observations, manipulation that survives the TWAP controls, or external protocol failure can affect the result.
 
+## Automatic ETH/USDG revenue settlement
+
+The replacement ETH/USDG hook makes fee collection, USDG-to-ETH conversion, and the developer payout permissionless. The caller controls only when settlement runs: creator revenue always remains attached to the recorded launch position, and the 10% platform share always transfers to the immutable developer wallet. No recipient parameter exists.
+
+The developer dashboard batches up to six launch positions through the canonical Robinhood Chain Multicall3 contract in one wallet transaction. ETH-paired revenue is credited as native ETH without a swap. USDG-paired revenue is converted through the pinned USDG/WETH pool, unwrapped, and split 90% to the creator and 10% to the developer. The contract independently enforces a minimum output equal to 95% of its protected onchain ETH/USDG TWAP, even when the caller supplies zero as the minimum.
+
+This is transaction-driven automation, not a self-executing contract. A wallet or external keeper must still submit and pay for the settlement transaction. Permissionless timing, extra settlement gas, possible reverts during volatile or depegged markets, and up to 5% execution variance versus the protected TWAP are remaining tradeoffs. Collecting token-side fees also moves them into internal-match inventory; future organic buys can consume that inventory without moving the token pool price for the matched portion.
+
+The change requires a new immutable hook and applies only to launches created by that hook. Existing pools cannot be upgraded in place.
+
 ## Pinned Robinhood Chain integrations
 
 - Uniswap v4 PoolManager: `0x8366a39CC670B4001A1121B8F6A443A643e40951`

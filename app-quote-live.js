@@ -2,7 +2,7 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260805-launch-gas-reserve-1";
+const RELEASE_VERSION = "20260805-auto-settlement-1";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
@@ -12,6 +12,11 @@ const ETH_CLAIM_DEADLINE_SECONDS = 10 * 60;
 const LAUNCH_GAS_LIMIT_FLOOR = 5_000_000n;
 const LAUNCH_GAS_ESTIMATE_BUFFER_BPS = 15_000n;
 const LAUNCH_GAS_FIXED_BUFFER = 100_000n;
+const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
+const MULTICALL3_RUNTIME_CODE_HASH = "0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891";
+const AUTOMATIC_SETTLEMENT_BATCH_SIZE = 6;
+const AUTOMATIC_SETTLEMENT_GAS_FLOOR = 1_000_000n;
+const AUTOMATIC_SETTLEMENT_GAS_FALLBACK = 30_000_000n;
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
 const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({});
@@ -555,6 +560,7 @@ function configuredFactorySources() {
     protocol: "Uniswap v4",
     feeMode: MULTI_QUOTE_FEE_MODE,
     runtimeCodeHash: QUOTE_FACTORY_CONFIG.runtimeCodeHash || null,
+    permissionlessSettlement: QUOTE_FACTORY_CONFIG.permissionlessSettlement === true,
   });
   for (const entry of QUOTE_FACTORY_CONFIG.legacyFactories || []) {
     if (!isAddress(entry?.address) || sources.some((source) => sameAddress(source.address, entry.address))) continue;
@@ -1771,6 +1777,7 @@ async function loadDeveloperRevenue(provider = null) {
       .map((result) => result.value);
     if (!state.developerRevenueFactories.length) throw new Error("Developer revenue factories unavailable");
     const pendingEth = state.developerRevenueFactories.reduce((total, entry) => total + entry.pending, 0n);
+    const automaticSettlementAvailable = state.developerRevenueFactories.some((entry) => entry.source.permissionlessSettlement);
     $("#developerEthPending").textContent = `${formatUnits(pendingEth, 18, 8)} ETH`;
     try {
       const ethUsd = BigInt(await state.developerRevenueFactories[0].factory.ethUsdPriceE18());
@@ -1778,8 +1785,10 @@ async function loadDeveloperRevenue(provider = null) {
     } catch {
       $("#developerUsdPending").textContent = "USD estimate unavailable";
     }
-    button.textContent = pendingEth > 0n ? "Claim developer ETH" : "Nothing to claim";
-    button.disabled = state.developerClaimInFlight || pendingEth === 0n;
+    button.textContent = automaticSettlementAvailable
+      ? (pendingEth > 0n ? "Settle + claim developer ETH" : "Check + settle revenue")
+      : (pendingEth > 0n ? "Claim developer ETH" : "Nothing to claim");
+    button.disabled = state.developerClaimInFlight || (pendingEth === 0n && !automaticSettlementAvailable);
   } catch {
     $("#developerEthPending").textContent = "Unavailable";
     $("#developerUsdPending").textContent = "—";
@@ -1788,42 +1797,137 @@ async function loadDeveloperRevenue(provider = null) {
   }
 }
 
+async function automaticSettlementCandidates(factory, provider, source) {
+  const logs = await queryCreatorLaunchLogs(factory, provider, null, source.deploymentBlock);
+  const positionIds = [...new Set(logs.map((log) => String(log.args?.positionTokenId ?? factory.interface.parseLog(log)?.args.positionTokenId)))];
+  const candidates = [];
+  for (const positionId of positionIds) {
+    const [collectible, convertible] = await Promise.allSettled([
+      factory.collectFeesForRevenue.staticCall(positionId, { from: MULTICALL3_ADDRESS }),
+      factory.convertibleQuoteRewards(positionId),
+    ]);
+    const tokenFees = collectible.status === "fulfilled" ? BigInt(collectible.value.tokenFees) : 0n;
+    const quoteFees = collectible.status === "fulfilled" ? BigInt(collectible.value.quoteFees) : 0n;
+    const convertibleQuote = convertible.status === "fulfilled" ? BigInt(convertible.value) : 0n;
+    if (tokenFees > 0n || quoteFees > 0n || convertibleQuote > 0n) candidates.push(BigInt(positionId));
+    if (candidates.length > AUTOMATIC_SETTLEMENT_BATCH_SIZE) break;
+  }
+  return {
+    positionIds: candidates.slice(0, AUTOMATIC_SETTLEMENT_BATCH_SIZE),
+    moreRemaining: candidates.length > AUTOMATIC_SETTLEMENT_BATCH_SIZE,
+  };
+}
+
+async function automaticSettlementGasLimit(provider, transactionRequest) {
+  try {
+    const estimate = BigInt(await provider.estimateGas(transactionRequest));
+    const buffered = estimate * 13_000n / 10_000n + 150_000n;
+    return buffered > AUTOMATIC_SETTLEMENT_GAS_FLOOR ? buffered : AUTOMATIC_SETTLEMENT_GAS_FLOOR;
+  } catch {
+    return AUTOMATIC_SETTLEMENT_GAS_FALLBACK;
+  }
+}
+
+async function settlePermissionlessDeveloperRevenue(provider, signer, signerAddress, source, button) {
+  await validateConfiguredFeeFactory(provider, source.address);
+  const ethers = window.ethers;
+  const multicallCode = await provider.getCode(MULTICALL3_ADDRESS);
+  if (multicallCode === "0x" || ethers.keccak256(multicallCode).toLowerCase() !== MULTICALL3_RUNTIME_CODE_HASH) {
+    throw new Error("The canonical settlement batcher is unavailable on Robinhood Chain.");
+  }
+  const factory = new ethers.Contract(source.address, QUOTE_FACTORY_ABI, provider);
+  const { positionIds, moreRemaining } = await automaticSettlementCandidates(factory, provider, source);
+  const pendingBefore = BigInt(await factory.claimableDeveloperEthRewards());
+  if (!positionIds.length && pendingBefore === 0n) return { claimed: 0n, collected: 0, converted: 0, moreRemaining };
+
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + ETH_CLAIM_DEADLINE_SECONDS);
+  const calls = [];
+  for (const positionId of positionIds) {
+    calls.push({
+      target: source.address,
+      allowFailure: true,
+      callData: factory.interface.encodeFunctionData("collectFeesForRevenue", [positionId]),
+    });
+    calls.push({
+      target: source.address,
+      allowFailure: true,
+      callData: factory.interface.encodeFunctionData("convertQuoteRewardsToEth", [positionId, 0n, deadline]),
+    });
+  }
+  calls.push({
+    target: source.address,
+    allowFailure: true,
+    callData: factory.interface.encodeFunctionData("claimDeveloperEthRewards"),
+  });
+
+  const multicall = new ethers.Contract(MULTICALL3_ADDRESS, [
+    "function aggregate3(tuple(address target,bool allowFailure,bytes callData)[] calls) payable returns (tuple(bool success,bytes returnData)[] returnData)",
+  ], signer);
+  const transactionRequest = await multicall.aggregate3.populateTransaction(calls);
+  button.textContent = `Settle ${positionIds.length || 1} revenue ${positionIds.length === 1 ? "position" : "positions"}…`;
+  const gasLimit = await automaticSettlementGasLimit(provider, { ...transactionRequest, from: signerAddress });
+  const transaction = await signer.sendTransaction({ ...transactionRequest, gasLimit });
+  button.textContent = "Settling + claiming ETH…";
+  const receipt = await transaction.wait();
+  let claimed = 0n;
+  let collected = 0;
+  let converted = 0;
+  for (const log of receipt.logs) {
+    try {
+      const parsed = factory.interface.parseLog(log);
+      if (parsed?.name === "DeveloperEthRewardsClaimed") claimed += BigInt(parsed.args.ethAmount);
+      if (parsed?.name === "FeesCollectedForRevenue") collected += 1;
+      if (parsed?.name === "QuoteRewardsConvertedToEth") converted += 1;
+    } catch {
+      // Multicall and PoolManager logs are unrelated to the settlement summary.
+    }
+  }
+  return { claimed, collected, converted, moreRemaining };
+}
+
 async function claimDeveloperRevenue() {
   if (state.developerClaimInFlight || !state.account || !sameAddress(state.account, DEVELOPER_WALLET)) return;
   const button = $("#claimDeveloperRevenue");
   state.developerClaimInFlight = true;
   button.disabled = true;
-  button.textContent = "Confirm in wallet…";
+  button.textContent = "Checking revenue…";
   try {
     await ensureRobinhoodChain();
     const provider = new window.ethers.BrowserProvider(currentWalletProvider());
     const signer = await provider.getSigner();
     const signerAddress = await signer.getAddress();
-    if (!sameAddress(signerAddress, DEVELOPER_WALLET)) throw new Error("Only the configured developer wallet can claim this balance.");
+    if (!sameAddress(signerAddress, DEVELOPER_WALLET)) throw new Error("Only the configured developer wallet can use this dashboard.");
     const sources = configuredFactorySources().filter((source) => isMultiQuoteMode(source));
-    const claimable = [];
+    let claimed = 0n;
+    let collected = 0;
+    let converted = 0;
+    let moreRemaining = false;
+    for (const source of sources.filter((entry) => entry.permissionlessSettlement)) {
+      const result = await settlePermissionlessDeveloperRevenue(provider, signer, signerAddress, source, button);
+      claimed += result.claimed;
+      collected += result.collected;
+      converted += result.converted;
+      moreRemaining ||= result.moreRemaining;
+    }
+
     for (const source of sources) {
       const factory = new window.ethers.Contract(source.address, QUOTE_FACTORY_ABI, signer);
       const [configuredWallet, pending] = await Promise.all([
         factory.developerWallet(), factory.claimableDeveloperEthRewards(),
       ]);
-      if (!sameAddress(configuredWallet, DEVELOPER_WALLET)) {
-        throw new Error("A factory developer wallet does not match this dashboard.");
-      }
-      if (BigInt(pending) > 0n) claimable.push({ source, factory, pending: BigInt(pending) });
-    }
-    if (!claimable.length) throw new Error("No developer ETH is ready to claim.");
-    let claimed = 0n;
-    for (let index = 0; index < claimable.length; index += 1) {
-      const entry = claimable[index];
-      button.textContent = `Confirm claim ${index + 1} of ${claimable.length}…`;
-      await validateConfiguredFeeFactory(provider, entry.source.address);
-      const transaction = await entry.factory.claimDeveloperEthRewards();
-      button.textContent = `Claiming ${index + 1} of ${claimable.length}…`;
+      if (!sameAddress(configuredWallet, DEVELOPER_WALLET)) throw new Error("A factory developer wallet does not match this dashboard.");
+      if (BigInt(pending) === 0n) continue;
+      button.textContent = "Confirm developer ETH claim…";
+      await validateConfiguredFeeFactory(provider, source.address);
+      const transaction = await factory.claimDeveloperEthRewards();
+      button.textContent = "Claiming developer ETH…";
       await transaction.wait();
-      claimed += entry.pending;
+      claimed += BigInt(pending);
     }
-    toast(`Claimed ${feeLabel(claimed, "ETH")} to the developer wallet.`);
+    if (claimed === 0n && collected === 0 && converted === 0) throw new Error("No developer revenue is ready to settle or claim.");
+    const settledLabel = collected || converted ? ` Settled ${collected} fee ${collected === 1 ? "position" : "positions"}${converted ? ` and converted ${converted} USDG balance${converted === 1 ? "" : "s"}` : ""}.` : "";
+    const remainingLabel = moreRemaining ? " Run it again to process the remaining positions." : "";
+    toast(`Claimed ${feeLabel(claimed, "ETH")} to the developer wallet.${settledLabel}${remainingLabel}`);
   } catch (error) {
     toast(readableWalletError(error).replace(/^Launch reverted:/, "Claim reverted:"));
   } finally {
