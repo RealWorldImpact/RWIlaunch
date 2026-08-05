@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ccfe06" />
+    <meta name="description" content="Discover tokens launched through RWI Launchpad on Robinhood Chain." />
+    <title>Discover Tokens · RWI Launchpad</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css?v=20260805-discover-page-1" />
+  </head>
+  <body class="discover-page-body">
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="RWI Launchpad home">
+        <span class="brand-mark">RWI</span>
+        <span class="brand-divider">/</span>
+        <span>Launchpad</span>
+      </a>
+
+      <nav class="desktop-nav" aria-label="Primary navigation">
+        <a href="index.html#launch">Launch</a>
+        <a class="active" href="discover.html" aria-current="page">Discover</a>
+        <a href="index.html#dashboard">Dashboard</a>
+        <a href="index.html#mechanism">How it works</a>
+      </nav>
+
+      <div class="header-actions">
+        <span class="network-chip"><i></i> Robinhood Chain</span>
+        <a class="button button-dark directory-launch-button" href="index.html#launch">Launch →</a>
+      </div>
+    </header>
+
+    <main class="discover-page" id="top">
+      <section class="discover-page-hero" aria-labelledby="discoverTitle">
+        <div>
+          <p class="eyebrow">Live launch directory</p>
+          <h1 id="discoverTitle">Discover<br /><em>what launched.</em></h1>
+        </div>
+        <div class="discover-hero-aside">
+          <p>Explore every confirmed RWI Launch token, compare live markets, and find the communities gaining momentum.</p>
+          <div class="discover-overview" aria-label="Directory overview">
+            <div><span>Launches</span><strong id="discoverTotal">—</strong></div>
+            <div><span>Live markets</span><strong id="discoverPriced">—</strong></div>
+            <div><span>Supply burned</span><strong id="discoverBurned">—</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="discover-directory" aria-labelledby="directoryTitle">
+        <div class="discover-directory-head">
+          <div>
+            <p class="eyebrow">Onchain markets</p>
+            <h2 id="directoryTitle">Token directory</h2>
+          </div>
+          <p id="discoverSummary" role="status" aria-live="polite">Loading confirmed launches…</p>
+        </div>
+
+        <div class="discover-controls" aria-label="Discover controls">
+          <label class="discover-search" for="discoverSearch">
+            <span>Search</span>
+            <input id="discoverSearch" type="search" autocomplete="off" placeholder="Name, ticker, or address" />
+          </label>
+          <div class="discover-sort" role="group" aria-label="Sort tokens">
+            <span>Sort by</span>
+            <button class="is-active" type="button" data-discover-sort="market" aria-pressed="true">Market cap</button>
+            <button type="button" data-discover-sort="age" aria-pressed="false">Age</button>
+            <button type="button" data-discover-sort="burned" aria-pressed="false">Burned supply</button>
+          </div>
+          <button class="discover-refresh" id="refreshDiscover" type="button">Refresh ↻</button>
+        </div>
+
+        <div class="discover-active-view">
+          <div><span id="discoverViewKicker">Leaderboard</span><h3 id="discoverViewTitle">Highest market cap</h3></div>
+          <p id="discoverViewDescription">Live USD estimates from each token’s selected Uniswap market.</p>
+        </div>
+
+        <div class="discover-card-grid" id="discoverTokenGrid" aria-live="polite" aria-busy="true">
+          <article class="discover-card-skeleton" aria-hidden="true"></article>
+          <article class="discover-card-skeleton" aria-hidden="true"></article>
+          <article class="discover-card-skeleton" aria-hidden="true"></article>
+          <article class="discover-card-skeleton" aria-hidden="true"></article>
+          <article class="discover-card-skeleton" aria-hidden="true"></article>
+          <article class="discover-card-skeleton" aria-hidden="true"></article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-brand">RWI / LAUNCHPAD</div>
+      <p>Every listed token is read from configured RWI Launch factory events.</p>
+      <nav aria-label="Footer"><a href="index.html#launch">Launch a token</a><a href="https://rwihood.org/" target="_blank" rel="noreferrer">RWIhood.org ↗</a></nav>
+      <small>Market data can be delayed. Verify contracts and do your own research.</small>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="factory-config.js?v=20260804-progressive-hooks-live-1"></script>
+    <script src="factory-abi.js?v=20260804-progressive-hooks-live-1"></script>
+    <script src="quote-factory-live-config.js?v=20260804-progressive-hooks-live-1"></script>
+    <script src="quote-factory-abi.js?v=20260804-progressive-hooks-live-1"></script>
+    <script src="discover.js?v=20260805-discover-page-2"></script>
+  </body>
+</html>

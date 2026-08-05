@@ -16,8 +16,8 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260805-launch-form-cleanup-1" />
-    <link rel="stylesheet" href="pair-selector-v2.css?v=20260804-circular-logo-ui-1" />
+    <link rel="stylesheet" href="styles.css?v=20260805-discover-page-1" />
+    <link rel="stylesheet" href="pair-selector-v2.css?v=20260805-launch-form-cleanup-2" />
   </head>
   <body class="home-page-body">
     <header class="site-header">
@@ -29,14 +29,14 @@
 
       <nav class="desktop-nav" aria-label="Primary navigation">
         <a class="active" href="#launch">Launch</a>
-        <a href="#discover" data-discover-open aria-haspopup="dialog" aria-controls="discoverModal" aria-expanded="false">Discover</a>
+        <a href="discover.html">Discover</a>
         <a href="#dashboard" data-dashboard-open aria-haspopup="dialog" aria-controls="dashboardModal" aria-expanded="false">Dashboard</a>
         <a href="#mechanism">How it works</a>
       </nav>
 
       <div class="header-actions">
         <span class="network-chip"><i></i> Robinhood Chain</span>
-        <button class="discover-header-button" type="button" data-discover-open aria-haspopup="dialog" aria-controls="discoverModal" aria-expanded="false">Discover</button>
+        <a class="discover-header-button" href="discover.html">Discover</a>
         <button class="dashboard-header-button" type="button" data-dashboard-open aria-haspopup="dialog" aria-controls="dashboardModal" aria-expanded="false">Dashboard</button>
         <button class="button button-dark wallet-button" id="walletButton" type="button">
           Connect wallet
@@ -131,34 +131,11 @@
                   </div>
                 </details>
 
-                <div class="one-click-heading">
-                  <span>Fixed launch rules</span>
-                  <strong>No liquidity settings. No allocation choices.</strong>
-                </div>
-
-                <div class="fixed-launch-grid" aria-label="Fixed launch rules">
-                  <div class="fixed-rule-card">
-                    <span>Total supply</span>
-                    <strong>1,000,000,000</strong>
-                    <small>ERC-20 · 18 decimals · no future minting.</small>
-                  </div>
-                  <div class="fixed-rule-card pool-rule-card">
-                    <span>Locked pool inventory</span>
-                    <strong>100% allocation</strong>
-                    <small>Creator receives 0 allocated tokens; every purchase is a real market swap.</small>
-                  </div>
-                  <div class="fixed-rule-card">
-                    <span>Opening valuation</span>
-                    <strong>$10,000 FDV</strong>
-                    <small>Oracle-derived at launch, then rounded to the nearest Uniswap tick.</small>
-                  </div>
-                </div>
-
                 <fieldset class="quote-selector" id="quoteSelector">
               <legend>Permanent trading pair</legend>
               <label><input type="radio" name="quoteAsset" value="RWI" checked /><span><span class="quote-asset-mark quote-asset-mark-rwi" aria-hidden="true">RWI</span><strong>$RWI</strong><small>Creator 100% · RWI-routed trading</small></span></label>
-              <label><input type="radio" name="quoteAsset" value="ETH" /><span><span class="quote-asset-mark quote-asset-mark-eth" aria-hidden="true"><img src="assets/eth-logo.svg" alt="" /></span><strong>$ETH</strong><small>Creator 90% · Platform 10%</small></span></label>
-              <label><input type="radio" name="quoteAsset" value="USDG" /><span><span class="quote-asset-mark quote-asset-mark-usdg" aria-hidden="true"><img src="assets/usdg-logo.svg" alt="" /></span><strong>$USDG</strong><small>Creator 90% · Platform 10%</small></span></label>
+              <label><input type="radio" name="quoteAsset" value="ETH" /><span><span class="quote-asset-mark quote-asset-mark-eth" aria-hidden="true"><img src="assets/eth-logo.png" alt="" /></span><strong>$ETH</strong><small>Creator 90% · Platform 10%</small></span></label>
+              <label><input type="radio" name="quoteAsset" value="USDG" /><span><span class="quote-asset-mark quote-asset-mark-usdg" aria-hidden="true"><img src="assets/usdg-logo.png" alt="" /></span><strong>$USDG</strong><small>Creator 90% · Platform 10%</small></span></label>
                 </fieldset>
 
                 <div class="pair-box compact-pair-box">
@@ -226,37 +203,6 @@
           <article><span>03</span><h3>Trade</h3><p>Trading starts from the Uniswap pool once confirmed. There is no threshold, migration, or graduation step.</p></article>
         </div>
       </section>
-
-      <div class="modal-backdrop discover-backdrop" id="discoverModal" role="dialog" aria-modal="true" aria-labelledby="discoverTitle" hidden>
-        <section class="discover-modal" id="discover">
-          <button class="discover-close" id="discoverClose" type="button" aria-label="Close Discover Tokens">×</button>
-          <header class="discover-modal-heading">
-            <div>
-              <p class="eyebrow">03 — Live launch directory</p>
-              <h2 id="discoverTitle">Discover Tokens</h2>
-            </div>
-            <p>Explore every launch in one place. Compare current market caps, find the latest tokens, and open any market for details or trading.</p>
-          </header>
-
-          <div class="discover-toolbar">
-            <span id="discoverSummary" role="status" aria-live="polite">Loading live launches…</span>
-            <div class="discover-toolbar-actions">
-              <button class="discover-view-toggle" id="discoverViewToggle" type="button" aria-controls="discoverTokenGrid" aria-pressed="false">Show newest launches →</button>
-              <button id="refreshDiscover" type="button">Refresh markets ↻</button>
-            </div>
-          </div>
-
-          <section class="discover-group" aria-labelledby="discoverViewTitle">
-            <div class="discover-group-heading">
-              <div><span id="discoverViewKicker">Leaderboard</span><h3 id="discoverViewTitle">Highest market cap</h3></div>
-              <p id="discoverViewDescription">Live USD estimates from each token's selected Uniswap market.</p>
-            </div>
-            <div class="token-grid discover-token-grid" id="discoverTokenGrid" aria-live="polite">
-              <div class="discover-loading">Ranking live markets…</div>
-            </div>
-          </section>
-        </section>
-      </div>
 
       <div class="modal-backdrop creator-dashboard-backdrop" id="dashboardModal" role="dialog" aria-modal="true" aria-labelledby="dashboardTitle" hidden>
       <section class="creator-dashboard creator-dashboard-modal" id="dashboard">
@@ -406,6 +352,6 @@
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-deployment.js?v=20260803-dextools-restored"></script>
-  <script src="app-quote-live.js?v=20260805-launch-gas-reserve-1"></script>
+  <script src="app-quote-live.js?v=20260805-discover-page-1"></script>
   </body>
 </html>

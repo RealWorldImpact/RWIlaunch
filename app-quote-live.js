@@ -4147,8 +4147,7 @@ $("#dashboardModal")?.addEventListener("click", (event) => {
 });
 window.addEventListener?.("hashchange", () => {
   if (window.location.hash === "#discover") {
-    closeCreatorDashboard({ clearHash: false, restoreFocus: false });
-    openDiscover(null, { updateHash: false });
+    window.location.href = "discover.html";
   } else if (window.location.hash === "#dashboard") {
     closeDiscover({ clearHash: false, restoreFocus: false });
     openCreatorDashboard(null, { updateHash: false });
@@ -4203,7 +4202,7 @@ restoreDraftLogo();
 renderIntegrationStatus();
 updatePreview();
 renderDashboardAccess();
-if (window.location.hash === "#discover") openDiscover(null, { updateHash: false });
+if (window.location.hash === "#discover") window.location.replace("discover.html");
 else if (window.location.hash === "#dashboard") openCreatorDashboard(null, { updateHash: false });
 $("#walletOriginWarning").hidden = window.location?.protocol !== "file:";
 syncWallet();
