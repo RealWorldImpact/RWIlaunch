@@ -3,6 +3,7 @@
 
   const RELEASE_VERSION = "20260805-discover-page-2";
   const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
+  const PONS_ADDRESS = "0x39dBED3a2bd333467115dE45665cC57F813C4571";
   const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
   const FIXED_TOKEN_SUPPLY = 1_000_000_000;
@@ -14,6 +15,8 @@
   const FACTORY_ABI = window.RWI_FACTORY_ABI || [];
   const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || {};
   const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || [];
+  const PONS_FACTORY_CONFIG = window.RWI_PONS_FACTORY_CONFIG || {};
+  const PONS_FACTORY_ABI = window.RWI_PONS_FACTORY_ABI || [];
   const V4_EVENT_ABI = [
     "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialQuoteAmount,bool liquidityPermanentlyLocked)",
   ];
@@ -115,6 +118,21 @@
       sources.push({ ...source, deploymentBlock: Number(source.deploymentBlock || 0) });
     };
     addSource({
+      address: PONS_FACTORY_CONFIG.factoryAddress,
+      deploymentBlock: PONS_FACTORY_CONFIG.deploymentBlock,
+      protocol: "Uniswap v4",
+      ponsFactory: true,
+      quoteFactory: false,
+      current: true,
+    });
+    (PONS_FACTORY_CONFIG.legacyFactories || []).forEach((entry) => addSource({
+      ...entry,
+      protocol: entry.protocol || "Uniswap v4",
+      ponsFactory: true,
+      quoteFactory: false,
+      current: false,
+    }));
+    addSource({
       address: QUOTE_FACTORY_CONFIG.factoryAddress,
       deploymentBlock: QUOTE_FACTORY_CONFIG.deploymentBlock,
       protocol: "Uniswap v4",
@@ -144,6 +162,7 @@
 
   function factoryAbi(source) {
     if (source.protocol === "Uniswap v3") return V3_EVENT_ABI;
+    if (source.ponsFactory) return PONS_FACTORY_ABI.length ? PONS_FACTORY_ABI : V4_EVENT_ABI;
     if (source.quoteFactory) return QUOTE_FACTORY_ABI.length ? QUOTE_FACTORY_ABI : V4_EVENT_ABI;
     return source.current && FACTORY_ABI.length ? FACTORY_ABI : V4_EVENT_ABI;
   }
@@ -228,7 +247,7 @@
     const burnedSupply = Number(window.ethers.formatUnits(burnedRaw, 18));
     const totalSupply = Number(window.ethers.formatUnits(supplyRaw, 18)) || FIXED_TOKEN_SUPPLY;
     const record = details[5].status === "fulfilled" ? details[5].value : null;
-    const quoteSymbol = source.quoteFactory ? (Number(record?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+    const quoteSymbol = source.ponsFactory ? "PONS" : source.quoteFactory ? (Number(record?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
     const publicEntry = metadata.get(token.toLowerCase()) || {};
     return {
       factoryAddress: source.address,
@@ -241,7 +260,7 @@
       description: String(publicEntry.description || ""),
       image: publicEntry.image || publicEntry.logoURI || null,
       quoteSymbol,
-      quoteAddress: quoteSymbol === "RWI" ? RWI_ADDRESS : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : ZERO_ADDRESS,
+      quoteAddress: quoteSymbol === "PONS" ? PONS_ADDRESS : quoteSymbol === "RWI" ? RWI_ADDRESS : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : ZERO_ADDRESS,
       protocol: source.protocol || "Uniswap v4",
       blockNumber: Number(log.blockNumber || 0),
       timestamp: 0,
@@ -405,6 +424,14 @@
     if (launch.quoteSymbol === "ETH") {
       const oracle = new window.ethers.Contract(QUOTE_FACTORY_CONFIG.factoryAddress || FACTORY_CONFIG.factoryAddress, ["function ethUsdPriceE18() view returns (uint256)"], state.provider);
       return Number(window.ethers.formatUnits(await oracle.ethUsdPriceE18(), 18));
+    }
+    if (launch.quoteSymbol === "PONS") {
+      const oracle = new window.ethers.Contract(PONS_FACTORY_CONFIG.factoryAddress, ["function ethUsdPriceE18() view returns (uint256)"], state.provider);
+      const [ethUsdRaw, wethPerPons] = await Promise.all([
+        oracle.ethUsdPriceE18(),
+        readV3Quote(PONS_FACTORY_CONFIG.ponsWethOraclePool, PONS_ADDRESS),
+      ]);
+      return Number(window.ethers.formatUnits(ethUsdRaw, 18)) * wethPerPons;
     }
     return readRwiUsdPrice();
   }
