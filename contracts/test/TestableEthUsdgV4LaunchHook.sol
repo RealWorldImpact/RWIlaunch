@@ -32,8 +32,4 @@ contract TestableEthUsdgV4LaunchHook is DirectEthUsdgV4LaunchHook {
         )
     {}
 
-    /// @dev Mock PoolManager helper; production integration accepts native ETH directly.
-    function activeQuoteCurrency() external view returns (address) {
-        return activeUnlockQuoteToken;
-    }
 }
