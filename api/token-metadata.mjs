@@ -405,6 +405,15 @@ export function OPTIONS() {
 export async function GET(request) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
+  if (url.searchParams.get("all") === "1") {
+    if (!blobConfigured()) return json({ error: "Public logo storage is not configured.", code: "storage_not_configured" }, 503);
+    try {
+      const tokens = await allTokenMetadata();
+      return json({ tokens }, 200, "public, max-age=60, s-maxage=300, stale-while-revalidate=3600");
+    } catch (error) {
+      return json({ error: String(error?.message || "Public metadata directory failed.").slice(0, 300) }, 500);
+    }
+  }
   if (!token) {
     return json({
       configured: blobConfigured(),
