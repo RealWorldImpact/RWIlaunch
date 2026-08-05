@@ -108,22 +108,30 @@ function compile() {
       deployedBytecode: `0x${hookDeployer.evm.deployedBytecode.object}`,
     }, null, 2)});\n`,
   );
-  const quoteBrowserAbi = `window.RWI_QUOTE_FACTORY_ABI = Object.freeze(${JSON.stringify(quoteBrowserContract.abi, null, 2)});\n`;
-  const quoteBrowserDeployment = `window.RWI_QUOTE_FACTORY_DEPLOYMENT = Object.freeze(${JSON.stringify({
-    bytecode: `0x${quoteBrowserContract.evm.bytecode.object}`,
-    deployedBytecode: `0x${quoteBrowserContract.evm.deployedBytecode.object}`,
-    immutableReferences: quoteBrowserContract.evm.deployedBytecode.immutableReferences || {},
-  }, null, 2)});\n`;
-  fs.writeFileSync(path.join(projectRoot, "auto-settlement-quote-factory-abi.js"), quoteBrowserAbi);
-  fs.writeFileSync(path.join(projectRoot, "auto-settlement-quote-factory-deployment.js"), quoteBrowserDeployment);
-  // A compile must never silently replace the browser bundle for an already-deployed immutable hook.
-  // Activation happens only after the replacement address and runtime have been validated and configured.
-  if (process.env.ACTIVATE_COMPILED_QUOTE_FACTORY === "true") {
-    fs.writeFileSync(path.join(projectRoot, "quote-factory-abi.js"), quoteBrowserAbi);
-    fs.writeFileSync(path.join(projectRoot, "progressive-quote-factory-abi.js"), quoteBrowserAbi);
-    fs.writeFileSync(path.join(projectRoot, "quote-factory-deployment.js"), quoteBrowserDeployment);
-    fs.writeFileSync(path.join(projectRoot, "progressive-quote-factory-deployment.js"), quoteBrowserDeployment);
-  }
+  fs.writeFileSync(
+    path.join(projectRoot, "quote-factory-abi.js"),
+    `window.RWI_QUOTE_FACTORY_ABI = Object.freeze(${JSON.stringify(quoteBrowserContract.abi, null, 2)});\n`,
+  );
+  fs.writeFileSync(
+    path.join(projectRoot, "progressive-quote-factory-abi.js"),
+    `window.RWI_QUOTE_FACTORY_ABI = Object.freeze(${JSON.stringify(quoteBrowserContract.abi, null, 2)});\n`,
+  );
+  fs.writeFileSync(
+    path.join(projectRoot, "quote-factory-deployment.js"),
+    `window.RWI_QUOTE_FACTORY_DEPLOYMENT = Object.freeze(${JSON.stringify({
+      bytecode: `0x${quoteBrowserContract.evm.bytecode.object}`,
+      deployedBytecode: `0x${quoteBrowserContract.evm.deployedBytecode.object}`,
+      immutableReferences: quoteBrowserContract.evm.deployedBytecode.immutableReferences || {},
+    }, null, 2)});\n`,
+  );
+  fs.writeFileSync(
+    path.join(projectRoot, "progressive-quote-factory-deployment.js"),
+    `window.RWI_QUOTE_FACTORY_DEPLOYMENT = Object.freeze(${JSON.stringify({
+      bytecode: `0x${quoteBrowserContract.evm.bytecode.object}`,
+      deployedBytecode: `0x${quoteBrowserContract.evm.deployedBytecode.object}`,
+      immutableReferences: quoteBrowserContract.evm.deployedBytecode.immutableReferences || {},
+    }, null, 2)});\n`,
+  );
   // The public registry was source-verified and deployed with 500 optimizer runs.
   // Compile it separately so runtime validation is not coupled to the hook's size-focused settings.
   const profileSourceName = "contracts/RWICreatorProfileRegistry.sol";

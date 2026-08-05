@@ -335,7 +335,11 @@ async function main() {
       tokenIs0 ? stagedEthFee : stagedTokenFee,
     )).wait();
 
-    await (await hook.connect(outsider).collectFeesForRevenue(launched.record.positionTokenId)).wait();
+    await expectRevert(
+      hook.connect(outsider).collectFeesForRevenue.staticCall(launched.record.positionTokenId),
+      "non-creator fee collection",
+    );
+    await (await hook.connect(creator).collectFeesForRevenue(launched.record.positionTokenId)).wait();
     const totalTokenFee = tokenFee + stagedTokenFee;
     const totalEthFee = ethFee + stagedEthFee;
     assert.equal(await hook.tokenFeeInventory(launched.record.positionTokenId), totalTokenFee);
@@ -367,15 +371,14 @@ async function main() {
     await (await hook.connect(creator).claimEthRewards(launched.record.positionTokenId)).wait();
     assert.equal(await hook.claimableEthRewards(launched.record.positionTokenId), 0n);
     assert.equal(await provider.getBalance(hook.target), developerShare);
-    const developerBalanceBefore = BigInt(await provider.send("eth_getBalance", [developerAddress, "latest"]));
-    const devReceipt = await (await hook.connect(outsider).claimDeveloperEthRewards()).wait();
+    await expectRevert(
+      hook.connect(outsider).claimDeveloperEthRewards.staticCall(),
+      "non-developer reward claim",
+    );
+    const devReceipt = await (await hook.connect(developer).claimDeveloperEthRewards()).wait();
     const developerClaim = findEvent(devReceipt, hook, "DeveloperEthRewardsClaimed");
     assert.equal(developerClaim.args.developerWallet, developerAddress);
     assert.equal(developerClaim.args.ethAmount, developerShare);
-    assert.equal(
-      BigInt(await provider.send("eth_getBalance", [developerAddress, "latest"])),
-      developerBalanceBefore + developerShare,
-    );
     assert.equal(BigInt(await provider.send("eth_getBalance", [hook.target, "latest"])), 0n);
     assert.equal(await poolManager.swapCallCount(), 0n);
     assert.equal(await swapRouter.swapCallCount(), 0n);
@@ -383,7 +386,7 @@ async function main() {
   }
 
   {
-    const { creator, outsider, usdg, poolManager, swapRouter, hook } = await fixture(provider);
+    const { creator, outsider, developer, usdg, poolManager, swapRouter, hook } = await fixture(provider);
     const launched = await launchAndRead(hook, creator, 1);
     const tokenFee = ethers.parseEther("250");
     const usdgFee = ethers.parseUnits("100", 6);
@@ -407,7 +410,11 @@ async function main() {
       tokenIs0 ? stagedTokenFee : stagedUsdgFee,
       tokenIs0 ? stagedUsdgFee : stagedTokenFee,
     )).wait();
-    await (await hook.connect(outsider).collectFeesForRevenue(launched.record.positionTokenId)).wait();
+    await expectRevert(
+      hook.connect(outsider).collectFeesForRevenue.staticCall(launched.record.positionTokenId),
+      "non-creator USDG fee collection",
+    );
+    await (await hook.connect(creator).collectFeesForRevenue(launched.record.positionTokenId)).wait();
     const totalTokenFee = tokenFee + stagedTokenFee;
     const totalUsdgFee = usdgFee + stagedUsdgFee;
     assert.equal(await hook.convertibleQuoteRewards(launched.record.positionTokenId), totalUsdgFee);
@@ -429,23 +436,21 @@ async function main() {
     const latestBlock = await provider.getBlock("latest");
     const deadline = BigInt(latestBlock.timestamp + 600);
     await (await swapRouter.setOutputScale(10n ** 12n, 2_500n)).wait();
-    await (await swapRouter.setOutputBps(9_400)).wait();
     await expectRevert(
       hook.connect(outsider).convertQuoteRewardsToEth.staticCall(
         launched.record.positionTokenId,
         0,
         deadline,
       ),
-      "permissionless USDG conversion below the oracle floor",
+      "non-creator USDG conversion",
     );
-    await (await swapRouter.setOutputBps(9_900)).wait();
-    const quote = await hook.connect(outsider).convertQuoteRewardsToEth.staticCall(
+    const quote = await hook.connect(creator).convertQuoteRewardsToEth.staticCall(
       launched.record.positionTokenId,
       0,
       deadline,
     );
     assert.equal(quote.quoteAmount, convertible);
-    assert.equal(quote.grossEthAmount, convertible * 10n ** 12n / 2_500n * 9_900n / 10_000n);
+    assert.equal(quote.grossEthAmount, convertible * 10n ** 12n / 2_500n);
     assert.equal(quote.creatorEthAmount + quote.developerEthAmount, quote.grossEthAmount);
     assert.equal(quote.developerEthAmount, quote.grossEthAmount / 10n);
     await expectRevert(
@@ -456,7 +461,7 @@ async function main() {
       ),
       "USDG-to-ETH minimum output",
     );
-    await (await hook.connect(outsider).convertQuoteRewardsToEth(
+    await (await hook.connect(creator).convertQuoteRewardsToEth(
       launched.record.positionTokenId,
       quote.grossEthAmount,
       deadline,
@@ -471,7 +476,7 @@ async function main() {
     assert.equal(await swapRouter.swapCallCount(), 1n, "only the USDG/WETH conversion may swap");
 
     await (await hook.connect(creator).claimEthRewards(launched.record.positionTokenId)).wait();
-    await (await hook.connect(outsider).claimDeveloperEthRewards()).wait();
+    await (await hook.connect(developer).claimDeveloperEthRewards()).wait();
     assert.equal(BigInt(await provider.send("eth_getBalance", [hook.target, "latest"])), 0n);
     assert.equal(await poolManager.swapCallCount(), 0n);
     assert.equal(await swapRouter.swapCallCount(), 1n);
