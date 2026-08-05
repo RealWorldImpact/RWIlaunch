@@ -1,10 +1,14 @@
 const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
+const PONS_ADDRESS = "0x39dBED3a2bd333467115dE45665cC57F813C4571";
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
 const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({});
 const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || Object.freeze([]);
+const PONS_FACTORY_CONFIG = window.RWI_PONS_FACTORY_CONFIG || Object.freeze({});
+const PONS_FACTORY_ABI = window.RWI_PONS_FACTORY_ABI || Object.freeze([]);
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
 const MULTI_QUOTE_FEE_MODE = "internal-match-eth-90-10";
+const PONS_FEE_MODE = "internal-match-eth-90-10-pons";
 const LEGACY_V4_FACTORY_ABI = Object.freeze([
   "function launches(address token) view returns (address creator,bytes32 poolId,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount,int24 tickLower,int24 tickUpper)",
 ]);
@@ -107,6 +111,17 @@ function locallyDeployedFactoryAddress() {
 
 function configuredFactorySources() {
   const sources = [];
+  if (isAddress(PONS_FACTORY_CONFIG.factoryAddress)) sources.push({
+    address: PONS_FACTORY_CONFIG.factoryAddress,
+    current: true,
+    protocol: "Uniswap v4",
+    feeMode: PONS_FEE_MODE,
+  });
+  for (const entry of PONS_FACTORY_CONFIG.legacyFactories || []) {
+    if (isAddress(entry?.address) && !sources.some((source) => sameAddress(source.address, entry.address))) {
+      sources.push({ ...entry, current: false, protocol: "Uniswap v4", feeMode: PONS_FEE_MODE });
+    }
+  }
   if (isAddress(QUOTE_FACTORY_CONFIG.factoryAddress)) sources.push({
     address: QUOTE_FACTORY_CONFIG.factoryAddress,
     current: true,
@@ -141,6 +156,7 @@ function configuredFactoryAddresses() {
 
 function factoryAbiForSource(source) {
   if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  if (source.feeMode === PONS_FEE_MODE) return PONS_FACTORY_ABI;
   if (source.feeMode === MULTI_QUOTE_FEE_MODE) return QUOTE_FACTORY_ABI;
   return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
 }
@@ -384,6 +400,8 @@ async function readOnchainMarketValues(tokenAddress, launch) {
       ? 1
       : launch.quoteSymbol === "ETH"
         ? await ensureEthUsdPrice(provider)
+        : launch.quoteSymbol === "PONS"
+          ? (await ensureEthUsdPrice(provider)) * await readV3Quote(PONS_FACTORY_CONFIG.ponsWethOraclePool, PONS_ADDRESS, provider)
         : await readRwiUsdPrice(provider);
     usd = rwi * quoteUsd;
   } catch {
@@ -578,23 +596,44 @@ function settlementAssetConfig(asset = state.settlementAsset) {
 }
 
 function directQuoteAssetConfig() {
-  const symbol = state.tradeSource?.quoteSymbol === "USDG" ? "USDG" : "ETH";
+  const symbol = ["USDG", "PONS"].includes(state.tradeSource?.quoteSymbol) ? state.tradeSource.quoteSymbol : "ETH";
+  if (symbol === "PONS") return { symbol, address: PONS_ADDRESS, decimals: 18, native: false };
   return symbol === "USDG"
     ? { symbol, address: USDG_ADDRESS, decimals: USDG_DECIMALS, native: false }
     : { symbol, address: window.ethers.ZeroAddress, decimals: 18, native: true };
 }
 
 function directQuoteBridgeExactInputPath(inputAsset, outputAsset) {
-  const inputToken = inputAsset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;
-  const outputToken = outputAsset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;
+  const tokenFor = (asset) => asset === "ETH" ? WETH_ADDRESS : asset === "PONS" ? PONS_ADDRESS : USDG_ADDRESS;
+  const inputToken = tokenFor(inputAsset);
+  const outputToken = tokenFor(outputAsset);
   if (sameAddress(inputToken, outputToken)) throw new Error("A cross-settlement bridge requires different assets.");
+  if (inputAsset === "PONS" || outputAsset === "PONS") {
+    const middleRequired = inputAsset === "USDG" || outputAsset === "USDG";
+    return middleRequired
+      ? window.ethers.solidityPacked(
+        ["address", "uint24", "address", "uint24", "address"],
+        [inputToken, inputAsset === "PONS" ? RWI_WETH_V3_FEE : WETH_USDG_V3_FEE, WETH_ADDRESS, outputAsset === "PONS" ? RWI_WETH_V3_FEE : WETH_USDG_V3_FEE, outputToken],
+      )
+      : window.ethers.solidityPacked(["address", "uint24", "address"], [inputToken, RWI_WETH_V3_FEE, outputToken]);
+  }
   return window.ethers.solidityPacked(["address", "uint24", "address"], [inputToken, WETH_USDG_V3_FEE, outputToken]);
 }
 
 function directQuoteBridgeExactOutputPath(inputAsset, outputAsset) {
-  const inputToken = inputAsset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;
-  const outputToken = outputAsset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;
+  const tokenFor = (asset) => asset === "ETH" ? WETH_ADDRESS : asset === "PONS" ? PONS_ADDRESS : USDG_ADDRESS;
+  const inputToken = tokenFor(inputAsset);
+  const outputToken = tokenFor(outputAsset);
   if (sameAddress(inputToken, outputToken)) throw new Error("A cross-settlement bridge requires different assets.");
+  if (inputAsset === "PONS" || outputAsset === "PONS") {
+    const middleRequired = inputAsset === "USDG" || outputAsset === "USDG";
+    return middleRequired
+      ? window.ethers.solidityPacked(
+        ["address", "uint24", "address", "uint24", "address"],
+        [outputToken, outputAsset === "PONS" ? RWI_WETH_V3_FEE : WETH_USDG_V3_FEE, WETH_ADDRESS, inputAsset === "PONS" ? RWI_WETH_V3_FEE : WETH_USDG_V3_FEE, inputToken],
+      )
+      : window.ethers.solidityPacked(["address", "uint24", "address"], [outputToken, RWI_WETH_V3_FEE, inputToken]);
+  }
   return window.ethers.solidityPacked(["address", "uint24", "address"], [outputToken, WETH_USDG_V3_FEE, inputToken]);
 }
 
@@ -905,7 +944,7 @@ function handleTradeAmountInput() {
 async function validateDirectTradeIntegrations(provider) {
   if (state.directTradeIntegrationsValidated) return;
   const expectedPoolManager = FACTORY_CONFIG.uniswapV4PoolManager;
-  const integrations = [V4_QUOTER, V3_QUOTER, V4_STATE_VIEW, V4_UNIVERSAL_ROUTER, PERMIT2, WETH_ADDRESS, USDG_ADDRESS];
+  const integrations = [V4_QUOTER, V3_QUOTER, V4_STATE_VIEW, V4_UNIVERSAL_ROUTER, PERMIT2, WETH_ADDRESS, USDG_ADDRESS, PONS_ADDRESS];
   if (!isAddress(expectedPoolManager) || integrations.some((address) => !isAddress(address))) {
     throw new Error("The pinned Uniswap settlement configuration is incomplete.");
   }
@@ -1938,9 +1977,10 @@ async function loadTokenPage() {
     ]), 12_000, "Robinhood Chain did not return token data within 12 seconds.");
     const launch = factoryLaunch.launch;
     const isV4 = factoryLaunch.source.protocol === "Uniswap v4";
-    const directQuote = factoryLaunch.source.feeMode === MULTI_QUOTE_FEE_MODE;
-    const quoteSymbol = directQuote ? (Number(launch.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
-    const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? USDG_ADDRESS : RWI_ADDRESS;
+    const ponsQuote = factoryLaunch.source.feeMode === PONS_FEE_MODE;
+    const directQuote = factoryLaunch.source.feeMode === MULTI_QUOTE_FEE_MODE || ponsQuote;
+    const quoteSymbol = ponsQuote ? "PONS" : directQuote ? (Number(launch.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+    const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? USDG_ADDRESS : quoteSymbol === "PONS" ? PONS_ADDRESS : RWI_ADDRESS;
     const pool = isV4 ? null : String(launch.pool);
     const poolId = isV4 ? String(launch.poolId) : null;
     if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !(isV4 ? isPoolId(poolId) : isAddress(pool))) {
