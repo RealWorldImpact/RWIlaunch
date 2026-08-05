@@ -16,6 +16,10 @@ const CHAIN_ID = 4663;
 const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 const FACTORY_ADDRESS = "0xEd71c58CDA0e2CCF9f22e63931f1B943D951A088";
 const QUOTE_FACTORY_ADDRESS = "0x53b85f2166bF6C59c55261D3c298a3c1feD06088";
+const PONS_FACTORY_ADDRESSES = [
+  process.env.RWI_PONS_FACTORY_ADDRESS || "",
+  ...(process.env.RWI_LEGACY_PONS_FACTORY_ADDRESSES || "").split(","),
+].map((address) => address.trim()).filter((address) => isAddress(address));
 const LEGACY_FACTORY_ADDRESSES = [
   "0x0Fb46f019eBf66D0767E891f8fACe687F1156088",
   "0xB725d44EA09BA4c1C8650D79aDB84C06d3CbE000",
@@ -106,7 +110,7 @@ function sha256(value) {
 
 function canonicalPayload(input) {
   const factoryAddress = cleanAddress(input.factoryAddress || FACTORY_ADDRESS, "factory");
-  const allowedFactories = [FACTORY_ADDRESS, QUOTE_FACTORY_ADDRESS, ...LEGACY_FACTORY_ADDRESSES, ...LEGACY_QUOTE_FACTORY_ADDRESSES]
+  const allowedFactories = [FACTORY_ADDRESS, QUOTE_FACTORY_ADDRESS, ...PONS_FACTORY_ADDRESSES, ...LEGACY_FACTORY_ADDRESSES, ...LEGACY_QUOTE_FACTORY_ADDRESSES]
     .filter((address) => isAddress(address)).map((address) => getAddress(address).toLowerCase());
   if (!allowedFactories.includes(factoryAddress.toLowerCase())) throw new Error("This launch factory is not approved for public metadata.");
   return {
@@ -421,6 +425,7 @@ export async function GET(request) {
       chainId: CHAIN_ID,
       factoryAddress: FACTORY_ADDRESS,
       quoteFactoryAddress: QUOTE_FACTORY_ADDRESS,
+      ponsFactoryAddresses: PONS_FACTORY_ADDRESSES,
       legacyFactoryAddresses: LEGACY_FACTORY_ADDRESSES,
       legacyQuoteFactoryAddresses: LEGACY_QUOTE_FACTORY_ADDRESSES,
       tokenListPath: "/api/token-list",
