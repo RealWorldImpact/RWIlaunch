@@ -33,11 +33,10 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
 
     uint24 public constant POOL_FEE = 10_000;
     int24 public constant POOL_TICK_SPACING = 200;
-    uint24 private constant WETH_USDG_POOL_FEE = 100;
+    uint24 public constant WETH_USDG_POOL_FEE = 100;
     uint16 public constant BPS = 10_000;
     uint16 public constant CREATOR_LP_FEE_SHARE_BPS = 9_000;
     uint16 public constant DEVELOPER_LP_FEE_SHARE_BPS = 1_000;
-    uint16 private constant PERMISSIONLESS_SETTLEMENT_MIN_OUTPUT_BPS = 9_500;
     uint16 public constant POOL_ALLOCATION_BPS = BPS;
     uint16 public constant INITIAL_ACTIVE_TOKEN_BPS = 2_500;
     uint16 public constant STAGED_TOKEN_BPS = 7_500;
@@ -45,15 +44,15 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
     uint16 private constant STAGED_TRANCHE_TOKEN_BPS = STAGED_TOKEN_BPS / STAGED_POSITION_COUNT;
     uint256 private constant STAGED_TICK_OFFSETS_PACKED =
         0x9920008ef80084d0007aa8007080006720005cf80052d00048a8003e80;
-    uint256 private constant MAX_LOCKED_TOKEN_DUST = 1 ether;
+    uint256 public constant MAX_LOCKED_TOKEN_DUST = 1 ether;
     bool public constant LIQUIDITY_PERMANENTLY_LOCKED = true;
     uint256 public constant TARGET_MARKET_CAP_USD_E18 = 10_000 ether;
     uint256 private constant TOKEN_SUPPLY_WHOLE = 1_000_000_000;
     uint32 public constant ORACLE_TWAP_WINDOW = 30 minutes;
     int24 public constant MAX_WETH_USDG_SPOT_TWAP_DEVIATION = 300;
     uint128 public constant MIN_WETH_USDG_HARMONIC_LIQUIDITY = 500_000_000_000_000_000;
-    uint160 private constant REQUIRED_HOOK_FLAGS = (1 << 13) | (1 << 7) | (1 << 3);
-    uint160 private constant ALL_HOOK_FLAGS_MASK = (1 << 14) - 1;
+    uint160 public constant REQUIRED_HOOK_FLAGS = (1 << 13) | (1 << 7) | (1 << 3);
+    uint160 public constant ALL_HOOK_FLAGS_MASK = (1 << 14) - 1;
     uint160 internal constant MIN_SQRT_PRICE = 4_295_128_739;
     uint160 internal constant MAX_SQRT_PRICE = 1461446703485210103287273052203988822378723970342;
 
@@ -109,7 +108,7 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
     uint160 private initializingSqrtPriceX96;
     uint8 private activeUnlockAction;
     address private activeUnlockToken;
-    address internal activeUnlockQuoteToken;
+    address private activeUnlockQuoteToken;
 
     error InvalidIntegration();
     error InvalidHookAddress();
@@ -120,6 +119,7 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
     error InvalidLiquidityResult();
     error UnknownPosition();
     error NotPositionCreator();
+    error NotDeveloperWallet();
     error NoClaimableRewards();
     error NoConvertibleRewards();
     error ClaimExpired();
@@ -329,7 +329,7 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
         );
     }
 
-    /// @notice Permissionlessly moves realized LP fees into revenue inventory without selling the launched token.
+    /// @notice Moves realized LP fees into revenue inventory without selling the launched token.
     function collectFeesForRevenue(uint256 positionTokenId)
         external
         nonReentrant
@@ -337,6 +337,7 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
     {
         address creator = positionCreators[positionTokenId];
         if (creator == address(0)) revert UnknownPosition();
+        if (msg.sender != creator) revert NotPositionCreator();
         address token = positionTokens[positionTokenId];
         LaunchRecord memory record = launches[token];
 
@@ -351,8 +352,7 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
         emit FeesCollectedForRevenue(positionTokenId, creator, tokenFees, quoteFees);
     }
 
-    /// @notice Permissionlessly converts already-held USDG revenue to native ETH, then applies the immutable 90/10 split.
-    /// @dev The caller cannot weaken the oracle-derived minimum output used by automatic settlement.
+    /// @notice Converts already-held USDG revenue to native ETH, then applies the immutable 90/10 split.
     function convertQuoteRewardsToEth(uint256 positionTokenId, uint256 minimumEthOut, uint256 deadline)
         external
         nonReentrant
@@ -360,15 +360,12 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
     {
         address creator = positionCreators[positionTokenId];
         if (creator == address(0)) revert UnknownPosition();
+        if (msg.sender != creator) revert NotPositionCreator();
         if (block.timestamp > deadline) revert ClaimExpired();
         LaunchRecord memory record = launches[positionTokens[positionTokenId]];
         if (record.quoteAsset != QuoteAsset.USDG) revert NoConvertibleRewards();
         quoteAmount = convertibleQuoteRewards[positionTokenId];
         if (quoteAmount == 0) revert NoConvertibleRewards();
-
-        uint256 protectedEthOut = Math.mulDiv(quoteAmount, 1e30, ethUsdPriceE18());
-        protectedEthOut = Math.mulDiv(protectedEthOut, PERMISSIONLESS_SETTLEMENT_MIN_OUTPUT_BPS, BPS);
-        if (minimumEthOut < protectedEthOut) minimumEthOut = protectedEthOut;
 
         convertibleQuoteRewards[positionTokenId] = 0;
         IERC20(address(usdg)).forceApprove(address(swapRouter), quoteAmount);
@@ -410,9 +407,9 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
         emit EthRewardsClaimed(positionTokenId, creator, ethAmount);
     }
 
-    /// @notice Permissionlessly pays the immutable developer wallet its accumulated 10% share in native ETH.
-    /// @dev The caller can trigger settlement but cannot redirect the payout.
+    /// @notice Pays the immutable developer wallet its accumulated 10% share in native ETH.
     function claimDeveloperEthRewards() external nonReentrant returns (uint256 ethAmount) {
+        if (msg.sender != developerWallet) revert NotDeveloperWallet();
         ethAmount = claimableDeveloperEthRewards;
         if (ethAmount == 0) revert NoClaimableRewards();
         claimableDeveloperEthRewards = 0;
@@ -426,6 +423,11 @@ abstract contract DirectEthUsdgV4LaunchHook is ReentrancyGuard {
             RWIOracleMath.quoteAtTick(wethUsdgTick, uint128(1 ether), address(weth), address(usdg));
         if (usdgPerWethE6 == 0) revert OraclePriceOutOfRange();
         priceE18 = usdgPerWethE6 * 1e12;
+    }
+
+    /// @dev Mock PoolManager helper; production integration accepts native ETH directly.
+    function activeQuoteCurrency() external view returns (address) {
+        return activeUnlockQuoteToken;
     }
 
     function beforeInitialize(address sender, V4PoolKey calldata key, uint160 sqrtPriceX96)
