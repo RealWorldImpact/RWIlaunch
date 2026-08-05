@@ -2,13 +2,16 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260805-post-launch-redirect-1";
+const RELEASE_VERSION = "20260805-launch-gas-reserve-1";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
 const DEV_BUY_ETH_INPUT_SLIPPAGE_BPS = 500n;
 const DEV_BUY_DEADLINE_SECONDS = 10 * 60;
 const ETH_CLAIM_DEADLINE_SECONDS = 10 * 60;
+const LAUNCH_GAS_LIMIT_FLOOR = 5_000_000n;
+const LAUNCH_GAS_ESTIMATE_BUFFER_BPS = 15_000n;
+const LAUNCH_GAS_FIXED_BUFFER = 100_000n;
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
 const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({});
@@ -1396,7 +1399,27 @@ async function connectWallet() {
 function readableWalletError(error) {
   if (error?.code === 4001 || error?.code === "ACTION_REJECTED") return "Transaction cancelled in wallet.";
   const message = error?.shortMessage || error?.reason || error?.message || "Transaction failed.";
+  if (/out of gas|intrinsic gas too low|reentrancy sentry/i.test(message)) {
+    return "The network did not reserve enough gas for this launch. No token was created; please retry.";
+  }
   return message.replace(/^execution reverted:\s*/i, "Launch reverted: ").slice(0, 220);
+}
+
+function bufferedLaunchGasLimit(estimatedGas) {
+  const estimate = BigInt(estimatedGas);
+  const buffered = estimate * LAUNCH_GAS_ESTIMATE_BUFFER_BPS / 10_000n + LAUNCH_GAS_FIXED_BUFFER;
+  return buffered > LAUNCH_GAS_LIMIT_FLOOR ? buffered : LAUNCH_GAS_LIMIT_FLOOR;
+}
+
+async function safeLaunchGasLimit(provider, transactionRequest) {
+  try {
+    return bufferedLaunchGasLimit(await provider.estimateGas(transactionRequest));
+  } catch {
+    // The chain can reject preflight estimation even when the same launch
+    // succeeds. A fixed reserve avoids falling back to that unreliable result.
+    // The wallet only charges for gas the transaction actually consumes.
+    return LAUNCH_GAS_LIMIT_FLOOR;
+  }
 }
 
 function creatorProfileKey(address) {
@@ -3441,11 +3464,15 @@ async function launchOnQuoteFactory() {
     button.textContent = "Confirm launch in wallet…";
     $("#modalNote").textContent = `$10,000 opening valuation · permanently locked TOKEN / ${quoteSymbol} pool · 90% creator ETH revenue · 10% developer ETH revenue.`;
     const calldata = launchFactory.interface.encodeFunctionData("launch", [params]);
-    const transaction = await signer.sendTransaction({
+    const transactionRequest = {
       to: factoryAddress,
       data: `${calldata}${launchMetadataAuthorization.commitment.slice(2)}`,
       value: quoteSymbol === "ETH" ? devBuyQuoteAmount : 0n,
-    });
+    };
+    button.textContent = "Preparing safe gas reserve…";
+    const gasLimit = await safeLaunchGasLimit(provider, { ...transactionRequest, from: signerAddress });
+    button.textContent = "Confirm launch in wallet…";
+    const transaction = await signer.sendTransaction({ ...transactionRequest, gasLimit });
     state.lastDevBuyRwiAmount = 0n;
     state.lastDevBuyUsdAmount = formatUnits(devBuyUsdAmount, 18, 2);
     state.lastDevBuyEthAmount = quoteSymbol === "ETH" ? devBuyQuoteAmount : 0n;
@@ -3671,10 +3698,14 @@ async function launchOnUniswap() {
         : "Source verified · Internal security review only; no independent audit. Confirm the immutable launch transaction only if you accept that risk.");
     const launchCalldata = launchFactory.interface.encodeFunctionData("launch", [params]);
     const authorizedLaunchCalldata = `${launchCalldata}${launchMetadataAuthorization.commitment.slice(2)}`;
-    const transaction = await signer.sendTransaction({
+    const transactionRequest = {
       to: factoryAddress,
       data: authorizedLaunchCalldata,
-    });
+    };
+    button.textContent = "Preparing safe gas reserve…";
+    const gasLimit = await safeLaunchGasLimit(provider, { ...transactionRequest, from: signerAddress });
+    button.textContent = "Confirm launch in wallet…";
+    const transaction = await signer.sendTransaction({ ...transactionRequest, gasLimit });
     state.lastDevBuyRwiAmount = devBuyRwiAmount;
     state.lastDevBuyUsdAmount = formatUnits(devBuyUsdAmount, 18, 2);
     state.lastDevBuyEthAmount = quotedDevBuyEthAmount;
@@ -4182,4 +4213,15 @@ window.addEventListener?.("beforeunload", () => {
   releaseProfileAvatarObjectUrl();
 });
 
-window.RWILaunchpad = { RWI_ADDRESS, ROBINHOOD_CHAIN, LIQUIDITY_MODEL, FACTORY_CONFIG, PROFILE_REGISTRY_CONFIG };
+window.RWILaunchpad = {
+  RWI_ADDRESS,
+  ROBINHOOD_CHAIN,
+  LIQUIDITY_MODEL,
+  FACTORY_CONFIG,
+  PROFILE_REGISTRY_CONFIG,
+  launchGasPolicy: Object.freeze({
+    minimum: LAUNCH_GAS_LIMIT_FLOOR.toString(),
+    estimateBufferBps: LAUNCH_GAS_ESTIMATE_BUFFER_BPS.toString(),
+    fixedBuffer: LAUNCH_GAS_FIXED_BUFFER.toString(),
+  }),
+};
