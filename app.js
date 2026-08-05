@@ -2,7 +2,7 @@ const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260805-creator-dashboard-perf-1";
+const RELEASE_VERSION = "20260805-creator-dashboard-perf-2";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
@@ -1300,7 +1300,7 @@ async function handleWalletAccountsChanged(accounts) {
   renderAccount();
   if (state.account) {
     await readEthBalance();
-    await loadCreatorDashboard();
+    if (creatorDashboardIsOpen()) await loadCreatorDashboard();
   }
 }
 
@@ -1309,7 +1309,7 @@ async function handleWalletChainChanged(chainId) {
   updateBalanceState();
   if (String(chainId).toLowerCase() === ROBINHOOD_CHAIN.chainId && state.account) {
     await readEthBalance();
-    await loadCreatorDashboard();
+    if (creatorDashboardIsOpen()) await loadCreatorDashboard();
   } else if (state.account) {
     setRevenueMessage("Switch the wallet to Robinhood Chain to load creator revenue.");
   }
@@ -1355,7 +1355,7 @@ async function connectWallet() {
     await ensureRobinhoodChain();
     renderAccount();
     await readEthBalance();
-    await loadCreatorDashboard();
+    if (creatorDashboardIsOpen()) await loadCreatorDashboard();
     toast("Connected to Robinhood Chain.");
     return Boolean(state.account);
   } catch (error) {
@@ -1686,7 +1686,7 @@ function renderDashboardAccess() {
   const shortAddress = `${state.account.slice(0, 6)}…${state.account.slice(-4)}`;
   $("#profileWallet").textContent = state.account;
   $("#feeRecipient").textContent = shortAddress;
-  loadCreatorProfile();
+  if (creatorDashboardIsOpen()) loadCreatorProfile();
 }
 
 function renderDeveloperRevenueAccess() {
@@ -1842,6 +1842,11 @@ function setDashboardOpenerState(expanded) {
   $$('[data-dashboard-open]').forEach((opener) => opener.setAttribute("aria-expanded", String(expanded)));
 }
 
+function creatorDashboardIsOpen() {
+  const modal = $("#dashboardModal");
+  return Boolean(modal && !modal.hidden);
+}
+
 function openCreatorDashboard(trigger = null, { updateHash = true } = {}) {
   const modal = $("#dashboardModal");
   if (!modal || !modal.hidden) return;
@@ -1850,6 +1855,7 @@ function openCreatorDashboard(trigger = null, { updateHash = true } = {}) {
   modal.hidden = false;
   setDashboardOpenerState(true);
   renderDashboardAccess();
+  if (state.account) loadCreatorDashboard();
   syncModalScrollLock();
   if (updateHash && window.location.hash !== "#dashboard") {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#dashboard`);
@@ -3799,7 +3805,7 @@ async function syncWallet() {
       const chainId = await wallet.request({ method: "eth_chainId" });
       if (chainId.toLowerCase() === ROBINHOOD_CHAIN.chainId) {
         await readEthBalance();
-        await loadCreatorDashboard();
+        if (creatorDashboardIsOpen()) await loadCreatorDashboard();
       }
     }
   } catch {
