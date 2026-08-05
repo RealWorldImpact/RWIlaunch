@@ -94,7 +94,7 @@ async function main() {
 
   const [rwiRuntime, quoteRuntime, rwiTransaction, quoteTransaction] = await Promise.all([
     validateRuntime(provider, rwiAddress, rwiArtifact, rwiHash, 24_257, "$RWI hook"),
-    validateRuntime(provider, quoteAddress, quoteArtifact, quoteHash, 24_550, "ETH/USDG hook"),
+    validateRuntime(provider, quoteAddress, quoteArtifact, quoteHash, 24_529, "ETH/USDG hook"),
     transactionRecord(provider, RWI_TX, EXPECTED_RWI_BLOCK, helperAddress, "$RWI hook"),
     transactionRecord(provider, QUOTE_TX, EXPECTED_QUOTE_BLOCK, helperAddress, "ETH/USDG hook"),
   ]);
