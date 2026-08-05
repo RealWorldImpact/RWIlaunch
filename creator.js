@@ -1,14 +1,18 @@
 const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
+const PONS_ADDRESS = "0x39dBED3a2bd333467115dE45665cC57F813C4571";
 const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 const EXPLORER_URL = "https://robinhoodchain.blockscout.com";
 const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || Object.freeze({});
 const FACTORY_ABI = window.RWI_FACTORY_ABI || Object.freeze([]);
 const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({});
 const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || Object.freeze([]);
+const PONS_FACTORY_CONFIG = window.RWI_PONS_FACTORY_CONFIG || Object.freeze({});
+const PONS_FACTORY_ABI = window.RWI_PONS_FACTORY_ABI || Object.freeze([]);
 const PROFILE_REGISTRY_CONFIG = window.RWI_PROFILE_REGISTRY || Object.freeze({});
 const PROFILE_REGISTRY_ABI = window.RWI_PROFILE_REGISTRY_ABI || Object.freeze([]);
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
 const MULTI_QUOTE_FEE_MODE = "internal-match-eth-90-10";
+const PONS_FEE_MODE = "internal-match-eth-90-10-pons";
 const TOKEN_SUPPLY = 1_000_000_000n;
 const SWAP_SCAN_BLOCKS = 750_000;
 const MAX_TRADES = 30;
@@ -69,6 +73,16 @@ function sameAddress(left, right) {
 
 function factorySources() {
   const sources = [];
+  if (isAddress(PONS_FACTORY_CONFIG.factoryAddress)) sources.push({
+    address: PONS_FACTORY_CONFIG.factoryAddress,
+    deploymentBlock: Number(PONS_FACTORY_CONFIG.deploymentBlock || 0),
+    protocol: "Uniswap v4",
+    feeMode: PONS_FEE_MODE,
+  });
+  for (const entry of PONS_FACTORY_CONFIG.legacyFactories || []) {
+    if (!isAddress(entry?.address) || sources.some((source) => sameAddress(source.address, entry.address))) continue;
+    sources.push({ ...entry, deploymentBlock: Number(entry.deploymentBlock || 0), protocol: "Uniswap v4", feeMode: PONS_FEE_MODE });
+  }
   if (isAddress(QUOTE_FACTORY_CONFIG.factoryAddress)) sources.push({
     address: QUOTE_FACTORY_CONFIG.factoryAddress,
     deploymentBlock: Number(QUOTE_FACTORY_CONFIG.deploymentBlock || 0),
@@ -99,6 +113,7 @@ function factorySources() {
 
 function factoryAbi(source) {
   if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  if (source.feeMode === PONS_FEE_MODE) return PONS_FACTORY_ABI;
   if (source.feeMode === MULTI_QUOTE_FEE_MODE) return QUOTE_FACTORY_ABI;
   return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
 }
@@ -146,8 +161,8 @@ async function readCreatorLaunch(eventLog, source, provider) {
   ]);
   const metadata = metadataResult.status === "fulfilled" ? metadataResult.value : {};
   const record = recordResult.status === "fulfilled" ? recordResult.value : null;
-  const quoteSymbol = source.feeMode === MULTI_QUOTE_FEE_MODE ? (Number(record?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
-  const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : RWI_ADDRESS;
+  const quoteSymbol = source.feeMode === PONS_FEE_MODE ? "PONS" : source.feeMode === MULTI_QUOTE_FEE_MODE ? (Number(record?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+  const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : quoteSymbol === "PONS" ? PONS_ADDRESS : RWI_ADDRESS;
   return {
     token,
     creator: String(args.creator),
