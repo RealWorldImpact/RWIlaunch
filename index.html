@@ -16,8 +16,8 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260805-mobile-multi-pair-fix-1" />
-    <link rel="stylesheet" href="pair-selector-v2.css?v=20260805-mobile-multi-pair-fix-1" />
+    <link rel="stylesheet" href="styles.css?v=20260806-platform-audit-1" />
+    <link rel="stylesheet" href="pair-selector-v2.css?v=20260806-platform-audit-1" />
   </head>
   <body class="home-page-body">
     <header class="site-header">
@@ -48,7 +48,7 @@
       <div class="ticker" aria-label="Launchpad information">
         <span class="preview-label">Uniswap v4 hook integration</span>
         <span>·</span>
-        <span>$RWI liquidity on Uniswap</span>
+        <span>Permanently locked Uniswap liquidity</span>
         <span>·</span>
         <span>$10,000 dual-TWAP openings</span>
       </div>
@@ -61,12 +61,12 @@
           <p class="eyebrow">01 — The launchpad</p>
           <h1>Launch onchain.<br /><em>Pair with impact.</em></h1>
           <p class="hero-intro">
-            Create a token on Robinhood Chain in minutes. Every launch opens against
-            <strong>$RWI on Uniswap</strong>, making impact the common currency of a new onchain economy.
+            Create a token on Robinhood Chain in minutes. Choose
+            <strong>$RWI, ETH, USDG, PONS, or several permanent Uniswap pools</strong> for one fixed-supply token.
           </p>
           <div class="direct-launch-note">
             <strong>$10K opening · no graduation.</strong>
-            <span>Protected 30-minute RWI/WETH + WETH/USDG Uniswap prices set the TOKEN / RWI opening tick—no oracle credentials.</span>
+            <span>Protected 30-minute Uniswap prices set every selected TOKEN / quote opening tick—no oracle credentials.</span>
           </div>
         </div>
 
@@ -258,14 +258,14 @@
             </div>
             <div class="revenue-summary">
               <div><span>Fee recipient</span><strong id="feeRecipient">Connected creator</strong></div>
-          <div><span>Creator share</span><strong>100% RWI · 90% ETH/USDG/PONS</strong></div>
+          <div><span>Creator share</span><strong>97.5% RWI · 90% ETH/USDG/PONS</strong></div>
               <div><span>LP custody</span><strong>Locked forever</strong></div>
             </div>
             <section class="developer-revenue" id="developerRevenue" hidden aria-labelledby="developerRevenueTitle">
               <div>
                 <span>Platform revenue</span>
                 <strong id="developerRevenueTitle">Developer ETH</strong>
-              <small>10% from ETH, USDG, and PONS launches</small>
+              <small>7.5% from ETH, USDG, and PONS launches</small>
               </div>
               <div class="developer-revenue-balance">
                 <span id="developerEthPending">0 ETH</span>
@@ -276,7 +276,7 @@
             <div class="revenue-list" id="revenueList" aria-live="polite">
               <div class="dashboard-empty">Connect your wallet to load creator revenue.</div>
             </div>
-        <p class="revenue-note">Internal-match launches collect LP fees without selling into the token pool. Token fees wait for organic buys and are matched at the current pool price. Creator claims transfer escrowed ETH only. RWI pairs send 100% to creators; ETH, USDG, and PONS pairs send 90% to creators and 10% to the platform developer wallet.</p>
+        <p class="revenue-note">Internal-match launches collect LP fees without selling into the token pool. Token fees wait for organic buys and are matched at the current pool price. Creator claims transfer escrowed ETH only. Every pool permanently compounds 2.5% of LP fees; the remaining share is 97.5% to creators on RWI pairs, or 90% to creators and 7.5% to the platform developer wallet on ETH, USDG, and PONS pairs.</p>
           </div>
         </div>
       </section>
@@ -362,6 +362,6 @@
     <script src="profile-registry-config.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-abi.js?v=20260803-dextools-restored"></script>
     <script src="profile-registry-deployment.js?v=20260803-dextools-restored"></script>
-  <script src="app-quote-live.js?v=20260806-logo-recovery-1"></script>
+  <script src="app-quote-live.js?v=20260806-platform-audit-1"></script>
   </body>
 </html>
