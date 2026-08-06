@@ -20,6 +20,8 @@ const PONS_FACTORY_ADDRESSES = [
   process.env.RWI_PONS_FACTORY_ADDRESS || "",
   ...(process.env.RWI_LEGACY_PONS_FACTORY_ADDRESSES || "").split(","),
 ].map((address) => address.trim()).filter((address) => isAddress(address));
+const MULTI_PAIR_FACTORY_ADDRESS = process.env.RWI_MULTI_PAIR_FACTORY_ADDRESS
+  || "0x7fbDd9A55F11A854aD0d1c18F63aE47D58c7E088";
 const LEGACY_FACTORY_ADDRESSES = [
   "0x0Fb46f019eBf66D0767E891f8fACe687F1156088",
   "0xB725d44EA09BA4c1C8650D79aDB84C06d3CbE000",
@@ -41,12 +43,20 @@ const TOKEN_LIST_PATH = "rwi-launchpad/rwi-launchpad.tokenlist.json";
 const FACTORY_ABI = [
   "function launches(address token) view returns (address creator,bytes32 poolId,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount,int24 tickLower,int24 tickUpper)",
 ];
+const MULTI_PAIR_FACTORY_ABI = [
+  "function tokenPairMask(address token) view returns(uint8)",
+  "function launchPools(address token,uint8 quoteAsset) view returns(address creator,bytes32 poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAllocation,uint256 initialQuoteAmount,int24 tickLower,int24 tickUpper,address quoteToken,uint8 quoteAsset,bool liquidityPermanentlyLocked)",
+];
 const LAUNCH_INTERFACE = new Interface([
   "function launch((string name,string symbol,uint256 devBuyRwiAmount,uint256 minimumDevBuyTokenOut) params) returns (address token,bytes32 poolId,uint256 positionTokenId,uint256 devBuyTokenAmount)",
   "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
 ]);
 const QUOTE_LAUNCH_INTERFACE = new Interface([
   "function launch((string name,string symbol,uint8 quoteAsset,uint256 devBuyQuoteAmount,uint256 minimumDevBuyTokenOut) params) payable returns (address token,bytes32 poolId,uint256 positionTokenId,uint256 devBuyTokenAmount)",
+  "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialQuoteAmount,bool liquidityPermanentlyLocked)",
+]);
+const MULTI_PAIR_LAUNCH_INTERFACE = new Interface([
+  "function launch((string name,string symbol,uint8 pairMask,uint8 devBuyPair,uint256 devBuyEthAmount,uint256 minimumDevBuyQuoteOut,uint256 minimumDevBuyTokenOut,uint256 deadline) params) payable returns(address token,uint256 devBuyTokenAmount)",
   "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialQuoteAmount,bool liquidityPermanentlyLocked)",
 ]);
 const CORS_HEADERS = Object.freeze({
@@ -110,7 +120,7 @@ function sha256(value) {
 
 function canonicalPayload(input) {
   const factoryAddress = cleanAddress(input.factoryAddress || FACTORY_ADDRESS, "factory");
-  const allowedFactories = [FACTORY_ADDRESS, QUOTE_FACTORY_ADDRESS, ...PONS_FACTORY_ADDRESSES, ...LEGACY_FACTORY_ADDRESSES, ...LEGACY_QUOTE_FACTORY_ADDRESSES]
+  const allowedFactories = [FACTORY_ADDRESS, QUOTE_FACTORY_ADDRESS, MULTI_PAIR_FACTORY_ADDRESS, ...PONS_FACTORY_ADDRESSES, ...LEGACY_FACTORY_ADDRESSES, ...LEGACY_QUOTE_FACTORY_ADDRESSES]
     .filter((address) => isAddress(address)).map((address) => getAddress(address).toLowerCase());
   if (!allowedFactories.includes(factoryAddress.toLowerCase())) throw new Error("This launch factory is not approved for public metadata.");
   return {
@@ -251,16 +261,26 @@ async function writeTokenList() {
 }
 
 async function verifyLaunch(payload, provider = new JsonRpcProvider(RPC_URL, CHAIN_ID, { staticNetwork: true })) {
-  const factory = new Contract(payloadFactoryAddress(payload), FACTORY_ABI, provider);
+  const factoryAddress = payloadFactoryAddress(payload);
+  const isMultiPair = factoryAddress.toLowerCase() === MULTI_PAIR_FACTORY_ADDRESS.toLowerCase();
+  const factory = new Contract(factoryAddress, isMultiPair ? MULTI_PAIR_FACTORY_ABI : FACTORY_ABI, provider);
   const token = new Contract(payload.tokenAddress, [
     "function name() view returns (string)",
     "function symbol() view returns (string)",
   ], provider);
   const [launch, onchainName, onchainSymbol] = await Promise.all([
-    factory.launches(payload.tokenAddress),
-    token.name(),
-    token.symbol(),
+    isMultiPair
+      ? (async () => {
+        const mask = Number(await factory.tokenPairMask(payload.tokenAddress));
+        const records = await Promise.all([0, 1, 2, 3]
+          .filter((asset) => (mask & (1 << asset)) !== 0)
+          .map((asset) => factory.launchPools(payload.tokenAddress, asset)));
+        return records.find((record) => String(record.poolId).toLowerCase() === payload.poolId) || null;
+      })()
+      : factory.launches(payload.tokenAddress),
+    token.name(), token.symbol(),
   ]);
+  if (!launch) throw new Error("The submitted Uniswap pool does not match this multi-pair launch.");
   if (launch.creator.toLowerCase() !== payload.creator.toLowerCase()) throw new Error("The signing wallet is not this token's onchain creator.");
   if (String(launch.poolId).toLowerCase() !== payload.poolId) throw new Error("The submitted Uniswap pool does not match the factory record.");
   if (!launch.liquidityPermanentlyLocked || BigInt(launch.liquidity) === 0n) throw new Error("The factory launch is not active and permanently locked.");
@@ -280,7 +300,7 @@ export async function verifyLaunchTransactionAuthorization(payload, transactionH
   if (getAddress(transaction.from) !== payload.creator) throw new Error("The launch transaction was not signed by this token's creator.");
 
   const calldata = String(transaction.data || "").toLowerCase();
-  const launchInterfaces = [LAUNCH_INTERFACE, QUOTE_LAUNCH_INTERFACE];
+  const launchInterfaces = [LAUNCH_INTERFACE, QUOTE_LAUNCH_INTERFACE, MULTI_PAIR_LAUNCH_INTERFACE];
   const launchSelectors = launchInterfaces.map((entry) => entry.getFunction("launch").selector.toLowerCase());
   const expectedCommitment = launchMetadataCommitment(payload).slice(2).toLowerCase();
   if (!launchSelectors.some((selector) => calldata.startsWith(selector)) || calldata.length < 72 || !calldata.endsWith(expectedCommitment)) {
