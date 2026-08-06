@@ -49,6 +49,12 @@ const PROFILE_REGISTRY_LOCAL_BLOCK_KEY = "rwi-profile-registry-block";
 const DEXSCREENER_CHAIN_ID = "robinhood";
 const DEXSCREENER_REFRESH_MS = 30_000;
 const RWI_USD_CACHE_MS = 60_000;
+const POOL_CHART_CACHE_MS = 25_000;
+const POOL_CHART_MAX_BLOCKS = 500_000;
+const POOL_CHART_LOG_CHUNK = 45_000;
+const POOL_CHART_MAX_POINTS = 320;
+const V4_SWAP_EVENT_ABI = "event Swap(bytes32 indexed id,address indexed sender,int128 amount0,int128 amount1,uint160 sqrtPriceX96,uint128 liquidity,int24 tick,uint24 fee)";
+const V3_SWAP_EVENT_ABI = "event Swap(address indexed sender,address indexed recipient,int256 amount0,int256 amount1,uint160 sqrtPriceX96,uint128 liquidity,int24 tick)";
 const V4_STATE_VIEW_ABI = Object.freeze([
   "function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96,int24 tick,uint24 protocolFee,uint24 lpFee)",
   "function getLiquidity(bytes32 poolId) view returns (uint128 liquidity)",
@@ -96,6 +102,7 @@ const state = {
   directTradeIntegrationsValidated: false,
   dexScreenerPair: null, dexScreenerRefreshTimer: null, dexScreenerRequest: 0,
   dexScreenerToken: null, dexScreenerLaunch: null,
+  poolChartRequest: 0, poolChartCache: new Map(),
   marketProvider: null, rwiUsdPrice: null, ethUsdPrice: null, rwiUsdUpdatedAt: 0,
   tokenRwiPrice: null, tokenUsdPrice: null,
   tokenLogoFallbackAttempted: false,
@@ -128,12 +135,14 @@ function configuredFactorySources() {
     protocol: "Uniswap v4",
     feeMode: MULTI_PAIR_FEE_MODE,
     multiPair: true,
+    deploymentBlock: Number(MULTI_PAIR_FACTORY_CONFIG.deploymentBlock || 0),
   });
   if (isAddress(PONS_FACTORY_CONFIG.factoryAddress)) sources.push({
     address: PONS_FACTORY_CONFIG.factoryAddress,
     current: true,
     protocol: "Uniswap v4",
     feeMode: PONS_FEE_MODE,
+    deploymentBlock: Number(PONS_FACTORY_CONFIG.deploymentBlock || 0),
   });
   for (const entry of PONS_FACTORY_CONFIG.legacyFactories || []) {
     if (isAddress(entry?.address) && !sources.some((source) => sameAddress(source.address, entry.address))) {
@@ -145,6 +154,7 @@ function configuredFactorySources() {
     current: true,
     protocol: "Uniswap v4",
     feeMode: MULTI_QUOTE_FEE_MODE,
+    deploymentBlock: Number(QUOTE_FACTORY_CONFIG.deploymentBlock || 0),
   });
   for (const entry of QUOTE_FACTORY_CONFIG.legacyFactories || []) {
     if (isAddress(entry?.address) && !sources.some((source) => sameAddress(source.address, entry.address))) {
@@ -158,6 +168,7 @@ function configuredFactorySources() {
     current: true,
     protocol: "Uniswap v4",
     feeMode: localReplacement ? INTERNAL_MATCH_FEE_MODE : (FACTORY_CONFIG.rewardMode || FACTORY_CONFIG.feeMode || "eth"),
+    deploymentBlock: localReplacement ? 0 : Number(FACTORY_CONFIG.deploymentBlock || 0),
   });
   if (localReplacement && isAddress(FACTORY_CONFIG.factoryAddress) && !sameAddress(localReplacement, FACTORY_CONFIG.factoryAddress)) {
     sources.push({ address: FACTORY_CONFIG.factoryAddress, current: false, protocol: "Uniswap v4", feeMode: FACTORY_CONFIG.rewardMode || FACTORY_CONFIG.feeMode || "eth" });
@@ -470,50 +481,173 @@ function dexToolsPoolUrl(pairId) {
   return `https://www.dextools.io/app/en/robinhood/pair-explorer/${encodeURIComponent(pairId)}`;
 }
 
-function dexToolsChartUrl(pairId) {
-  return `https://www.dextools.io/widget-chart/en/robinhood/pe-light/${encodeURIComponent(pairId)}?theme=dark&chartType=1&chartResolution=15&drawingToolbars=false`;
-}
-
 function renderDexToolsChart(pairId) {
   const reference = String(pairId || "");
   if (!/^0x(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(reference)) return;
-  const chartUrl = dexToolsChartUrl(reference);
-  const chart = $("#dexToolsChart");
-  if (!chart) return;
-  const status = $("#dexToolsChartStatus");
   const link = $("#dexToolsMarketLink");
   if (link) link.href = dexToolsPoolUrl(reference);
-  if (chart.dataset.loadedSource === chartUrl) {
-    chart.hidden = false;
-    if (status) status.hidden = true;
-    return;
+}
+
+function poolChartKey(launch) {
+  return String(launch?.poolId || launch?.pool || "").toLowerCase();
+}
+
+function chartQuoteDecimals(launch) {
+  return launch?.quoteSymbol === "USDG" ? USDG_DECIMALS : 18;
+}
+
+function chartPriceLabel(value, quoteSymbol) {
+  const number = finiteNumber(value);
+  if (number === null || number <= 0) return "—";
+  const formatted = number >= 0.001
+    ? number.toLocaleString("en-US", { maximumSignificantDigits: 6 })
+    : number.toExponential(3).replace("e-", "e−");
+  return `${formatted} ${quoteSymbol}`;
+}
+
+function setPoolChartLoading(launch) {
+  const frame = $(".onchain-chart-frame");
+  const status = $("#dexToolsChartStatus");
+  if (!frame || !status) return;
+  frame.classList.remove("is-ready", "is-waiting", "is-error");
+  status.hidden = false;
+  status.querySelector("strong").textContent = "Reading pool history";
+  status.querySelector("span").textContent = `Loading the ${launch?.quoteSymbol || "RWI"} pool directly from Uniswap.`;
+  $("#onchainChartPair").textContent = `${state.tokenSymbol} / ${launch?.quoteSymbol || "RWI"}`;
+  $("#onchainChartSource").textContent = launch?.poolId ? "Onchain v4" : "Onchain v3";
+  $("#onchainChartTrades").textContent = "Loading trades";
+}
+
+async function readPoolSwapLogs(provider, tokenAddress, launch) {
+  const latestBlock = await withTimeout(provider.getBlockNumber(), 8_000, "The latest block could not be read.");
+  const configuredStart = Math.max(0, Number(launch?.deploymentBlock || 0));
+  const fromBlock = Math.max(configuredStart || latestBlock - POOL_CHART_MAX_BLOCKS, latestBlock - POOL_CHART_MAX_BLOCKS);
+  const isV4 = Boolean(launch?.poolId);
+  const eventInterface = new window.ethers.Interface([isV4 ? V4_SWAP_EVENT_ABI : V3_SWAP_EVENT_ABI]);
+  const eventTopic = eventInterface.getEvent("Swap").topicHash;
+  const address = isV4 ? (MULTI_PAIR_FACTORY_CONFIG.uniswapV4PoolManager || FACTORY_CONFIG.uniswapV4PoolManager) : launch.pool;
+  if (!isAddress(address)) throw new Error("The Uniswap pool manager is unavailable.");
+  const topics = isV4 ? [eventTopic, launch.poolId] : [eventTopic];
+  const logs = [];
+  for (let start = fromBlock; start <= latestBlock; start += POOL_CHART_LOG_CHUNK) {
+    const end = Math.min(latestBlock, start + POOL_CHART_LOG_CHUNK - 1);
+    const batch = await withTimeout(provider.getLogs({ address, topics, fromBlock: start, toBlock: end }), 10_000, "Pool history took too long to load.");
+    logs.push(...batch);
   }
-  clearTimeout(renderDexToolsChart.timer);
-  chart.hidden = true;
-  if (status) {
-    status.hidden = false;
-    status.querySelector("strong").textContent = "Loading market chart";
+  const quoteAddress = launch?.quoteAddress || RWI_ADDRESS;
+  const tokenIs0 = BigInt(tokenAddress) < BigInt(quoteAddress);
+  const points = logs.map((log) => {
+    try {
+      const parsed = eventInterface.parseLog(log);
+      const price = quoteFromSqrtPrice(parsed.args.sqrtPriceX96, tokenIs0, state.tokenDecimals, chartQuoteDecimals(launch));
+      return price ? { block: Number(log.blockNumber), logIndex: Number(log.index ?? log.logIndex ?? 0), price } : null;
+    } catch {
+      return null;
+    }
+  }).filter(Boolean).sort((left, right) => left.block - right.block || left.logIndex - right.logIndex);
+  return { latestBlock, fromBlock, points: points.slice(-POOL_CHART_MAX_POINTS), tradeCount: logs.length };
+}
+
+async function readPoolChartSeries(tokenAddress, launch) {
+  const key = poolChartKey(launch);
+  const cached = state.poolChartCache.get(key);
+  if (cached && Date.now() - cached.cachedAt < POOL_CHART_CACHE_MS) return cached;
+  const provider = marketProvider();
+  let history = { latestBlock: 0, fromBlock: 0, points: [], tradeCount: 0, historyAvailable: true };
+  try {
+    history = { ...history, ...(await readPoolSwapLogs(provider, tokenAddress, launch)) };
+  } catch {
+    history.historyAvailable = false;
+    history.latestBlock = await provider.getBlockNumber().catch(() => 0);
   }
-  chart.onload = () => {
-    chart.dataset.loadedSource = chartUrl;
-    chart.hidden = false;
-    if (status) status.hidden = true;
-    clearTimeout(renderDexToolsChart.timer);
-  };
-  chart.onerror = () => {
-    chart.hidden = true;
+  const spotPrice = await readTokenRwiPriceOnchain(tokenAddress, launch, provider);
+  if (!spotPrice) throw new Error("The selected pool does not have a readable opening price.");
+  const last = history.points[history.points.length - 1];
+  if (!last || last.block !== history.latestBlock || Math.abs(last.price - spotPrice) > Number.EPSILON) {
+    history.points.push({ block: history.latestBlock || (last?.block || 1) + 1, logIndex: Number.MAX_SAFE_INTEGER, price: spotPrice, spot: true });
+  }
+  history.points = history.points.slice(-POOL_CHART_MAX_POINTS);
+  const result = { ...history, cachedAt: Date.now() };
+  state.poolChartCache.set(key, result);
+  return result;
+}
+
+function renderPoolChartSeries(series, launch) {
+  const frame = $(".onchain-chart-frame");
+  const status = $("#dexToolsChartStatus");
+  const line = $("#onchainChartLine");
+  const area = $("#onchainChartArea");
+  const point = $("#onchainChartPoint");
+  if (!frame || !line || !area || !point) return;
+  const quoteSymbol = launch?.quoteSymbol || "RWI";
+  const rawPoints = series.points.filter((entry) => finiteNumber(entry.price) > 0);
+  if (!rawPoints.length) throw new Error("The selected pool price is unavailable.");
+  const first = rawPoints[0];
+  const points = rawPoints.length === 1
+    ? [first, { ...first, block: first.block + 1 }]
+    : rawPoints;
+  const prices = points.map((entry) => entry.price);
+  const actualMin = Math.min(...prices);
+  const actualMax = Math.max(...prices);
+  const flat = actualMax === actualMin;
+  const padding = flat ? Math.max(actualMax * 0.006, Number.EPSILON) : (actualMax - actualMin) * 0.12;
+  const minPrice = Math.max(0, actualMin - padding);
+  const maxPrice = actualMax + padding;
+  const blockMin = points[0].block;
+  const blockMax = Math.max(blockMin + 1, points[points.length - 1].block);
+  const chartLeft = 28;
+  const chartRight = 858;
+  const chartTop = 48;
+  const chartBottom = 252;
+  const coordinates = points.map((entry) => ({
+    x: chartLeft + ((entry.block - blockMin) / (blockMax - blockMin)) * (chartRight - chartLeft),
+    y: chartBottom - ((entry.price - minPrice) / (maxPrice - minPrice)) * (chartBottom - chartTop),
+  }));
+  const linePath = coordinates.map((entry, index) => `${index ? "L" : "M"}${entry.x.toFixed(2)},${entry.y.toFixed(2)}`).join(" ");
+  const areaPath = `${linePath} L${coordinates[coordinates.length - 1].x.toFixed(2)},${chartBottom} L${coordinates[0].x.toFixed(2)},${chartBottom} Z`;
+  line.setAttribute("d", linePath);
+  line.classList.toggle("is-flat", flat || series.tradeCount === 0);
+  area.setAttribute("d", areaPath);
+  const finalPoint = coordinates[coordinates.length - 1];
+  point.setAttribute("cx", finalPoint.x.toFixed(2));
+  point.setAttribute("cy", finalPoint.y.toFixed(2));
+  $("#onchainChartPair").textContent = `${state.tokenSymbol} / ${quoteSymbol}`;
+  $("#onchainChartSource").textContent = launch?.poolId ? "Onchain v4" : "Onchain v3";
+  $("#onchainChartTrades").textContent = series.tradeCount ? `${series.tradeCount.toLocaleString("en-US")} trade${series.tradeCount === 1 ? "" : "s"}` : "Awaiting first trade";
+  $("#onchainChartHigh").textContent = chartPriceLabel(actualMax, quoteSymbol);
+  $("#onchainChartMid").textContent = chartPriceLabel((actualMax + actualMin) / 2, quoteSymbol);
+  $("#onchainChartLow").textContent = chartPriceLabel(actualMin, quoteSymbol);
+  $("#onchainChartStart").textContent = series.tradeCount ? `Block ${blockMin.toLocaleString("en-US")}` : "Opening price";
+  $("#onchainChartEnd").textContent = "Live";
+  $("#onchainChartDescription").textContent = series.tradeCount
+    ? `${series.tradeCount} onchain swaps for the ${state.tokenSymbol} and ${quoteSymbol} pool.`
+    : `Opening price for the ${state.tokenSymbol} and ${quoteSymbol} pool. No swaps have occurred yet.`;
+  frame.classList.remove("is-error");
+  frame.classList.toggle("is-waiting", series.tradeCount === 0);
+  frame.classList.add("is-ready");
+  status.hidden = true;
+}
+
+async function renderOnchainPoolChart(tokenAddress, launch) {
+  const requestId = ++state.poolChartRequest;
+  setPoolChartLoading(launch);
+  renderDexToolsChart(launch?.poolId || launch?.pool);
+  try {
+    const series = await readPoolChartSeries(tokenAddress, launch);
+    if (requestId !== state.poolChartRequest || poolChartKey(launch) !== poolChartKey(state.dexScreenerLaunch)) return;
+    renderPoolChartSeries(series, launch);
+  } catch {
+    if (requestId !== state.poolChartRequest) return;
+    const frame = $(".onchain-chart-frame");
+    const status = $("#dexToolsChartStatus");
+    frame?.classList.add("is-error");
     if (status) {
       status.hidden = false;
-      status.querySelector("strong").textContent = "Chart temporarily unavailable";
-      status.querySelector("span").textContent = "Open the market in DEXTools using the link above.";
+      status.querySelector("strong").textContent = "Chart is reconnecting";
+      status.querySelector("span").textContent = "The pool remains tradable while its onchain history is refreshed.";
     }
-  };
-  if (chart.src !== chartUrl) chart.src = chartUrl;
-  renderDexToolsChart.timer = setTimeout(() => {
-    if (chart.dataset.loadedSource === chartUrl) return;
-    chart.hidden = false;
-    if (status) status.hidden = true;
-  }, 8_000);
+    $("#onchainChartTrades").textContent = "Retrying";
+  }
 }
 
 function showDexScreenerWaiting(tokenAddress, message = null) {
@@ -586,10 +720,13 @@ function startDexScreenerFeed(tokenAddress, launch) {
   state.dexScreenerLaunch = launch;
   $("#tokenMarketLive").hidden = false;
   showDexScreenerWaiting(tokenAddress);
-  renderDexToolsChart(launch?.poolId || launch?.pool);
+  void renderOnchainPoolChart(tokenAddress, launch);
   refreshDexScreenerMarket(tokenAddress, launch);
   if (!document.hidden) {
-    state.dexScreenerRefreshTimer = setInterval(() => refreshDexScreenerMarket(tokenAddress, launch), DEXSCREENER_REFRESH_MS);
+    state.dexScreenerRefreshTimer = setInterval(() => {
+      refreshDexScreenerMarket(tokenAddress, launch);
+      void renderOnchainPoolChart(tokenAddress, launch);
+    }, DEXSCREENER_REFRESH_MS);
   }
 }
 
@@ -598,10 +735,11 @@ function handleMarketVisibilityChange() {
   state.dexScreenerRefreshTimer = null;
   if (document.hidden || !state.dexScreenerToken || !state.dexScreenerLaunch) return;
   refreshDexScreenerMarket(state.dexScreenerToken, state.dexScreenerLaunch);
-  state.dexScreenerRefreshTimer = setInterval(
-    () => refreshDexScreenerMarket(state.dexScreenerToken, state.dexScreenerLaunch),
-    DEXSCREENER_REFRESH_MS,
-  );
+  void renderOnchainPoolChart(state.dexScreenerToken, state.dexScreenerLaunch);
+  state.dexScreenerRefreshTimer = setInterval(() => {
+    refreshDexScreenerMarket(state.dexScreenerToken, state.dexScreenerLaunch);
+    void renderOnchainPoolChart(state.dexScreenerToken, state.dexScreenerLaunch);
+  }, DEXSCREENER_REFRESH_MS);
 }
 
 function setDirectTradeStatus(message, warning = false) {
@@ -2013,7 +2151,7 @@ function configurePoolSwitcher(launches) {
     logo.alt = "";
     logo.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
-    label.textContent = `${state.tokenSymbol} / ${quoteSymbol}`;
+    label.textContent = quoteSymbol === "RWI" ? "" : quoteSymbol;
     button.append(logo, label);
     button.setAttribute("aria-label", `Show ${state.tokenSymbol} / ${quoteSymbol} pool`);
     button.setAttribute("aria-pressed", "false");
@@ -2184,6 +2322,7 @@ async function loadTokenPage() {
         quoteAddress,
         directQuote,
         multiPair,
+        deploymentBlock: Number(factoryLaunch.source.deploymentBlock || 0),
       };
     });
     const launch = normalizedLaunches[0];
@@ -2270,6 +2409,6 @@ window.RWITokenPage = {
   tradePercentAmount, formatTradeUsdInput, formatWalletUsdValue,
   getTradeQuote: () => state.tradeQuote,
   selectDexScreenerPair, tokenMarketValues, tokenMarketChange24h, renderDexScreenerPair, renderDexToolsChart,
-  quoteFromSqrtPrice, rwiUsdPriceFromPairs, readOnchainMarketValues, formatUsdPrice,
+  quoteFromSqrtPrice, rwiUsdPriceFromPairs, readOnchainMarketValues, readPoolSwapLogs, renderOnchainPoolChart, formatUsdPrice,
 };
 if (window.RWI_TOKEN_PAGE_TEST_MODE) window.RWITokenPage.__testState = state;

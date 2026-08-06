@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://rpc.mainnet.chain.robinhood.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260805-token-image-audit-1" />
+    <link rel="stylesheet" href="styles.css?v=20260806-onchain-chart-3" />
   </head>
   <body class="token-page-body">
     <header class="site-header token-site-header">
@@ -47,7 +47,7 @@
           </div>
         </section>
 
-        <section class="compact-market-chart" id="tokenMarketLive" aria-label="Live DEXTools token chart">
+        <section class="compact-market-chart" id="tokenMarketLive" aria-label="Live onchain token chart">
           <header class="compact-market-header">
             <div class="compact-market-price">
               <span><i></i> Live token price</span>
@@ -64,9 +64,40 @@
               <span>View pool</span>
               <div id="tokenPoolOptions" role="radiogroup" aria-label="Token market pool"></div>
             </div>
-            <div class="dextools-chart-frame">
-              <iframe id="dexToolsChart" title="Live DEXTools token price chart" loading="eager" referrerpolicy="strict-origin-when-cross-origin" allow="clipboard-write; fullscreen" allowfullscreen hidden></iframe>
+            <div class="dextools-chart-frame onchain-chart-frame">
+              <div class="onchain-chart-toolbar">
+                <span><i></i><b id="onchainChartSource">Onchain v4</b></span>
+                <strong id="onchainChartPair">TOKEN / RWI</strong>
+                <small id="onchainChartTrades">Loading trades</small>
+              </div>
+              <div class="onchain-chart-canvas">
+                <svg id="onchainPoolChart" viewBox="0 0 900 300" preserveAspectRatio="none" role="img" aria-labelledby="onchainChartTitle onchainChartDescription">
+                  <title id="onchainChartTitle">Live token pool price chart</title>
+                  <desc id="onchainChartDescription">Direct onchain price history for the selected Uniswap pool.</desc>
+                  <defs>
+                    <linearGradient id="onchainChartAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#ccfe06" stop-opacity=".24" />
+                      <stop offset="100%" stop-color="#ccfe06" stop-opacity="0" />
+                    </linearGradient>
+                    <filter id="onchainChartGlow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feGaussianBlur stdDeviation="3" result="blur" />
+                      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                  </defs>
+                  <g class="onchain-chart-grid" aria-hidden="true">
+                    <line x1="28" y1="48" x2="858" y2="48" /><line x1="28" y1="108" x2="858" y2="108" />
+                    <line x1="28" y1="168" x2="858" y2="168" /><line x1="28" y1="228" x2="858" y2="228" />
+                    <line x1="28" y1="48" x2="28" y2="252" /><line x1="235" y1="48" x2="235" y2="252" />
+                    <line x1="443" y1="48" x2="443" y2="252" /><line x1="650" y1="48" x2="650" y2="252" /><line x1="858" y1="48" x2="858" y2="252" />
+                  </g>
+                  <path id="onchainChartArea" class="onchain-chart-area" d="" aria-hidden="true" />
+                  <path id="onchainChartLine" class="onchain-chart-line" d="" aria-hidden="true" />
+                  <circle id="onchainChartPoint" class="onchain-chart-point" cx="858" cy="150" r="5" aria-hidden="true" />
+                </svg>
+                <div class="onchain-chart-axis" aria-hidden="true"><span id="onchainChartHigh">—</span><span id="onchainChartMid">—</span><span id="onchainChartLow">—</span></div>
+                <div class="onchain-chart-range" aria-hidden="true"><span id="onchainChartStart">Launch</span><span id="onchainChartEnd">Live</span></div>
               <div class="dextools-chart-status" id="dexToolsChartStatus" role="status"><strong>Loading market chart</strong><span id="dexToolsMarketDescription">Connecting to this token’s live RWI market.</span></div>
+              </div>
             </div>
           </div>
           <footer class="compact-market-footer" id="dexMarketUpdated" aria-live="polite">Connecting to live market data…</footer>
@@ -166,6 +197,6 @@
   <script src="pons-factory-abi.js?v=20260805-pons-pair-1"></script>
     <script src="profile-registry-config.js?v=20260803-wallet-percent-slider-2"></script>
     <script src="profile-registry-abi.js?v=20260803-wallet-percent-slider-2"></script>
-  <script src="token.js?v=20260805-multi-pair-launch-fix-1"></script>
+  <script src="token.js?v=20260806-onchain-chart-3"></script>
   </body>
 </html>
