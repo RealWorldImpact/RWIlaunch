@@ -1,9 +1,46 @@
 {
-  "name": "rwi-launchpad-site",
+  "name": "rwi-uniswap-launchpad",
   "version": "1.0.0",
   "private": true,
+  "description": "Uniswap v4 hook launchpad for RWI, ETH, USDG, and PONS-paired tokens on Robinhood Chain",
+  "scripts": {
+    "compile": "node tooling/compile.js",
+    "test": "node tooling/test.js",
+    "test:multiquote": "node tooling/test-multiquote.js",
+    "test:pons": "node tooling/test-pons.js",
+    "test:multipair": "node tooling/test-multipair.js",
+    "test:image-safety": "node scripts/test-image-safety.js",
+    "test:metadata-auth": "node scripts/test-token-metadata-auth.js",
+    "test:images": "node scripts/audit-token-images.js",
+    "test:routing": "node scripts/test-settlement-routing.js",
+    "test:progressive": "node scripts/test-progressive-liquidity.js",
+    "build:vercel": "node scripts/build-vercel.js",
+    "check:dashboard": "node scripts/check-dashboard.js",
+    "deploy:robinhood": "node scripts/deploy.js",
+    "deploy:quote-factory": "node scripts/deploy-quote-factory.js",
+    "deploy:profile-registry": "node scripts/deploy-profile-registry.js",
+    "verify:robinhood": "node scripts/verify.js",
+    "verify:quote-factory": "node scripts/verify.js",
+    "verify:pons-factory": "node scripts/verify.js",
+    "verify:multi-pair-factory": "node scripts/verify.js",
+    "verify:profile-registry": "node scripts/verify.js",
+    "verify:token": "node scripts/verify.js",
+    "validate:robinhood": "node scripts/configure.js --validate-only",
+    "validate:progressive-deployments": "node scripts/validate-progressive-deployments.js",
+    "configure:robinhood": "node scripts/configure.js",
+    "configure:quote-factory": "node scripts/configure-quote-factory.js",
+    "validate:profile-registry": "node scripts/configure-profile-registry.js --validate-only",
+    "configure:profile-registry": "node scripts/configure-profile-registry.js"
+  },
   "dependencies": {
     "@vercel/blob": "2.6.1",
     "ethers": "6.17.0"
+  },
+  "devDependencies": {
+    "@openzeppelin/contracts": "5.6.1",
+    "@uniswap/v3-core": "1.0.1",
+    "@uniswap/v3-periphery": "1.4.4",
+    "ganache": "7.9.2",
+    "solc": "0.8.26"
   }
 }
