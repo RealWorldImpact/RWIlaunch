@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const RELEASE_VERSION = "20260805-token-image-audit-1";
+  const RELEASE_VERSION = "20260806-platform-audit-1";
   const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
   const PONS_ADDRESS = "0x39dBED3a2bd333467115dE45665cC57F813C4571";
   const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
@@ -9,6 +9,7 @@
   const FIXED_TOKEN_SUPPLY = 1_000_000_000;
   const CACHE_KEY = "rwi-launchpad-discover-directory-v3";
   const CACHE_TTL_MS = 5 * 60 * 1000;
+  const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
   const MAX_DIRECTORY_TOKENS = 48;
   const LOG_CHUNK_SIZE = 50_000;
   const FACTORY_CONFIG = window.RWI_FACTORY_CONFIG || {};
@@ -315,7 +316,7 @@
   }
 
   async function hydrateEntries(entries, metadata) {
-    const results = await mapLimit(entries, 2, (entry) => readLaunch(entry, metadata));
+    const results = await mapLimit(entries, 4, (entry) => readLaunch(entry, metadata));
     const launches = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
     await attachBlockTimes(launches);
     return launches;
@@ -657,8 +658,9 @@
   function readCache() {
     try {
       const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-      if (!cache || !Array.isArray(cache.launches) || Date.now() - Number(cache.savedAt || 0) > CACHE_TTL_MS) return null;
-      return cache;
+      const age = Date.now() - Number(cache?.savedAt || 0);
+      if (!cache || !Array.isArray(cache.launches) || age > CACHE_MAX_AGE_MS) return null;
+      return { ...cache, fresh: age <= CACHE_TTL_MS };
     } catch {
       return null;
     }
@@ -678,8 +680,10 @@
       const cache = readCache();
       if (cache?.launches?.length) {
         state.launches = cache.launches.map((launch) => ({ ...launch, marketLoading: false }));
-        render("Showing recently refreshed markets · use Refresh for the latest block");
-        return;
+        render(cache.fresh
+          ? "Showing recently refreshed markets · use Refresh for the latest block"
+          : "Showing the saved directory · refreshing confirmed launches in the background");
+        if (cache.fresh) return;
       }
     }
     state.loading = true;
@@ -697,7 +701,7 @@
       const existingDirectoryShown = state.launches.length > 0;
       const currentSources = sources.filter((source) => source.current);
       const legacySources = sources.filter((source) => !source.current);
-      const currentResults = await mapLimit(currentSources, 1, (source) => querySourceLogs(source, latestBlock));
+      const currentResults = await mapLimit(currentSources, 3, (source) => querySourceLogs(source, latestBlock));
       const currentEntries = uniqueEntries(currentResults.filter((result) => result.status === "fulfilled").flatMap((result) => result.value));
       let launches = [];
       if (currentEntries.length) {
@@ -708,7 +712,7 @@
           render(`${launches.length} newest confirmed launch${launches.length === 1 ? "" : "es"} · loading launch history…`);
         }
       }
-      const legacyResults = await mapLimit(legacySources, 1, (source) => querySourceLogs(source, latestBlock));
+      const legacyResults = await mapLimit(legacySources, 3, (source) => querySourceLogs(source, latestBlock));
       const selected = uniqueEntries([
         ...currentResults.filter((result) => result.status === "fulfilled").flatMap((result) => result.value),
         ...legacyResults.filter((result) => result.status === "fulfilled").flatMap((result) => result.value),
@@ -726,7 +730,7 @@
       state.launches = launches;
       render(`${launches.length} confirmed launch${launches.length === 1 ? "" : "es"} · updating live markets…`);
       await delay(250);
-      const marketResults = await mapLimit(launches, 2, (launch) => withRetry(() => readMarket(launch), 2));
+      const marketResults = await mapLimit(launches, 4, (launch) => withRetry(() => readMarket(launch), 2));
       marketResults.forEach((result, index) => {
         if (result.status === "fulfilled") Object.assign(launches[index], result.value);
         launches[index].marketLoading = false;
