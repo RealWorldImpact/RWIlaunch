@@ -527,7 +527,11 @@ function updatePreview() {
 
 function validateForm() {
   $$("[aria-invalid='true']").forEach((element) => element.removeAttribute("aria-invalid"));
-  if (fields.name.value.trim().length < 2) return { message: "Add a token name.", element: fields.name };
+  const tokenName = fields.name.value.trim();
+  if (tokenName.length < 2) return { message: "Add a token name.", element: fields.name };
+  if (new TextEncoder().encode(tokenName).length > 64) {
+    return { message: "The token name is too long after encoding. Shorten it and try again.", element: fields.name };
+  }
   if (fields.ticker.value.trim().length < 2) return { message: "Add a ticker symbol.", element: fields.ticker };
   if (!state.imageFile) return { message: "Add and crop a token image.", element: $("#uploadZone") };
   return null;
