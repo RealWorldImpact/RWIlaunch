@@ -17,6 +17,8 @@
   const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || [];
   const PONS_FACTORY_CONFIG = window.RWI_PONS_FACTORY_CONFIG || {};
   const PONS_FACTORY_ABI = window.RWI_PONS_FACTORY_ABI || [];
+  const MULTI_PAIR_FACTORY_CONFIG = window.RWI_MULTI_PAIR_FACTORY_CONFIG || {};
+  const MULTI_PAIR_FACTORY_ABI = window.RWI_MULTI_PAIR_FACTORY_ABI || [];
   const V4_EVENT_ABI = [
     "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialQuoteAmount,bool liquidityPermanentlyLocked)",
   ];
@@ -118,6 +120,14 @@
       sources.push({ ...source, deploymentBlock: Number(source.deploymentBlock || 0) });
     };
     addSource({
+      address: MULTI_PAIR_FACTORY_CONFIG.factoryAddress,
+      deploymentBlock: MULTI_PAIR_FACTORY_CONFIG.deploymentBlock,
+      protocol: "Uniswap v4",
+      multiPair: true,
+      quoteFactory: false,
+      current: true,
+    });
+    addSource({
       address: PONS_FACTORY_CONFIG.factoryAddress,
       deploymentBlock: PONS_FACTORY_CONFIG.deploymentBlock,
       protocol: "Uniswap v4",
@@ -162,6 +172,7 @@
 
   function factoryAbi(source) {
     if (source.protocol === "Uniswap v3") return V3_EVENT_ABI;
+    if (source.multiPair) return MULTI_PAIR_FACTORY_ABI.length ? MULTI_PAIR_FACTORY_ABI : V4_EVENT_ABI;
     if (source.ponsFactory) return PONS_FACTORY_ABI.length ? PONS_FACTORY_ABI : V4_EVENT_ABI;
     if (source.quoteFactory) return QUOTE_FACTORY_ABI.length ? QUOTE_FACTORY_ABI : V4_EVENT_ABI;
     return source.current && FACTORY_ABI.length ? FACTORY_ABI : V4_EVENT_ABI;
@@ -232,13 +243,19 @@
     const args = log.args || factory.interface.parseLog(log)?.args;
     const token = String(args.token);
     const tokenContract = new window.ethers.Contract(token, TOKEN_ABI, state.provider);
+    const launchRecordPromise = source.multiPair
+      ? withRetry(async () => {
+        const position = await factory.positions(args.positionTokenId);
+        return factory.launchPools(token, position.quoteAsset ?? position[2]);
+      })
+      : source.quoteFactory ? withRetry(() => factory.launches(token)) : Promise.resolve(null);
     const details = await Promise.allSettled([
       withRetry(() => tokenContract.name()),
       withRetry(() => tokenContract.symbol()),
       withRetry(() => tokenContract.totalSupply()),
       withRetry(() => tokenContract.balanceOf(DEAD_ADDRESS)),
       withRetry(() => tokenContract.balanceOf(ZERO_ADDRESS)),
-      source.quoteFactory ? withRetry(() => factory.launches(token)) : Promise.resolve(null),
+      launchRecordPromise,
     ]);
     const supplyRaw = details[2].status === "fulfilled" ? BigInt(details[2].value) : window.ethers.parseUnits(String(FIXED_TOKEN_SUPPLY), 18);
     const deadRaw = details[3].status === "fulfilled" ? BigInt(details[3].value) : 0n;
@@ -247,7 +264,10 @@
     const burnedSupply = Number(window.ethers.formatUnits(burnedRaw, 18));
     const totalSupply = Number(window.ethers.formatUnits(supplyRaw, 18)) || FIXED_TOKEN_SUPPLY;
     const record = details[5].status === "fulfilled" ? details[5].value : null;
-    const quoteSymbol = source.ponsFactory ? "PONS" : source.quoteFactory ? (Number(record?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+    const quoteAsset = Number(record?.quoteAsset ?? record?.[9] ?? 0);
+    const quoteSymbol = source.multiPair
+      ? (["RWI", "ETH", "USDG", "PONS"][quoteAsset] || "RWI")
+      : source.ponsFactory ? "PONS" : source.quoteFactory ? (quoteAsset === 0 ? "ETH" : "USDG") : "RWI";
     const publicEntry = metadata.get(token.toLowerCase()) || {};
     return {
       factoryAddress: source.address,
@@ -260,7 +280,8 @@
       description: String(publicEntry.description || ""),
       image: publicEntry.image || publicEntry.logoURI || null,
       quoteSymbol,
-      quoteAddress: quoteSymbol === "PONS" ? PONS_ADDRESS : quoteSymbol === "RWI" ? RWI_ADDRESS : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : ZERO_ADDRESS,
+      quoteAddress: quoteSymbol === "PONS" ? (MULTI_PAIR_FACTORY_CONFIG.ponsAddress || PONS_ADDRESS) : quoteSymbol === "RWI" ? (MULTI_PAIR_FACTORY_CONFIG.rwiAddress || RWI_ADDRESS) : quoteSymbol === "USDG" ? (MULTI_PAIR_FACTORY_CONFIG.usdgAddress || QUOTE_FACTORY_CONFIG.usdgAddress) : ZERO_ADDRESS,
+      multiPair: Boolean(source.multiPair),
       protocol: source.protocol || "Uniswap v4",
       blockNumber: Number(log.blockNumber || 0),
       timestamp: 0,
@@ -324,7 +345,7 @@
   }
 
   function expectedQuoteAddresses(launch) {
-    if (launch.quoteSymbol === "ETH") return [ZERO_ADDRESS, QUOTE_FACTORY_CONFIG.wethAddress, FACTORY_CONFIG.wethAddress].filter(isAddress);
+    if (launch.quoteSymbol === "ETH") return [ZERO_ADDRESS, MULTI_PAIR_FACTORY_CONFIG.wethAddress, QUOTE_FACTORY_CONFIG.wethAddress, FACTORY_CONFIG.wethAddress].filter(isAddress);
     return [launch.quoteAddress || RWI_ADDRESS].filter(isAddress);
   }
 
@@ -369,7 +390,7 @@
 
   async function readOnchainTokenQuote(launch) {
     if (launch.poolId) {
-      const view = new window.ethers.Contract(FACTORY_CONFIG.uniswapV4StateView || QUOTE_FACTORY_CONFIG.uniswapV4StateView, [
+      const view = new window.ethers.Contract(MULTI_PAIR_FACTORY_CONFIG.uniswapV4StateView || FACTORY_CONFIG.uniswapV4StateView || QUOTE_FACTORY_CONFIG.uniswapV4StateView, [
         "function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96,int24 tick,uint24 protocolFee,uint24 lpFee)",
       ], state.provider);
       const slot0 = await view.getSlot0(launch.poolId);
@@ -420,6 +441,13 @@
   }
 
   async function readQuoteUsd(launch) {
+    if (launch.multiPair) {
+      const oracleAddress = MULTI_PAIR_FACTORY_CONFIG.protectedOracle;
+      if (!isAddress(oracleAddress)) throw new Error("Protected multi-pair oracle unavailable");
+      const oracle = new window.ethers.Contract(oracleAddress, ["function quoteUsdPriceE18(address quote) view returns (uint256)"], state.provider);
+      const rawPrice = await oracle.quoteUsdPriceE18(launch.quoteAddress);
+      return Number(window.ethers.formatUnits(rawPrice, 18));
+    }
     if (launch.quoteSymbol === "USDG") return 1;
     if (launch.quoteSymbol === "ETH") {
       const oracle = new window.ethers.Contract(QUOTE_FACTORY_CONFIG.factoryAddress || FACTORY_CONFIG.factoryAddress, ["function ethUsdPriceE18() view returns (uint256)"], state.provider);

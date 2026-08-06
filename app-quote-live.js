@@ -21,6 +21,10 @@ const QUOTE_FACTORY_DEPLOYMENT = window.RWI_QUOTE_FACTORY_DEPLOYMENT || Object.f
 const PONS_FACTORY_CONFIG = window.RWI_PONS_FACTORY_CONFIG || Object.freeze({});
 const PONS_FACTORY_ABI = window.RWI_PONS_FACTORY_ABI || Object.freeze([]);
 const PONS_FACTORY_DEPLOYMENT = window.RWI_PONS_FACTORY_DEPLOYMENT || Object.freeze({});
+const MULTI_PAIR_FACTORY_CONFIG = window.RWI_MULTI_PAIR_FACTORY_CONFIG || Object.freeze({});
+const MULTI_PAIR_FACTORY_ABI = window.RWI_MULTI_PAIR_FACTORY_ABI || Object.freeze([]);
+let MULTI_PAIR_FACTORY_DEPLOYMENT = window.RWI_MULTI_PAIR_FACTORY_DEPLOYMENT || Object.freeze({});
+let multiPairDeploymentBundlePromise = null;
 const DEVELOPER_WALLET = "0x9CD7C9196A4C1836A3DF089cb210272e07e6A5e5";
 let FACTORY_DEPLOYMENT = window.RWI_FACTORY_DEPLOYMENT || Object.freeze({});
 let factoryDeploymentBundlePromise = null;
@@ -29,6 +33,7 @@ const HOOK_DEPLOYER_DEPLOYMENT = window.RWI_HOOK_DEPLOYER_DEPLOYMENT || Object.f
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
 const MULTI_QUOTE_FEE_MODE = "internal-match-eth-90-10";
 const PONS_FEE_MODE = "internal-match-eth-90-10-pons";
+const MULTI_PAIR_FEE_MODE = "multi-pair-eth-90-7.5-2.5";
 const LEGACY_V4_FACTORY_ABI = Object.freeze([
   "event TokenLaunched(address indexed token,address indexed creator,bytes32 indexed poolId,uint256 positionTokenId,uint128 liquidity,uint256 tokenAmount,uint256 initialRwiAmount,bool liquidityPermanentlyLocked)",
   "event FeesClaimedInEth(uint256 indexed positionTokenId,address indexed creator,uint256 tokenFees,uint256 rwiFees,uint256 rwiFromToken,uint256 ethAmount)",
@@ -166,6 +171,8 @@ const state = {
   discoverRwiUsdPromise: null,
   discoverView: "market",
   quoteAsset: "RWI",
+  quoteAssets: ["RWI"],
+  devBuyPair: "RWI",
   developerClaimInFlight: false,
   developerRevenueFactories: [],
 };
@@ -219,8 +226,24 @@ const fields = {
   lock: $("#lockLiquidity"),
 };
 
+function selectedQuoteAssets() {
+  const selected = [...document.querySelectorAll('input[name="quoteAsset"]:checked')]
+    .map((input) => input.value)
+    .filter((value) => ["RWI", "ETH", "USDG", "PONS"].includes(value));
+  return selected.length ? selected : ["RWI"];
+}
+
 function selectedQuoteAsset() {
-  return document.querySelector('input[name="quoteAsset"]:checked')?.value || "RWI";
+  return selectedQuoteAssets()[0];
+}
+
+function selectedDevBuyPair() {
+  const selected = selectedQuoteAssets();
+  return selected.includes(state.devBuyPair) ? state.devBuyPair : selected[0];
+}
+
+function multiPairFactoryAddress() {
+  return isAddress(MULTI_PAIR_FACTORY_CONFIG.factoryAddress) ? MULTI_PAIR_FACTORY_CONFIG.factoryAddress : null;
 }
 
 function quoteFactoryAddress() {
@@ -237,6 +260,10 @@ function isMultiQuoteMode(sourceOrMode) {
 
 function isPonsMode(sourceOrMode) {
   return (typeof sourceOrMode === "string" ? sourceOrMode : sourceOrMode?.feeMode) === PONS_FEE_MODE;
+}
+
+function isMultiPairMode(sourceOrMode) {
+  return (typeof sourceOrMode === "string" ? sourceOrMode : sourceOrMode?.feeMode) === MULTI_PAIR_FEE_MODE;
 }
 
 function cleanTicker(value) {
@@ -262,6 +289,30 @@ async function ensureFactoryDeploymentBundle() {
     throw error;
   });
   return factoryDeploymentBundlePromise;
+}
+
+async function ensureMultiPairDeploymentBundle() {
+  if (MULTI_PAIR_FACTORY_DEPLOYMENT.bytecode && MULTI_PAIR_FACTORY_DEPLOYMENT.deployedBytecode) {
+    return MULTI_PAIR_FACTORY_DEPLOYMENT;
+  }
+  if (multiPairDeploymentBundlePromise) return multiPairDeploymentBundlePromise;
+  multiPairDeploymentBundlePromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `multi-pair-factory-deployment.js?v=${RELEASE_VERSION}`;
+    script.async = true;
+    script.onload = () => {
+      MULTI_PAIR_FACTORY_DEPLOYMENT = window.RWI_MULTI_PAIR_FACTORY_DEPLOYMENT || Object.freeze({});
+      if (MULTI_PAIR_FACTORY_DEPLOYMENT.bytecode && MULTI_PAIR_FACTORY_DEPLOYMENT.deployedBytecode) {
+        resolve(MULTI_PAIR_FACTORY_DEPLOYMENT);
+      } else reject(new Error("The multi-pair deployment bundle is incomplete."));
+    };
+    script.onerror = () => reject(new Error("The multi-pair deployment bundle could not be loaded."));
+    document.head.appendChild(script);
+  }).catch((error) => {
+    multiPairDeploymentBundlePromise = null;
+    throw error;
+  });
+  return multiPairDeploymentBundlePromise;
 }
 
 async function ensureEthersLibrary() {
@@ -385,6 +436,44 @@ function computeSetupCompleteness() {
   return Math.min(score, 100);
 }
 
+function renderSelectedPairLogos(selected) {
+  const stack = $("#selectedPairLogos");
+  if (!stack) return;
+  stack.textContent = "";
+  selected.forEach((quote) => {
+    const logo = QUOTE_ASSET_LOGOS[quote] || QUOTE_ASSET_LOGOS.RWI;
+    const holder = document.createElement("span");
+    const image = document.createElement("img");
+    image.src = logo.src;
+    image.alt = logo.alt;
+    image.style.objectFit = quote === "RWI" ? "cover" : "contain";
+    holder.appendChild(image);
+    stack.appendChild(holder);
+  });
+}
+
+function renderDevBuyPairOptions() {
+  const selected = selectedQuoteAssets();
+  if (!selected.includes(state.devBuyPair)) state.devBuyPair = selected[0];
+  const wrapper = $("#modalDevBuyPair");
+  const options = $("#modalDevBuyPairOptions");
+  if (!wrapper || !options) return;
+  wrapper.hidden = selected.length < 2;
+  options.textContent = "";
+  selected.forEach((quote) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `$${quote}`;
+    button.setAttribute("aria-pressed", String(state.devBuyPair === quote));
+    button.addEventListener("click", () => {
+      state.devBuyPair = quote;
+      renderDevBuyPairOptions();
+      updateDevBuyEstimate();
+    });
+    options.appendChild(button);
+  });
+}
+
 function updatePreview() {
   const name = fields.name.value.trim() || "Your token";
   const enteredTicker = cleanTicker(fields.ticker.value);
@@ -397,18 +486,17 @@ function updatePreview() {
   $("#previewTicker").hidden = !enteredTicker;
   $("#previewMonogramText").textContent = ticker.charAt(0) || "?";
   $("#previewDescription").textContent = description;
-  const quote = selectedQuoteAsset();
+  const selected = selectedQuoteAssets();
+  const quote = selected[0];
   state.quoteAsset = quote;
-  $("#previewPair").textContent = `${ticker} / ${quote}`;
-  $("#fixedPairLabel").textContent = `${ticker} / $${quote}`;
-  $("#previewLiquidity").textContent = `0 ${quote} upfront`;
-  const pairLogo = $("#pairQuoteLogo");
-  const quoteLogo = QUOTE_ASSET_LOGOS[quote] || QUOTE_ASSET_LOGOS.RWI;
-  if (pairLogo) {
-    pairLogo.src = quoteLogo.src;
-    pairLogo.alt = quoteLogo.alt;
-    pairLogo.style.objectFit = quote === "PONS" || quote === "ETH" || quote === "USDG" ? "contain" : "cover";
-  }
+  state.quoteAssets = selected;
+  if (!selected.includes(state.devBuyPair)) state.devBuyPair = quote;
+  $("#previewPair").textContent = `${ticker} / ${selected.join(" + ")}`;
+  $("#previewPairPlural").textContent = selected.length > 1 ? "s" : "";
+  $("#fixedPairKicker").textContent = selected.length > 1 ? `${selected.length} permanent Uniswap pools` : "Permanent Uniswap pair";
+  $("#fixedPairLabel").textContent = `${ticker} / ${selected.map((asset) => `$${asset}`).join(" + ")}`;
+  $("#previewLiquidity").textContent = "0 upfront";
+  renderSelectedPairLogos(selected);
   const pairLinks = $(".pair-links");
   const quoteAddresses = {
     RWI: RWI_ADDRESS,
@@ -416,14 +504,14 @@ function updatePreview() {
     PONS: PONS_ADDRESS,
   };
   const quoteAddress = quoteAddresses[quote];
-  if (pairLinks) pairLinks.hidden = !isAddress(quoteAddress);
+  if (pairLinks) pairLinks.hidden = selected.length !== 1 || !isAddress(quoteAddress);
   const pairQuoteLink = $("#pairQuoteLink");
   if (pairQuoteLink && isAddress(quoteAddress)) {
     pairQuoteLink.href = `https://robinhoodchain.blockscout.com/token/${quoteAddress}`;
     pairQuoteLink.textContent = `$${quote} ${quoteAddress.slice(0, 6)}…${quoteAddress.slice(-4)} ↗`;
   }
   const footnote = $(".preview-footnote");
-  if (footnote) footnote.textContent = `$10K protected-TWAP target · TOKEN / ${quote} · creator revenue paid in ETH · no graduation`;
+  if (footnote) footnote.textContent = `$10K protected-TWAP target · ${selected.length} locked pool${selected.length === 1 ? "" : "s"} · creator revenue paid in ETH · no graduation`;
   $("#descriptionCount").textContent = `${fields.description.value.length} / ${TOKEN_DESCRIPTION_MAX_LENGTH}`;
 
   $("#modalName").textContent = name;
@@ -465,6 +553,14 @@ async function updateDevBuyEstimate() {
     usdAmount = configuredDevBuyUsdAmount();
   } catch (error) {
     estimate.textContent = error.message;
+    return;
+  }
+  const multiPairMode = selectedQuoteAssets().length > 1 || Boolean(multiPairFactoryAddress());
+  if (multiPairMode) {
+    const devPair = selectedDevBuyPair();
+    estimate.textContent = usdAmount === 0n
+      ? `Leave blank or enter 0 to skip. Any dev buy is funded with ETH and routed through the ${devPair} pool.`
+      : `$${formatUnits(usdAmount, 18, 2)} will be funded with ETH and bought through TOKEN / ${devPair}.`;
     return;
   }
   if (usdAmount === 0n) {
@@ -588,6 +684,16 @@ function configuredFactoryDeploymentBlock() {
 
 function configuredFactorySources() {
   const sources = [];
+  const multiPairAddress = multiPairFactoryAddress();
+  if (multiPairAddress) sources.push({
+    address: multiPairAddress,
+    deploymentBlock: Number(MULTI_PAIR_FACTORY_CONFIG.deploymentBlock || 0),
+    current: true,
+    protocol: "Uniswap v4",
+    feeMode: MULTI_PAIR_FEE_MODE,
+    runtimeCodeHash: MULTI_PAIR_FACTORY_CONFIG.runtimeCodeHash || null,
+    multiPair: true,
+  });
   const ponsAddress = ponsFactoryAddress();
   if (ponsAddress) sources.push({
     address: ponsAddress,
@@ -651,6 +757,7 @@ function configuredFactorySources() {
 
 function factoryAbiForSource(source) {
   if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  if (isMultiPairMode(source)) return MULTI_PAIR_FACTORY_ABI;
   if (isPonsMode(source)) return PONS_FACTORY_ABI;
   if (isMultiQuoteMode(source)) return QUOTE_FACTORY_ABI;
   return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
@@ -1237,6 +1344,7 @@ function draftValues() {
     twitter: fields.twitter.value,
     telegram: fields.telegram.value,
     quoteAsset: selectedQuoteAsset(),
+    quoteAssets: selectedQuoteAssets(),
   };
 }
 
@@ -1266,9 +1374,12 @@ function restoreDraft() {
     fields.website.value = draft.website || "";
     fields.twitter.value = draft.twitter || "";
     fields.telegram.value = draft.telegram || "";
-    const restoredQuote = ["RWI", "ETH", "USDG", "PONS"].includes(draft.quoteAsset) ? draft.quoteAsset : "RWI";
-    const quoteInput = document.querySelector(`input[name="quoteAsset"][value="${restoredQuote}"]`);
-    if (quoteInput) quoteInput.checked = true;
+    const restoredQuotes = Array.isArray(draft.quoteAssets)
+      ? draft.quoteAssets.filter((quote) => ["RWI", "ETH", "USDG", "PONS"].includes(quote))
+      : (["RWI", "ETH", "USDG", "PONS"].includes(draft.quoteAsset) ? [draft.quoteAsset] : ["RWI"]);
+    document.querySelectorAll('input[name="quoteAsset"]').forEach((input) => {
+      input.checked = restoredQuotes.includes(input.value);
+    });
     $("#draftStatus").textContent = "Draft restored";
   } catch {
     localStorage.removeItem(DRAFT_KEY);
@@ -1290,8 +1401,11 @@ async function resetDraft({ announce = true } = {}) {
   fields.telegram.value = "";
   fields.devBuy.value = "";
   state.pendingDevBuyRwiAmount = 0n;
-  const rwiQuote = document.querySelector('input[name="quoteAsset"][value="RWI"]');
-  if (rwiQuote) rwiQuote.checked = true;
+  document.querySelectorAll('input[name="quoteAsset"]').forEach((input) => {
+    input.checked = input.value === "RWI";
+  });
+  state.quoteAssets = ["RWI"];
+  state.devBuyPair = "RWI";
   $$('[aria-invalid="true"]').forEach((element) => element.removeAttribute("aria-invalid"));
   $("#formMessage").textContent = "";
   const optionalFields = $(".optional-fields");
@@ -1822,7 +1936,7 @@ async function loadDeveloperRevenue(provider = null) {
   renderDeveloperRevenueAccess();
   if (!state.account || !sameAddress(state.account, DEVELOPER_WALLET)) return;
   const button = $("#claimDeveloperRevenue");
-  const sources = configuredFactorySources().filter((source) => isMultiQuoteMode(source) || isPonsMode(source));
+  const sources = configuredFactorySources().filter((source) => isMultiPairMode(source) || isMultiQuoteMode(source) || isPonsMode(source));
   if (!sources.length) {
     $("#developerEthPending").textContent = "Factory pending";
     $("#developerUsdPending").textContent = "—";
@@ -1838,7 +1952,17 @@ async function loadDeveloperRevenue(provider = null) {
         factory.developerWallet(), factory.claimableDeveloperEthRewards(),
       ]);
       if (!sameAddress(configuredWallet, DEVELOPER_WALLET)) throw new Error("Developer wallet mismatch");
-      return { source, pending: BigInt(pending), factory };
+      let ethUsdPrice = null;
+      try {
+        if (isMultiPairMode(source)) {
+          const oracleAddress = await factory.protectedOracle();
+          const oracle = new window.ethers.Contract(oracleAddress, ["function ethUsdPriceE18() view returns(uint256)"], readProvider);
+          ethUsdPrice = BigInt(await oracle.ethUsdPriceE18());
+        } else {
+          ethUsdPrice = BigInt(await factory.ethUsdPriceE18());
+        }
+      } catch {}
+      return { source, pending: BigInt(pending), factory, ethUsdPrice };
     }));
     state.developerRevenueFactories = results
       .filter((result) => result.status === "fulfilled")
@@ -1847,7 +1971,8 @@ async function loadDeveloperRevenue(provider = null) {
     const pendingEth = state.developerRevenueFactories.reduce((total, entry) => total + entry.pending, 0n);
     $("#developerEthPending").textContent = `${formatUnits(pendingEth, 18, 8)} ETH`;
     try {
-      const ethUsd = BigInt(await state.developerRevenueFactories[0].factory.ethUsdPriceE18());
+      const ethUsd = state.developerRevenueFactories.map((entry) => entry.ethUsdPrice).find((value) => value !== null);
+      if (ethUsd === undefined) throw new Error("ETH/USD estimate unavailable");
       $("#developerUsdPending").textContent = usdValueLabel(pendingEth * ethUsd / 10n ** 18n);
     } catch {
       $("#developerUsdPending").textContent = "USD estimate unavailable";
@@ -1874,7 +1999,7 @@ async function claimDeveloperRevenue() {
     const signer = await provider.getSigner();
     const signerAddress = await signer.getAddress();
     if (!sameAddress(signerAddress, DEVELOPER_WALLET)) throw new Error("Only the configured developer wallet can claim this balance.");
-    const sources = configuredFactorySources().filter((source) => isMultiQuoteMode(source));
+    const sources = configuredFactorySources().filter((source) => isMultiPairMode(source) || isMultiQuoteMode(source) || isPonsMode(source));
     const claimable = [];
     for (const source of sources) {
       const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), signer);
@@ -2202,18 +2327,32 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
   const poolId = isV4 ? String(args.poolId) : null;
   const positionTokenId = BigInt(args.positionTokenId);
   const tokenContract = new window.ethers.Contract(token, ["function name() view returns (string)", "function symbol() view returns (string)"], provider);
-  const multiQuote = isMultiQuoteMode(source);
+  const multiPair = isMultiPairMode(source);
+  const legacyMultiQuote = isMultiQuoteMode(source);
+  const multiQuote = legacyMultiQuote || multiPair;
   const ponsMode = isPonsMode(source);
   const internalMatch = source.feeMode === INTERNAL_MATCH_FEE_MODE || multiQuote || ponsMode;
   const ethOnly = source.feeMode !== "tokens";
-  const launchRecordPromise = multiQuote ? factory.launches(token) : Promise.resolve(null);
+  const positionRefPromise = multiPair ? factory.positions(positionTokenId) : Promise.resolve(null);
+  const launchRecordPromise = legacyMultiQuote
+    ? factory.launches(token)
+    : multiPair
+      ? positionRefPromise.then((positionRef) => factory.launchPools(token, positionRef.quoteAsset))
+      : Promise.resolve(null);
+  const ethUsdPricePromise = multiPair
+    ? factory.protectedOracle().then((oracleAddress) => new window.ethers.Contract(
+      oracleAddress,
+      ["function ethUsdPriceE18() view returns(uint256)"],
+      provider,
+    ).ethUsdPriceE18())
+    : factory.ethUsdPriceE18();
   const feePreview = internalMatch
     ? Promise.allSettled([
       factory.collectFeesForRevenue.staticCall(positionTokenId, { from: String(args.creator) }),
       factory.tokenFeeInventory(positionTokenId),
       multiQuote ? factory.convertibleQuoteRewards(positionTokenId) : factory.convertibleRwiRewards(positionTokenId),
       factory.claimableEthRewards(positionTokenId),
-      factory.ethUsdPriceE18(),
+      ethUsdPricePromise,
     ])
     : ethOnly
       ? factory.claimFeesInEth.staticCall(
@@ -2228,15 +2367,24 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
         ["function collectFees(uint256 positionTokenId) returns (uint256 amount0, uint256 amount1)"],
         provider,
       ).collectFees.staticCall(positionTokenId);
-  const [nameResult, symbolResult, feeResult, launchRecordResult, publicMetadataResult] = await Promise.allSettled([
+  const [nameResult, symbolResult, feeResult, launchRecordResult, positionRefResult, publicMetadataResult] = await Promise.allSettled([
     tokenContract.name(),
     tokenContract.symbol(),
     feePreview,
     launchRecordPromise,
+    positionRefPromise,
     readPublicTokenMetadata(token),
   ]);
   const launchRecord = launchRecordResult.status === "fulfilled" ? launchRecordResult.value : null;
-  const quoteSymbol = ponsMode ? "PONS" : multiQuote ? (Number(launchRecord?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+  const positionRef = positionRefResult.status === "fulfilled" ? positionRefResult.value : null;
+  const quoteAsset = Number(launchRecord?.quoteAsset ?? positionRef?.quoteAsset ?? 0);
+  const quoteSymbol = multiPair
+    ? (["RWI", "ETH", "USDG", "PONS"][quoteAsset] || "RWI")
+    : ponsMode
+      ? "PONS"
+      : legacyMultiQuote
+        ? (quoteAsset === 0 ? "ETH" : "USDG")
+        : "RWI";
   let fees = {
     tokenFees: null,
     rwiFees: null,
@@ -2296,6 +2444,7 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
     uncollectedRwiFees: fees.uncollectedRwiFees,
     internalMatch,
     multiQuote,
+    multiPair,
     quoteSymbol,
     quoteToken: launchRecord?.quoteToken ? String(launchRecord.quoteToken) : ponsMode ? PONS_ADDRESS : RWI_ADDRESS,
     metadata: publicMetadataResult.status === "fulfilled" ? publicMetadataResult.value : null,
@@ -2364,7 +2513,12 @@ async function readDiscoverLaunch(eventLog, provider, factory, source) {
     "function name() view returns (string)",
     "function symbol() view returns (string)",
   ], provider);
-  const launchRecordPromise = isMultiQuoteMode(source) ? factory.launches(token) : Promise.resolve(null);
+  const multiPair = isMultiPairMode(source);
+  const launchRecordPromise = isMultiQuoteMode(source)
+    ? factory.launches(token)
+    : multiPair
+      ? factory.positions(BigInt(args.positionTokenId)).then((positionRef) => factory.launchPools(token, positionRef.quoteAsset))
+      : Promise.resolve(null);
   const [nameResult, symbolResult, logoResult, publicMetadataResult, launchRecordResult] = await Promise.allSettled([
     tokenContract.name(),
     tokenContract.symbol(),
@@ -2373,7 +2527,14 @@ async function readDiscoverLaunch(eventLog, provider, factory, source) {
     launchRecordPromise,
   ]);
   const launchRecord = launchRecordResult.status === "fulfilled" ? launchRecordResult.value : null;
-  const quoteSymbol = isPonsMode(source) ? "PONS" : isMultiQuoteMode(source) ? (Number(launchRecord?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
+  const quoteAsset = Number(launchRecord?.quoteAsset ?? 0);
+  const quoteSymbol = multiPair
+    ? (["RWI", "ETH", "USDG", "PONS"][quoteAsset] || "RWI")
+    : isPonsMode(source)
+      ? "PONS"
+      : isMultiQuoteMode(source)
+        ? (quoteAsset === 0 ? "ETH" : "USDG")
+        : "RWI";
   const quoteAddress = quoteSymbol === "PONS" ? PONS_ADDRESS : quoteSymbol === "RWI" ? RWI_ADDRESS : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : window.ethers.ZeroAddress;
   const publicMetadata = publicMetadataResult.status === "fulfilled" ? publicMetadataResult.value : null;
   const localMetadata = readLocalTokenMetadata(token);
@@ -2392,6 +2553,7 @@ async function readDiscoverLaunch(eventLog, provider, factory, source) {
     blockNumber: Number(eventLog.blockNumber || 0),
     quoteSymbol,
     quoteAddress,
+    multiPair,
   };
 }
 
@@ -2510,6 +2672,11 @@ async function readDiscoverTokenRwiPrice(launch, provider) {
 }
 
 async function readDiscoverQuoteUsdPrice(launch, provider) {
+  if (launch.multiPair && isAddress(launch.factoryAddress)) {
+    const hook = new window.ethers.Contract(launch.factoryAddress, ["function protectedOracle() view returns(address)"], provider);
+    const oracle = new window.ethers.Contract(await hook.protectedOracle(), ["function quoteUsdPriceE18(address quote) view returns(uint256)"], provider);
+    return Number(window.ethers.formatUnits(await oracle.quoteUsdPriceE18(launch.quoteAddress), 18));
+  }
   if (launch.quoteSymbol === "USDG") return 1;
   if (launch.quoteSymbol === "ETH") {
     const oracleAddress = quoteFactoryAddress() || configuredFactoryAddress();
@@ -2920,7 +3087,7 @@ function renderCreatorLaunches() {
         setTimeout(() => URL.revokeObjectURL(imageUrl), 60_000);
       };
       renderDashboardTokenLogo(logoBlob);
-      const currentMetadataFactories = [configuredFactoryAddress(), quoteFactoryAddress(), ponsFactoryAddress()].filter(isAddress);
+      const currentMetadataFactories = [multiPairFactoryAddress(), configuredFactoryAddress(), quoteFactoryAddress(), ponsFactoryAddress()].filter(isAddress);
       if (launch.poolId && currentMetadataFactories.some((address) => sameAddress(launch.factoryAddress, address))) {
         const metadata = { ...(launch.metadata || {}), ...(readLocalTokenMetadata(launch.token) || {}) };
         const publish = dashboardElement("button", "publish-token-logo", logoBlob
@@ -3032,7 +3199,9 @@ async function creatorRevenueContext(launch) {
   const source = configuredFactorySource(launch.factoryAddress);
   if (!source) throw new Error("This token factory is not in the launchpad configuration.");
   const factory = new window.ethers.Contract(launch.factoryAddress, factoryAbiForSource(source), signer);
-  const recordedCreator = await factory.positionCreators(launch.positionTokenId);
+  const recordedCreator = isMultiPairMode(source)
+    ? (await factory.positions(launch.positionTokenId)).creator
+    : await factory.positionCreators(launch.positionTokenId);
   if (!sameAddress(recordedCreator, signerAddress)) throw new Error("This wallet is not the recorded creator for that position.");
   return { factory, source };
 }
@@ -3050,8 +3219,20 @@ async function collectCreatorRevenue(launch, button) {
     const event = receipt.logs.map((log) => {
       try { return factory.interface.parseLog(log); } catch { return null; }
     }).find((parsed) => parsed?.name === "FeesCollectedForRevenue");
+    const storedTokenFees = event?.args.tokenFees !== undefined
+      ? BigInt(event.args.tokenFees)
+      : event
+        ? BigInt(event.args.grossTokenFees) - BigInt(event.args.compoundedTokenFees)
+        : null;
+    const storedQuoteFees = event?.args.quoteFees !== undefined
+      ? BigInt(event.args.quoteFees)
+      : event?.args.rwiFees !== undefined
+        ? BigInt(event.args.rwiFees)
+        : event
+          ? BigInt(event.args.grossQuoteFees) - BigInt(event.args.compoundedQuoteFees)
+          : null;
     toast(event
-      ? `Stored ${feeLabel(BigInt(event.args.tokenFees), launch.symbol)} + ${feeLabel(BigInt(launch.multiQuote ? event.args.quoteFees : event.args.rwiFees), launch.quoteSymbol || "RWI")} without a swap.`
+      ? `Stored ${feeLabel(storedTokenFees, launch.symbol)} + ${feeLabel(storedQuoteFees, launch.quoteSymbol || "RWI")} after permanent compounding, without a token-pool swap.`
       : "LP fees were stored without a market swap.");
     await loadCreatorDashboard({ silent: true });
   } catch (error) {
@@ -3341,9 +3522,69 @@ async function validatePonsFactoryDeployment(provider, address) {
   return window.ethers.keccak256(code);
 }
 
+async function validateMultiPairFactoryDeployment(provider, address) {
+  await ensureMultiPairDeploymentBundle();
+  const network = await provider.getNetwork();
+  if (network.chainId !== 4663n) throw new Error("Switch the wallet to Robinhood Chain.");
+  const code = await provider.getCode(address);
+  if (code === "0x") throw new Error("The atomic multi-pair hook is not deployed.");
+  const expected = normalizeImmutableSlots(
+    MULTI_PAIR_FACTORY_DEPLOYMENT.deployedBytecode,
+    MULTI_PAIR_FACTORY_DEPLOYMENT.immutableReferences || {},
+  );
+  const actual = normalizeImmutableSlots(code, MULTI_PAIR_FACTORY_DEPLOYMENT.immutableReferences || {});
+  if (!expected || actual !== expected) throw new Error("The multi-pair hook bytecode does not match this reviewed build.");
+  if ((BigInt(address) & 0x3fffn) !== 0x2088n) throw new Error("The multi-pair hook has invalid Uniswap v4 permissions.");
+  const factory = new window.ethers.Contract(address, MULTI_PAIR_FACTORY_ABI, provider);
+  const [
+    rwi, weth, usdg, pons, poolManager, stateView, swapRouter, developer, vaultAddress, oracleAddress,
+    rwiCreator, otherCreator, developerShare, compoundShare, targetCap,
+  ] = await Promise.all([
+    factory.RWI(), factory.WETH(), factory.USDG(), factory.PONS(), factory.UNISWAP_V4_POOL_MANAGER(),
+    factory.UNISWAP_V4_STATE_VIEW(), factory.SWAP_ROUTER_02(), factory.developerWallet(),
+    factory.liquidityVault(), factory.protectedOracle(), factory.RWI_CREATOR_FEE_BPS(),
+    factory.OTHER_CREATOR_FEE_BPS(), factory.DEVELOPER_FEE_BPS(), factory.AUTO_COMPOUND_FEE_BPS(),
+    factory.TARGET_MARKET_CAP_USD_E18(),
+  ]);
+  const checks = [
+    [rwi, RWI_ADDRESS, "RWI"], [weth, MULTI_PAIR_FACTORY_CONFIG.wethAddress, "WETH"],
+    [usdg, MULTI_PAIR_FACTORY_CONFIG.usdgAddress, "USDG"], [pons, PONS_ADDRESS, "PONS"],
+    [poolManager, MULTI_PAIR_FACTORY_CONFIG.uniswapV4PoolManager, "PoolManager"],
+    [stateView, MULTI_PAIR_FACTORY_CONFIG.uniswapV4StateView, "StateView"],
+    [swapRouter, MULTI_PAIR_FACTORY_CONFIG.swapRouter02, "SwapRouter02"],
+    [developer, DEVELOPER_WALLET, "developer wallet"],
+  ];
+  for (const [value, expectedValue, label] of checks) {
+    if (!sameAddress(value, expectedValue)) throw new Error(`Multi-pair hook ${label} mismatch.`);
+  }
+  if (
+    rwiCreator !== 9_750n || otherCreator !== 9_000n || developerShare !== 750n
+      || compoundShare !== 250n || targetCap !== 10_000n * 10n ** 18n
+  ) throw new Error("The multi-pair revenue or opening-value rules do not match this build.");
+  const [vaultCode, oracleCode] = await Promise.all([provider.getCode(vaultAddress), provider.getCode(oracleAddress)]);
+  if (vaultCode === "0x" || oracleCode === "0x") throw new Error("The permanent vault or protected oracle is missing.");
+  const vault = new window.ethers.Contract(vaultAddress, [
+    "function launchHook() view returns(address)",
+    "function INITIAL_ACTIVE_TOKEN_BPS() view returns(uint16)",
+    "function STAGED_TOKEN_BPS() view returns(uint16)",
+    "function STAGED_POSITION_COUNT() view returns(uint8)",
+    "function AUTO_COMPOUND_FEE_BPS() view returns(uint16)",
+  ], provider);
+  const [vaultHook, initialBps, stagedBps, stagedCount, vaultCompoundBps] = await Promise.all([
+    vault.launchHook(), vault.INITIAL_ACTIVE_TOKEN_BPS(), vault.STAGED_TOKEN_BPS(),
+    vault.STAGED_POSITION_COUNT(), vault.AUTO_COMPOUND_FEE_BPS(),
+  ]);
+  if (
+    !sameAddress(vaultHook, address) || initialBps !== 500n || stagedBps !== 9_500n
+      || stagedCount !== 16n || vaultCompoundBps !== 250n
+  ) throw new Error("The permanent liquidity vault rules do not match this build.");
+  return { runtimeCodeHash: window.ethers.keccak256(code), vaultAddress, oracleAddress };
+}
+
 async function validateConfiguredFeeFactory(provider, address) {
   const source = configuredFactorySource(address);
   if (!source) throw new Error("This token factory is not in the launchpad configuration.");
+  if (isMultiPairMode(source) && source.current) return validateMultiPairFactoryDeployment(provider, address);
   if (isPonsMode(source) && source.current) return validatePonsFactoryDeployment(provider, address);
   if (isPonsMode(source)) {
     const code = await provider.getCode(address);
@@ -3408,10 +3649,9 @@ function restoreLaunchModal() {
   $("#downloadBrief").textContent = state.imageFile ? "Download metadata kit" : "Download launch brief";
   delete $("#downloadBrief").dataset.action;
   $("#uniswapTradeButton").hidden = true;
-  const quote = selectedQuoteAsset();
-  $("#modalCopy").textContent = quote === "RWI"
-    ? "The token launches with exactly 1 billion tokens at a tick-rounded $10,000 valuation. An optional dev buy uses ETH to acquire the required RWI automatically, then buys through the locked TOKEN / RWI pool."
-    : `The token launches with exactly 1 billion tokens in a permanently locked TOKEN / ${quote} pool. Creators receive 90% of LP revenue in ETH; 10% accrues to the platform developer wallet.`;
+  const selected = selectedQuoteAssets();
+  $("#modalCopy").textContent = `One token launches into ${selected.length} permanently locked Uniswap pool${selected.length === 1 ? "" : "s"}: ${selected.map((quote) => `$${quote}`).join(", ")}. The fixed supply is divided across the selected pools, with 5% active and 95% released progressively.`;
+  renderDevBuyPairOptions();
 }
 
 function openLaunchConfirmation() {
@@ -3424,10 +3664,8 @@ function openLaunchConfirmation() {
   fields.devBuy.value = "";
   fields.devBuy.removeAttribute("aria-invalid");
   $("#modalTitle").textContent = "Review your launch.";
-  const quote = selectedQuoteAsset();
-  $("#modalNote").textContent = quote === "RWI"
-    ? "Enter an optional USD dev buy or leave it blank. If used, ETH swaps to RWI first; no existing RWI balance is required."
-    : `Enter an optional USD dev buy or leave it blank. ${quote === "ETH" ? "ETH is sent with the launch transaction" : `${quote} approval is requested only when a dev buy is entered`}.`;
+  const quote = selectedDevBuyPair();
+  $("#modalNote").textContent = `Enter an optional USD dev buy or leave it blank. The buy is funded with ETH and routed through the selected TOKEN / ${quote} pool; no quote-token balance is required.`;
   $("#modalWallet").textContent = "Launch Token";
   $("#modalWallet").dataset.action = "confirm-launch";
   $("#launchModal").hidden = false;
@@ -3864,7 +4102,202 @@ async function launchOnPonsFactory() {
   }
 }
 
+function selectedPairMask() {
+  const bits = { RWI: 1, ETH: 2, USDG: 4, PONS: 8 };
+  return selectedQuoteAssets().reduce((mask, quote) => mask | bits[quote], 0);
+}
+
+async function quoteDevBuyAssetFromEth(provider, quote, ethAmount) {
+  if (ethAmount === 0n || quote === "ETH") return ethAmount;
+  const quoteAddress = quote === "RWI"
+    ? RWI_ADDRESS
+    : quote === "USDG"
+      ? MULTI_PAIR_FACTORY_CONFIG.usdgAddress
+      : PONS_ADDRESS;
+  const fee = quote === "USDG" ? 100 : 10_000;
+  const path = window.ethers.solidityPacked(
+    ["address", "uint24", "address"],
+    [MULTI_PAIR_FACTORY_CONFIG.wethAddress, fee, quoteAddress],
+  );
+  const quoter = new window.ethers.Contract(V3_QUOTER, [
+    "function quoteExactInput(bytes path,uint256 amountIn) returns (uint256 amountOut,uint160[] sqrtPriceX96AfterList,uint32[] initializedTicksCrossedList,uint256 gasEstimate)",
+  ], provider);
+  const result = await quoter.quoteExactInput.staticCall(path, ethAmount);
+  return BigInt(result.amountOut ?? result[0]);
+}
+
+async function launchOnMultiPairFactory() {
+  const factoryAddress = multiPairFactoryAddress();
+  if (!factoryAddress || MULTI_PAIR_FACTORY_CONFIG.launchesPaused) {
+    const reason = MULTI_PAIR_FACTORY_CONFIG.launchesPausedReason
+      || "The atomic multi-pair hook must be deployed and runtime-verified before launches are enabled.";
+    $("#modalNote").textContent = reason;
+    toast("Multi-pair launches are pending the reviewed hook deployment.");
+    return;
+  }
+  if (!MULTI_PAIR_FACTORY_ABI.length) return toast("The multi-pair launch integration did not load. Refresh and try again.");
+  if (!state.account && !(await connectWallet())) return;
+  const firstFailure = validateForm();
+  if (firstFailure) {
+    closeModal();
+    showValidation(firstFailure);
+    return;
+  }
+
+  const button = $("#modalWallet");
+  delete button.dataset.action;
+  state.launchInFlight = true;
+  button.disabled = true;
+  try {
+    await ensureRobinhoodChain();
+    const provider = new window.ethers.BrowserProvider(currentWalletProvider());
+    const signer = await provider.getSigner();
+    const signerAddress = await signer.getAddress();
+    state.account = signerAddress;
+    button.textContent = "Validating multi-pair hook…";
+    const validation = await validateMultiPairFactoryDeployment(provider, factoryAddress);
+    const factory = new window.ethers.Contract(factoryAddress, MULTI_PAIR_FACTORY_ABI, signer);
+    button.textContent = "Binding public logo to launch…";
+    await assertImageAllowed(state.imageFile, "token-logo");
+    const metadataAuthorization = await prepareLaunchMetadataAuthorization(signerAddress, factoryAddress);
+    const selected = selectedQuoteAssets();
+    const devBuyPair = selectedDevBuyPair();
+    const quoteIndexes = { RWI: 0, ETH: 1, USDG: 2, PONS: 3 };
+    const devBuyUsdAmount = configuredDevBuyUsdAmount();
+    let devBuyEthAmount = 0n;
+    let minimumDevBuyQuoteOut = 0n;
+    const latestBlock = await provider.getBlock("latest");
+    const deadline = BigInt(Number(latestBlock.timestamp) + DEV_BUY_DEADLINE_SECONDS);
+    if (devBuyUsdAmount > 0n) {
+      button.textContent = "Reading protected ETH price…";
+      const oracle = new window.ethers.Contract(validation.oracleAddress, [
+        "function ethUsdPriceE18() view returns(uint256)",
+      ], provider);
+      const ethUsdPrice = BigInt(await oracle.ethUsdPriceE18());
+      devBuyEthAmount = (devBuyUsdAmount * 10n ** 18n + ethUsdPrice - 1n) / ethUsdPrice;
+      if (BigInt(await provider.getBalance(signerAddress)) <= devBuyEthAmount) {
+        throw new Error("This wallet does not have enough ETH for the dev buy and network gas.");
+      }
+      button.textContent = `Quoting ETH → ${devBuyPair}…`;
+      const expectedQuoteOut = await quoteDevBuyAssetFromEth(provider, devBuyPair, devBuyEthAmount);
+      if (expectedQuoteOut === 0n) throw new Error(`The ETH to ${devBuyPair} dev-buy route returned no quote.`);
+      minimumDevBuyQuoteOut = expectedQuoteOut * (10_000n - DEV_BUY_SLIPPAGE_BPS) / 10_000n;
+    }
+    let params = {
+      name: fields.name.value.trim(),
+      symbol: cleanTicker(fields.ticker.value),
+      pairMask: selectedPairMask(),
+      devBuyPair: quoteIndexes[devBuyPair],
+      devBuyEthAmount,
+      minimumDevBuyQuoteOut,
+      minimumDevBuyTokenOut: 0n,
+      deadline,
+    };
+    button.textContent = "Simulating every selected pool…";
+    const simulated = await factory.launch.staticCall(params, {
+      value: devBuyEthAmount,
+      gasLimit: 45_000_000,
+    });
+    const simulatedDevBuy = BigInt(simulated.devBuyTokenAmount ?? simulated[1]);
+    if (devBuyEthAmount > 0n && simulatedDevBuy === 0n) throw new Error("The optional dev buy returned no tokens.");
+    if (simulatedDevBuy > 0n) {
+      params = {
+        ...params,
+        minimumDevBuyTokenOut: simulatedDevBuy * (10_000n - DEV_BUY_SLIPPAGE_BPS) / 10_000n,
+      };
+    }
+
+    const launchCalldata = factory.interface.encodeFunctionData("launch", [params]);
+    const transactionRequest = {
+      to: factoryAddress,
+      data: `${launchCalldata}${metadataAuthorization.commitment.slice(2)}`,
+      value: devBuyEthAmount,
+    };
+    button.textContent = "Preparing atomic launch…";
+    let gasLimit;
+    try {
+      gasLimit = bufferedLaunchGasLimit(await provider.estimateGas({ ...transactionRequest, from: signerAddress }));
+    } catch {
+      gasLimit = 12_000_000n + BigInt(selected.length) * 4_000_000n;
+    }
+    const practicalFloor = 8_000_000n + BigInt(selected.length) * 3_500_000n;
+    if (gasLimit < practicalFloor) gasLimit = practicalFloor;
+    button.textContent = "Confirm launch in wallet…";
+    $("#modalNote").textContent = `${selected.length} selected pool${selected.length === 1 ? "" : "s"} will initialize atomically. If any pool fails, the complete transaction reverts.`;
+    const transaction = await signer.sendTransaction({ ...transactionRequest, gasLimit });
+    state.lastDevBuyUsdAmount = formatUnits(devBuyUsdAmount, 18, 2);
+    state.lastDevBuyEthAmount = devBuyEthAmount;
+    button.textContent = `Locking ${selected.length} pool${selected.length === 1 ? "" : "s"}…`;
+    const receipt = await transaction.wait();
+    const launchEvents = [];
+    for (const log of receipt.logs) {
+      try {
+        const parsed = factory.interface.parseLog(log);
+        if (parsed?.name === "TokenLaunched") launchEvents.push(parsed);
+      } catch {
+        // Token, oracle, vault, and PoolManager logs are intentionally ignored.
+      }
+    }
+    if (launchEvents.length !== selected.length) throw new Error("The launch confirmed without every selected pool event.");
+    const tokenAddress = launchEvents[0].args.token;
+    if (!launchEvents.every((event) => sameAddress(event.args.token, tokenAddress))) {
+      throw new Error("The selected pools did not resolve to one token.");
+    }
+    const stateView = new window.ethers.Contract(MULTI_PAIR_FACTORY_CONFIG.uniswapV4StateView, [
+      "function getLiquidity(bytes32 poolId) view returns(uint128)",
+    ], provider);
+    const activeLiquidity = await Promise.all(launchEvents.map((event) => stateView.getLiquidity(event.args.poolId)));
+    if (activeLiquidity.some((amount) => BigInt(amount) === 0n)) throw new Error("A selected pool has no active opening liquidity.");
+
+    state.lastLaunchTx = transaction.hash;
+    state.lastTokenAddress = tokenAddress;
+    state.lastPoolAddress = null;
+    state.lastPoolId = launchEvents[0].args.poolId;
+    try {
+      await persistLaunchedTokenAssets(tokenAddress, state.lastPoolId);
+    } catch {
+      saveLocalTokenMetadata(tokenAddress, state.lastPoolId, null);
+    }
+    let publicationWarning = null;
+    try {
+      button.textContent = "Publishing public logo…";
+      await publishLaunchedTokenAssets(signer, tokenAddress, state.lastPoolId, {
+        factoryAddress,
+        imageFile: metadataAuthorization.imageFile,
+        name: metadataAuthorization.payload.name,
+        symbol: metadataAuthorization.payload.symbol,
+        description: metadataAuthorization.payload.description,
+        links: metadataAuthorization.payload.links,
+        launchTxHash: transaction.hash,
+        metadataCommitment: metadataAuthorization.commitment,
+      });
+    } catch (error) {
+      publicationWarning = String(error?.message || "The public logo could not be published.").slice(0, 180);
+    }
+    $("#modalTitle").textContent = "Your token is live.";
+    $("#modalDevBuy").hidden = true;
+    $("#modalCopy").textContent = `One token is live across ${selected.map((quote) => `$${quote}`).join(", ")}. Use its token page to switch between pool charts and routes.`;
+    $("#modalNote").textContent = `5% active at launch · 95% progressively locked through approximately $1M · 2.5% of pool revenue auto-compounds forever.${publicationWarning ? ` Logo warning: ${publicationWarning}` : ""}`;
+    $("#uniswapTradeButton").hidden = false;
+    toast(`Token launched with ${selected.length} locked pool${selected.length === 1 ? "" : "s"}.`);
+    await completeSuccessfulLaunch(tokenAddress);
+  } catch (error) {
+    const message = readableWalletError(error);
+    $("#modalNote").textContent = message;
+    if (!state.lastLaunchTx) {
+      button.dataset.action = "confirm-launch";
+      button.textContent = "Launch Token";
+    }
+    toast(message);
+  } finally {
+    state.launchInFlight = false;
+    button.disabled = false;
+    renderAccount();
+  }
+}
+
 async function launchOnUniswap() {
+  if (multiPairFactoryAddress() || selectedQuoteAssets().length > 1) return launchOnMultiPairFactory();
   if (selectedQuoteAsset() === "PONS") return launchOnPonsFactory();
   if (selectedQuoteAsset() !== "RWI") return launchOnQuoteFactory();
   const factoryAddress = configuredFactoryAddress();
@@ -4386,7 +4819,12 @@ fields.ticker.addEventListener("input", updatePreview);
 fields.description.addEventListener("input", updatePreview);
 fields.devBuy.addEventListener("input", scheduleDevBuyEstimate);
 $$('input[name="quoteAsset"]').forEach((input) => input.addEventListener("change", () => {
+  if (!document.querySelector('input[name="quoteAsset"]:checked')) {
+    input.checked = true;
+    toast("Select at least one permanent pool.");
+  }
   updatePreview();
+  renderDevBuyPairOptions();
   renderIntegrationStatus();
   updateDevBuyEstimate();
   queueDraftSave();

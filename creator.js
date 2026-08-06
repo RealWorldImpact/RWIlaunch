@@ -8,11 +8,14 @@ const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({}
 const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || Object.freeze([]);
 const PONS_FACTORY_CONFIG = window.RWI_PONS_FACTORY_CONFIG || Object.freeze({});
 const PONS_FACTORY_ABI = window.RWI_PONS_FACTORY_ABI || Object.freeze([]);
+const MULTI_PAIR_FACTORY_CONFIG = window.RWI_MULTI_PAIR_FACTORY_CONFIG || Object.freeze({});
+const MULTI_PAIR_FACTORY_ABI = window.RWI_MULTI_PAIR_FACTORY_ABI || Object.freeze([]);
 const PROFILE_REGISTRY_CONFIG = window.RWI_PROFILE_REGISTRY || Object.freeze({});
 const PROFILE_REGISTRY_ABI = window.RWI_PROFILE_REGISTRY_ABI || Object.freeze([]);
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
 const MULTI_QUOTE_FEE_MODE = "internal-match-eth-90-10";
 const PONS_FEE_MODE = "internal-match-eth-90-10-pons";
+const MULTI_PAIR_FEE_MODE = "multi-pair-eth-90-7.5-2.5";
 const TOKEN_SUPPLY = 1_000_000_000n;
 const SWAP_SCAN_BLOCKS = 750_000;
 const MAX_TRADES = 30;
@@ -73,6 +76,12 @@ function sameAddress(left, right) {
 
 function factorySources() {
   const sources = [];
+  if (isAddress(MULTI_PAIR_FACTORY_CONFIG.factoryAddress)) sources.push({
+    address: MULTI_PAIR_FACTORY_CONFIG.factoryAddress,
+    deploymentBlock: Number(MULTI_PAIR_FACTORY_CONFIG.deploymentBlock || 0),
+    protocol: "Uniswap v4",
+    feeMode: MULTI_PAIR_FEE_MODE,
+  });
   if (isAddress(PONS_FACTORY_CONFIG.factoryAddress)) sources.push({
     address: PONS_FACTORY_CONFIG.factoryAddress,
     deploymentBlock: Number(PONS_FACTORY_CONFIG.deploymentBlock || 0),
@@ -113,6 +122,7 @@ function factorySources() {
 
 function factoryAbi(source) {
   if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  if (source.feeMode === MULTI_PAIR_FEE_MODE) return MULTI_PAIR_FACTORY_ABI;
   if (source.feeMode === PONS_FEE_MODE) return PONS_FACTORY_ABI;
   if (source.feeMode === MULTI_QUOTE_FEE_MODE) return QUOTE_FACTORY_ABI;
   return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
@@ -171,14 +181,19 @@ async function readCreatorLaunch(eventLog, source, provider) {
   const args = eventLog.args || factory.interface.parseLog(eventLog)?.args;
   const token = String(args.token);
   const tokenContract = new window.ethers.Contract(token, ["function name() view returns(string)", "function symbol() view returns(string)"], provider);
-  const launchRecordPromise = source.feeMode === MULTI_QUOTE_FEE_MODE ? factory.launches(token) : Promise.resolve(null);
+  const launchRecordPromise = source.feeMode === MULTI_PAIR_FEE_MODE
+    ? factory.positions(args.positionTokenId).then((position) => factory.launchPools(token, position.quoteAsset ?? position[2]))
+    : source.feeMode === MULTI_QUOTE_FEE_MODE ? factory.launches(token) : Promise.resolve(null);
   const [nameResult, symbolResult, metadataResult, blockResult, recordResult] = await Promise.allSettled([
     tokenContract.name(), tokenContract.symbol(), readMetadata(token), provider.getBlock(eventLog.blockNumber), launchRecordPromise,
   ]);
   const metadata = metadataResult.status === "fulfilled" ? metadataResult.value : {};
   const record = recordResult.status === "fulfilled" ? recordResult.value : null;
-  const quoteSymbol = source.feeMode === PONS_FEE_MODE ? "PONS" : source.feeMode === MULTI_QUOTE_FEE_MODE ? (Number(record?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
-  const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? QUOTE_FACTORY_CONFIG.usdgAddress : quoteSymbol === "PONS" ? PONS_ADDRESS : RWI_ADDRESS;
+  const quoteAsset = Number(record?.quoteAsset ?? record?.[9] ?? 0);
+  const quoteSymbol = source.feeMode === MULTI_PAIR_FEE_MODE
+    ? (["RWI", "ETH", "USDG", "PONS"][quoteAsset] || "RWI")
+    : source.feeMode === PONS_FEE_MODE ? "PONS" : source.feeMode === MULTI_QUOTE_FEE_MODE ? (quoteAsset === 0 ? "ETH" : "USDG") : "RWI";
+  const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? (MULTI_PAIR_FACTORY_CONFIG.usdgAddress || QUOTE_FACTORY_CONFIG.usdgAddress) : quoteSymbol === "PONS" ? (MULTI_PAIR_FACTORY_CONFIG.ponsAddress || PONS_ADDRESS) : (MULTI_PAIR_FACTORY_CONFIG.rwiAddress || RWI_ADDRESS);
   return {
     token,
     creator: String(args.creator),
@@ -195,6 +210,7 @@ async function readCreatorLaunch(eventLog, source, provider) {
     name: nameResult.status === "fulfilled" ? String(nameResult.value) : "Creator token",
     symbol: symbolResult.status === "fulfilled" ? String(symbolResult.value) : "TOKEN",
     metadata,
+    multiPair: source.feeMode === MULTI_PAIR_FEE_MODE,
   };
 }
 
@@ -209,7 +225,12 @@ async function loadCreatorLaunches(creator, provider, latestBlock) {
   const unique = new Map();
   results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value)
     .sort((left, right) => right.blockNumber - left.blockNumber)
-    .forEach((launch) => { if (!unique.has(launch.token.toLowerCase())) unique.set(launch.token.toLowerCase(), launch); });
+    .forEach((launch) => {
+      const key = launch.token.toLowerCase();
+      const existing = unique.get(key);
+      if (!existing) unique.set(key, { ...launch, pools: [launch] });
+      else if (!existing.pools.some((pool) => pool.poolId === launch.poolId && pool.pool === launch.pool)) existing.pools.push(launch);
+    });
   return [...unique.values()];
 }
 
@@ -319,7 +340,7 @@ async function loadProfile(creator, provider, latestBlock, onProfile = null) {
 async function queryRecentSwapLogs(launch, provider, latestBlock) {
   const firstBlock = Math.max(launch.blockNumber, latestBlock - SWAP_SCAN_BLOCKS);
   const address = launch.poolId
-    ? (QUOTE_FACTORY_CONFIG.uniswapV4PoolManager || FACTORY_CONFIG.uniswapV4PoolManager)
+    ? (MULTI_PAIR_FACTORY_CONFIG.uniswapV4PoolManager || QUOTE_FACTORY_CONFIG.uniswapV4PoolManager || FACTORY_CONFIG.uniswapV4PoolManager)
     : launch.pool;
   const contract = new window.ethers.Contract(address, launch.poolId ? V4_SWAP_ABI : V3_SWAP_ABI, provider);
   const filter = launch.poolId ? contract.filters.Swap(launch.poolId) : contract.filters.Swap();
@@ -354,7 +375,8 @@ async function queryRecentSwapLogs(launch, provider, latestBlock) {
 }
 
 async function loadRecentTrades(launches, provider, latestBlock) {
-  const results = await Promise.allSettled(launches.slice(0, 12).map((launch) => queryRecentSwapLogs(launch, provider, latestBlock)));
+  const markets = launches.flatMap((launch) => Array.isArray(launch.pools) ? launch.pools : [launch]).slice(0, 20);
+  const results = await Promise.allSettled(markets.map((launch) => queryRecentSwapLogs(launch, provider, latestBlock)));
   const trades = results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value)
     .sort((left, right) => right.blockNumber - left.blockNumber).slice(0, MAX_TRADES);
   const blocks = new Map();

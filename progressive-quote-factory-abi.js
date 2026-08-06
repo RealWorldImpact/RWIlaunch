@@ -536,6 +536,19 @@ window.RWI_QUOTE_FACTORY_ABI = Object.freeze([
   },
   {
     "inputs": [],
+    "name": "AUTO_COMPOUND_LP_FEE_SHARE_BPS",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "BPS",
     "outputs": [
       {
@@ -878,6 +891,19 @@ window.RWI_QUOTE_FACTORY_ABI = Object.freeze([
     "outputs": [
       {
         "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "autoCompounder",
+    "outputs": [
+      {
+        "internalType": "contract PermanentV4AutoCompounder",
         "name": "",
         "type": "address"
       }

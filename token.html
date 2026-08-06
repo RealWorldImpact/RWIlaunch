@@ -60,6 +60,10 @@
             </div>
           </header>
           <div class="dextools-chart-shell">
+            <div class="token-pool-switcher" id="tokenPoolSwitcher" hidden>
+              <span>View pool</span>
+              <div id="tokenPoolOptions" role="radiogroup" aria-label="Token market pool"></div>
+            </div>
             <div class="dextools-chart-frame">
               <iframe id="dexToolsChart" title="Live DEXTools token price chart" loading="eager" referrerpolicy="strict-origin-when-cross-origin" allow="clipboard-write; fullscreen" allowfullscreen hidden></iframe>
               <div class="dextools-chart-status" id="dexToolsChartStatus" role="status"><strong>Loading market chart</strong><span id="dexToolsMarketDescription">Connecting to this token’s live RWI market.</span></div>
@@ -154,6 +158,8 @@
     <script src="vendor/ethers.umd.min.js?v=20260803-wallet-percent-slider-2"></script>
     <script src="factory-config.js?v=20260804-progressive-hooks-live-1"></script>
     <script src="factory-abi.js?v=20260804-progressive-hooks-live-1"></script>
+  <script src="multi-pair-factory-config.js?v=20260805-multi-pair-1"></script>
+  <script src="multi-pair-factory-abi.js?v=20260805-multi-pair-1"></script>
   <script src="quote-factory-live-config.js?v=20260804-progressive-hooks-live-1"></script>
   <script src="quote-factory-abi.js?v=20260804-progressive-hooks-live-1"></script>
   <script src="pons-factory-live-config.js?v=20260805-pons-pair-1"></script>

@@ -6,9 +6,12 @@ const QUOTE_FACTORY_CONFIG = window.RWI_QUOTE_FACTORY_CONFIG || Object.freeze({}
 const QUOTE_FACTORY_ABI = window.RWI_QUOTE_FACTORY_ABI || Object.freeze([]);
 const PONS_FACTORY_CONFIG = window.RWI_PONS_FACTORY_CONFIG || Object.freeze({});
 const PONS_FACTORY_ABI = window.RWI_PONS_FACTORY_ABI || Object.freeze([]);
+const MULTI_PAIR_FACTORY_CONFIG = window.RWI_MULTI_PAIR_FACTORY_CONFIG || Object.freeze({});
+const MULTI_PAIR_FACTORY_ABI = window.RWI_MULTI_PAIR_FACTORY_ABI || Object.freeze([]);
 const INTERNAL_MATCH_FEE_MODE = "internal-match-eth";
 const MULTI_QUOTE_FEE_MODE = "internal-match-eth-90-10";
 const PONS_FEE_MODE = "internal-match-eth-90-10-pons";
+const MULTI_PAIR_FEE_MODE = "multi-pair-eth-90-7.5-2.5";
 const LEGACY_V4_FACTORY_ABI = Object.freeze([
   "function launches(address token) view returns (address creator,bytes32 poolId,uint256 positionTokenId,uint128 liquidity,bool liquidityPermanentlyLocked,uint256 tokenAmount,uint256 initialRwiAmount,int24 tickLower,int24 tickUpper)",
 ]);
@@ -75,6 +78,12 @@ const KNOWN_LAUNCHES = Object.freeze({
     positionTokenId: 551_211n,
   },
 });
+const POOL_LOGOS = Object.freeze({
+  RWI: "assets/rwi-logo.jpg",
+  ETH: "assets/eth-logo.png",
+  USDG: "assets/usdg-logo.png",
+  PONS: "assets/pons-logo.png",
+});
 
 const $ = (selector) => document.querySelector(selector);
 const state = {
@@ -90,6 +99,7 @@ const state = {
   marketProvider: null, rwiUsdPrice: null, ethUsdPrice: null, rwiUsdUpdatedAt: 0,
   tokenRwiPrice: null, tokenUsdPrice: null,
   tokenLogoFallbackAttempted: false,
+  launchPools: [], activePoolIndex: 0,
 };
 
 function isAddress(value) {
@@ -112,6 +122,13 @@ function locallyDeployedFactoryAddress() {
 
 function configuredFactorySources() {
   const sources = [];
+  if (isAddress(MULTI_PAIR_FACTORY_CONFIG.factoryAddress)) sources.push({
+    address: MULTI_PAIR_FACTORY_CONFIG.factoryAddress,
+    current: true,
+    protocol: "Uniswap v4",
+    feeMode: MULTI_PAIR_FEE_MODE,
+    multiPair: true,
+  });
   if (isAddress(PONS_FACTORY_CONFIG.factoryAddress)) sources.push({
     address: PONS_FACTORY_CONFIG.factoryAddress,
     current: true,
@@ -157,6 +174,7 @@ function configuredFactoryAddresses() {
 
 function factoryAbiForSource(source) {
   if (source.protocol !== "Uniswap v4") return LEGACY_FACTORY_ABI;
+  if (source.feeMode === MULTI_PAIR_FEE_MODE) return MULTI_PAIR_FACTORY_ABI;
   if (source.feeMode === PONS_FEE_MODE) return PONS_FACTORY_ABI;
   if (source.feeMode === MULTI_QUOTE_FEE_MODE) return QUOTE_FACTORY_ABI;
   return source.feeMode === INTERNAL_MATCH_FEE_MODE ? FACTORY_ABI : LEGACY_V4_FACTORY_ABI;
@@ -170,6 +188,30 @@ async function findFactoryLaunch(address, provider) {
   for (const source of configuredFactorySources()) {
     try {
       const factory = new window.ethers.Contract(source.address, factoryAbiForSource(source), provider);
+      if (source.multiPair) {
+        const pairMask = Number(await factory.tokenPairMask(address));
+        if (!pairMask) continue;
+        const selectedAssets = [0, 1, 2, 3].filter((asset) => (pairMask & (1 << asset)) !== 0);
+        const [launches, positionOwner] = await Promise.all([
+          Promise.all(selectedAssets.map((asset) => factory.launchPools(address, asset))),
+          factory.liquidityVault(),
+        ]);
+        const validLaunches = launches.filter((launch) => (
+          isAddress(launch.creator)
+          && !sameAddress(launch.creator, window.ethers.ZeroAddress)
+          && isPoolId(String(launch.poolId))
+        ));
+        if (validLaunches.length === selectedAssets.length && validLaunches.length) {
+          return {
+            launch: validLaunches[0],
+            launches: validLaunches,
+            positionOwner,
+            factoryAddress: source.address,
+            source,
+          };
+        }
+        continue;
+      }
       const launch = await factory.launches(address);
       const isV4 = source.protocol === "Uniswap v4";
       const hasPool = isV4 ? isPoolId(String(launch.poolId)) : isAddress(launch.pool);
@@ -474,12 +516,12 @@ function renderDexToolsChart(pairId) {
   }, 8_000);
 }
 
-function showDexScreenerWaiting(tokenAddress, message = "Reading the token/RWI spot price directly from its Uniswap pool.") {
+function showDexScreenerWaiting(tokenAddress, message = null) {
   state.dexScreenerPair = null;
   $("#dexPriceUsd").textContent = "Calculating onchain…";
   $("#dexPriceRwi").textContent = "Reading the Uniswap pool";
   setDexMarketChange(null);
-  $("#dexMarketUpdated").textContent = message;
+  $("#dexMarketUpdated").textContent = message || `Reading the token/${state.quoteSymbol || "RWI"} spot price directly from its Uniswap pool.`;
 }
 
 function renderOnchainMarketPrice(values, pair, tokenAddress) {
@@ -1497,7 +1539,7 @@ async function verifyDisplayedLiquidity(launch) {
       stateView.getLiquidity(launch.poolId),
       stateView.getPositionInfo(
         launch.poolId,
-        launch.factoryAddress,
+        launch.positionOwner || launch.factoryAddress,
         launch.tickLower,
         launch.tickUpper,
         window.ethers.ZeroHash,
@@ -1512,7 +1554,7 @@ async function verifyDisplayedLiquidity(launch) {
       launch.liquidityPermanentlyLocked
       && recordedLiquidity > 0n
       && BigInt(activeLiquidity) > 0n
-      && positionLiquidity === recordedLiquidity
+      && (launch.multiPair ? positionLiquidity > 0n : positionLiquidity === recordedLiquidity)
       && inRange
     ) {
       badge.textContent = "LP lock verified live";
@@ -1886,14 +1928,84 @@ function renderCreator(creator, resolvedProfile) {
   }
 }
 
-function renderToken({ address, name, symbol, supply, decimals, launch, metadata, creatorProfile }) {
+function setActiveLaunchPool(index, { updateUrl = true } = {}) {
+  const launch = state.launchPools[index];
+  if (!launch) return;
+  state.activePoolIndex = index;
+  state.pool = launch.pool;
+  state.poolId = launch.poolId;
+  state.positionTokenId = launch.positionTokenId;
+  const quoteSymbol = launch.quoteSymbol || "RWI";
+  state.quoteSymbol = quoteSymbol;
+  $("#detailPair").textContent = `${state.tokenSymbol} / ${quoteSymbol}`;
+  $("#detailMarketMode").textContent = `Direct TOKEN / ${quoteSymbol} market`;
+  $("#detailMarketPairing").textContent = `${quoteSymbol} paired`;
+  $("#detailQuoteAsset").textContent = quoteSymbol === "ETH" ? "Native ETH" : (launch.quoteAddress || RWI_ADDRESS);
+  $("#tradeRouteLabel").textContent = launch.directQuote ? "Direct Uniswap v4" : "RWI-routed Uniswap";
+  $("#dexToolsMarketDescription").textContent = `Connecting to this token's live ${quoteSymbol} market.`;
+  $("#detailPool").textContent = launch.poolId || launch.pool;
+  $("#detailPoolLabel").textContent = launch.poolId ? "v4 pool ID" : "Pool";
+  $("#dexScreenerPool").href = `https://dexscreener.com/robinhood/${launch.poolId || launch.pool}`;
+  $("#dexToolsPool").href = dexToolsPoolUrl(launch.poolId || launch.pool);
+  if (launch.pool) {
+    $("#poolExplorer").href = `${EXPLORER_URL}/address/${launch.pool}`;
+    $("#poolExplorer").textContent = "Pool explorer ↗";
+    $("#geckoTerminalPool").href = `https://www.geckoterminal.com/robinhood/pools/${launch.pool}`;
+  } else {
+    $("#poolExplorer").href = `${EXPLORER_URL}/address/${FACTORY_CONFIG.uniswapV4PoolManager}`;
+    $("#poolExplorer").textContent = "v4 PoolManager ↗";
+    $("#geckoTerminalPool").href = `https://www.geckoterminal.com/robinhood/pools/${launch.poolId}`;
+  }
+  document.querySelectorAll("#tokenPoolOptions button").forEach((button, buttonIndex) => {
+    button.setAttribute("aria-pressed", String(buttonIndex === index));
+    button.setAttribute("aria-checked", String(buttonIndex === index));
+  });
+  if (state.currentMetadata) renderTokenMetadata(state.currentMetadata);
+  setupDirectTrade(launch);
+  verifyDisplayedLiquidity(launch);
+  startDexScreenerFeed(state.token, launch);
+  if (updateUrl) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("pair", quoteSymbol.toLowerCase());
+    window.history.replaceState(null, "", url);
+  }
+}
+
+function configurePoolSwitcher(launches) {
+  state.launchPools = launches;
+  const switcher = $("#tokenPoolSwitcher");
+  const options = $("#tokenPoolOptions");
+  options.textContent = "";
+  switcher.hidden = launches.length < 2;
+  launches.forEach((launch, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("role", "radio");
+    const quoteSymbol = launch.quoteSymbol || "RWI";
+    const logo = document.createElement("img");
+    logo.src = POOL_LOGOS[quoteSymbol] || POOL_LOGOS.RWI;
+    logo.alt = "";
+    logo.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.textContent = `${state.tokenSymbol} / ${quoteSymbol}`;
+    button.append(logo, label);
+    button.setAttribute("aria-label", `Show ${state.tokenSymbol} / ${quoteSymbol} pool`);
+    button.setAttribute("aria-pressed", "false");
+    button.setAttribute("aria-checked", "false");
+    button.addEventListener("click", () => setActiveLaunchPool(index));
+    options.appendChild(button);
+  });
+  const preferredPair = new URLSearchParams(window.location.search).get("pair")?.toUpperCase();
+  const preferredIndex = launches.findIndex((launch) => launch.quoteSymbol === preferredPair);
+  setActiveLaunchPool(preferredIndex >= 0 ? preferredIndex : 0, { updateUrl: false });
+}
+
+function renderToken({ address, name, symbol, supply, decimals, launch, launches = null, metadata, creatorProfile }) {
   state.token = address;
   state.tokenSymbol = symbol;
   state.tokenDecimals = Number(decimals);
   state.creator = launch.creator;
-  state.pool = launch.pool;
-  state.poolId = launch.poolId;
-  state.positionTokenId = launch.positionTokenId;
+  state.currentMetadata = metadata;
   document.title = `${name} ($${symbol}) · RWI Launchpad`;
   $("#detailName").textContent = name;
   $("#detailSymbol").textContent = `$${symbol}`;
@@ -1908,31 +2020,8 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   $("#detailAddress").textContent = address;
   $("#detailMonogram").textContent = symbol.charAt(0) || "?";
   $("#detailSupply").textContent = formatSupply(supply, decimals);
-  const quoteSymbol = launch.quoteSymbol || "RWI";
-  state.quoteSymbol = quoteSymbol;
-  $("#detailPair").textContent = `${symbol} / ${quoteSymbol}`;
-  $("#detailMarketMode").textContent = `Direct TOKEN / ${quoteSymbol} market`;
-  $("#detailMarketPairing").textContent = `${quoteSymbol} paired`;
-  $("#detailQuoteAsset").textContent = quoteSymbol === "ETH" ? "Native ETH" : (launch.quoteAddress || RWI_ADDRESS);
-  $("#tradeRouteLabel").textContent = launch.directQuote ? "Direct Uniswap v4" : "RWI-routed Uniswap";
-  $("#dexToolsMarketDescription").textContent = `Connecting to this token’s live ${quoteSymbol} market.`;
-  $("#detailPool").textContent = launch.poolId || launch.pool;
-  $("#detailPoolLabel").textContent = launch.poolId ? "v4 pool ID" : "Pool";
-  renderTokenMetadata(metadata);
   $("#uniswapTokenPage").href = `https://app.uniswap.org/explore/tokens/robinhood/${address}`;
-  $("#dexScreenerPool").href = `https://dexscreener.com/robinhood/${launch.poolId || launch.pool}`;
-  $("#dexToolsPool").href = dexToolsPoolUrl(launch.poolId || launch.pool);
-  if (launch.pool) {
-    $("#poolExplorer").href = `${EXPLORER_URL}/address/${launch.pool}`;
-    $("#poolExplorer").textContent = "Pool explorer ↗";
-    $("#geckoTerminalPool").href = `https://www.geckoterminal.com/robinhood/pools/${launch.pool}`;
-  } else {
-    $("#poolExplorer").href = `${EXPLORER_URL}/address/${FACTORY_CONFIG.uniswapV4PoolManager}`;
-    $("#poolExplorer").textContent = "v4 PoolManager ↗";
-    $("#geckoTerminalPool").href = `https://www.geckoterminal.com/robinhood/pools/${launch.poolId}`;
-  }
-  setupDirectTrade(launch);
-  verifyDisplayedLiquidity(launch);
+  configurePoolSwitcher(launches || [launch]);
   renderCreator(launch.creator, creatorProfile);
   $("#tokenPageStatus").hidden = true;
   $("#tokenDashboard").hidden = false;
@@ -1943,7 +2032,6 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   renderWalletTokenBalance();
   updateTradePercentCopy();
   void refreshWalletTokenBalance();
-  startDexScreenerFeed(address, launch);
   $("#tokenPageGrid").hidden = false;
 }
 
@@ -2027,17 +2115,52 @@ async function loadTokenPage() {
     const [factoryLaunch, name, symbol, decimals, supply] = await withTimeout(Promise.all([
       findFactoryLaunch(address, provider), token.name(), token.symbol(), token.decimals(), token.totalSupply(),
     ]), 12_000, "Robinhood Chain did not return token data within 12 seconds.");
-    const launch = factoryLaunch.launch;
     const isV4 = factoryLaunch.source.protocol === "Uniswap v4";
     const ponsQuote = factoryLaunch.source.feeMode === PONS_FEE_MODE;
-    const directQuote = factoryLaunch.source.feeMode === MULTI_QUOTE_FEE_MODE || ponsQuote;
-    const quoteSymbol = ponsQuote ? "PONS" : directQuote ? (Number(launch.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
-    const quoteAddress = quoteSymbol === "ETH" ? window.ethers.ZeroAddress : quoteSymbol === "USDG" ? USDG_ADDRESS : quoteSymbol === "PONS" ? PONS_ADDRESS : RWI_ADDRESS;
-    const pool = isV4 ? null : String(launch.pool);
-    const poolId = isV4 ? String(launch.poolId) : null;
-    if (!isAddress(launch.creator) || sameAddress(launch.creator, window.ethers.ZeroAddress) || !(isV4 ? isPoolId(poolId) : isAddress(pool))) {
-      throw new Error("This token was not launched by the configured factory.");
-    }
+    const multiPair = factoryLaunch.source.feeMode === MULTI_PAIR_FEE_MODE;
+    const sourceUsesDirectQuote = factoryLaunch.source.feeMode === MULTI_QUOTE_FEE_MODE || ponsQuote;
+    const rawLaunches = multiPair ? factoryLaunch.launches : [factoryLaunch.launch];
+    const normalizedLaunches = rawLaunches.map((poolLaunch) => {
+      const quoteSymbol = multiPair
+        ? (["RWI", "ETH", "USDG", "PONS"][Number(poolLaunch.quoteAsset)] || "RWI")
+        : ponsQuote
+          ? "PONS"
+          : sourceUsesDirectQuote
+            ? (Number(poolLaunch.quoteAsset ?? 0) === 0 ? "ETH" : "USDG")
+            : "RWI";
+      const directQuote = multiPair ? quoteSymbol !== "RWI" : sourceUsesDirectQuote;
+      const quoteAddress = quoteSymbol === "ETH"
+        ? window.ethers.ZeroAddress
+        : quoteSymbol === "USDG"
+          ? USDG_ADDRESS
+          : quoteSymbol === "PONS"
+            ? PONS_ADDRESS
+            : RWI_ADDRESS;
+      const pool = isV4 ? null : String(poolLaunch.pool);
+      const poolId = isV4 ? String(poolLaunch.poolId) : null;
+      if (
+        !isAddress(poolLaunch.creator) || sameAddress(poolLaunch.creator, window.ethers.ZeroAddress)
+          || !(isV4 ? isPoolId(poolId) : isAddress(pool))
+      ) throw new Error("This token was not launched by the configured factory.");
+      return {
+        creator: poolLaunch.creator,
+        pool,
+        poolId,
+        protocol: factoryLaunch.source.protocol,
+        positionTokenId: BigInt(poolLaunch.positionTokenId),
+        factoryAddress: factoryLaunch.factoryAddress,
+        positionOwner: multiPair ? factoryLaunch.positionOwner : factoryLaunch.factoryAddress,
+        liquidity: isV4 ? BigInt(poolLaunch.liquidity) : null,
+        liquidityPermanentlyLocked: Boolean(poolLaunch.liquidityPermanentlyLocked),
+        tickLower: isV4 ? Number(poolLaunch.tickLower) : null,
+        tickUpper: isV4 ? Number(poolLaunch.tickUpper) : null,
+        quoteSymbol,
+        quoteAddress,
+        directQuote,
+        multiPair,
+      };
+    });
+    const launch = normalizedLaunches[0];
     const fallbackCreatorProfile = { profile: readLocalJson(profileKey(launch.creator)), source: "Creator wallet recorded onchain", registryAddress: configuredProfileRegistryAddress() };
     renderToken({
       address: window.ethers.getAddress(address),
@@ -2045,21 +2168,8 @@ async function loadTokenPage() {
       symbol,
       decimals: Number(decimals),
       supply,
-      launch: {
-        creator: launch.creator,
-        pool,
-        poolId,
-        protocol: factoryLaunch.source.protocol,
-        positionTokenId: BigInt(launch.positionTokenId),
-        factoryAddress: factoryLaunch.factoryAddress,
-        liquidity: isV4 ? BigInt(launch.liquidity) : null,
-        liquidityPermanentlyLocked: Boolean(launch.liquidityPermanentlyLocked),
-        tickLower: isV4 ? Number(launch.tickLower) : null,
-        tickUpper: isV4 ? Number(launch.tickUpper) : null,
-        quoteSymbol,
-        quoteAddress,
-        directQuote,
-      },
+      launch,
+      launches: normalizedLaunches,
       metadata: resolvedMetadata,
       creatorProfile: fallbackCreatorProfile,
     });

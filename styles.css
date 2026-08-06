@@ -210,6 +210,10 @@ input::placeholder, textarea::placeholder { color: rgba(11,11,9,.35); }
 .rwi-symbol { width: 49px; height: 49px; border-radius: 50%; display: grid; place-items: center; background: var(--lime); color: var(--ink); }
 .home-page-body .pair-token .rwi-symbol > img { width: 100%; height: 100%; display: block; border-radius: 50%; object-fit: cover; }
 .home-page-body .pair-token .rwi-symbol > span { display: block; transform: translateY(2px); font-family: var(--serif); font-size: 15px; font-weight: 600; line-height: 1; letter-spacing: 0; opacity: 1; text-transform: none; }
+.pair-logo-stack { min-width: 49px; display: flex; align-items: center; padding-right: 3px; }
+.pair-logo-stack > span { width: 42px; height: 42px; flex: 0 0 42px; display: grid; place-items: center; overflow: hidden; border: 2px solid var(--paper); border-radius: 50%; background: var(--paper); opacity: 1; }
+.pair-logo-stack > span + span { margin-left: -13px; }
+.pair-logo-stack img { width: 100%; height: 100%; display: block; border-radius: 50%; object-fit: contain; }
 .venue-mark { display: flex; flex-direction: column; align-items: flex-end; }
 .venue-mark span { font-family: var(--mono); font-size: 7px; text-transform: uppercase; letter-spacing: .08em; opacity: .55; }
 .venue-mark strong { color: var(--paper); font-size: 15px; font-weight: 500; }
@@ -624,6 +628,16 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 17px; heigh
 .compact-market-actions a { padding: 6px 9px; border: 1px solid rgba(204,254,6,.4); border-radius: 999px; background: rgba(204,254,6,.06); color: var(--lime); font-family: var(--mono); font-size: 10px; text-transform: uppercase; transition: background .16s ease, border-color .16s ease; }
 .compact-market-actions a:hover { border-color: var(--lime); background: rgba(204,254,6,.13); }
 .dextools-chart-shell { position: relative; min-height: 300px; padding: 8px; background: linear-gradient(145deg, #101927 0%, #1d2a3b 100%); }
+.token-pool-switcher[hidden] { display: none; }
+.token-pool-switcher { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 2px 9px; }
+.token-pool-switcher > span { flex: 0 0 auto; color: rgba(255,255,255,.52); font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.token-pool-switcher > div { min-width: 0; display: flex; justify-content: flex-end; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+.token-pool-switcher > div::-webkit-scrollbar { display: none; }
+.token-pool-switcher button { min-height: 32px; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(204,254,6,.3); border-radius: 999px; background: rgba(255,255,255,.025); color: rgba(255,255,255,.68); padding: 5px 11px 5px 6px; font: 600 10px/1 var(--mono); cursor: pointer; transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease; }
+.token-pool-switcher button:hover { border-color: rgba(204,254,6,.72); color: var(--white); transform: translateY(-1px); }
+.token-pool-switcher button:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+.token-pool-switcher button img { width: 20px; height: 20px; flex: 0 0 20px; display: block; border-radius: 50%; background: var(--paper); object-fit: contain; }
+.token-pool-switcher button[aria-pressed="true"] { border-color: var(--lime); background: var(--lime); color: var(--ink); }
 .dextools-chart-frame { position: relative; height: 300px; overflow: hidden; border: 1px solid rgba(204,254,6,.22); border-radius: 10px; background: #1f2b3d; }
 .dextools-chart-frame iframe { width: 100%; height: 100%; display: block; border: 0; background: #1f2b3d; color-scheme: dark; }
 .dextools-chart-frame iframe[hidden], .dextools-chart-status[hidden] { display: none; }
@@ -711,6 +725,12 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
 .modal-dev-buy { display: grid; gap: 9px; margin: 0 0 18px; border: 1px solid rgba(204,254,6,.42); background: rgba(204,254,6,.06); padding: 14px; }
 .modal-dev-buy > label { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; }
 .modal-dev-buy > label small { color: rgba(244,241,231,.52); font-size: 9px; }
+.modal-dev-buy-pair[hidden] { display: none; }
+.modal-dev-buy-pair { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.modal-dev-buy-pair > span { color: rgba(244,241,231,.58); font-family: var(--mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.modal-dev-buy-pair > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.modal-dev-buy-pair button { min-height: 30px; border: 1px solid rgba(204,254,6,.32); border-radius: 99px; background: transparent; color: var(--paper); padding: 5px 10px; font: 600 9px/1 var(--mono); cursor: pointer; }
+.modal-dev-buy-pair button[aria-pressed="true"] { border-color: var(--lime); background: var(--lime); color: var(--ink); }
 .modal-dev-buy-input { min-height: 49px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; border: 1px solid var(--lime); background: var(--paper); color: var(--ink); }
 .modal-dev-buy-input > span { padding-left: 13px; font-family: var(--serif); font-size: 27px; }
 .modal-dev-buy-input input { min-width: 0; height: 47px; border: 0; outline: 0; background: transparent; padding: 7px 9px; color: var(--ink); font-family: var(--serif); font-size: 27px; }
@@ -944,7 +964,7 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
 .token-dashboard .compact-market-actions { gap: 3px; }
 .token-dashboard .compact-market-actions span, .token-dashboard .compact-market-actions small { font-size: 10px; }
 .token-dashboard .compact-market-actions a { font-size: 10px; }
-.token-dashboard .dextools-chart-shell { min-height: 0; flex: 1 1 auto; display: flex; }
+.token-dashboard .dextools-chart-shell { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 .token-dashboard .dextools-chart-frame { min-height: 210px; height: auto; flex: 1 1 auto; }
 .token-dashboard .dextools-chart-frame iframe { min-height: 210px; }
 .token-dashboard .dextools-chart-status { min-height: 0; height: 100%; }
