@@ -445,6 +445,7 @@ export async function GET(request) {
       chainId: CHAIN_ID,
       factoryAddress: FACTORY_ADDRESS,
       quoteFactoryAddress: QUOTE_FACTORY_ADDRESS,
+      multiPairFactoryAddress: MULTI_PAIR_FACTORY_ADDRESS,
       ponsFactoryAddresses: PONS_FACTORY_ADDRESSES,
       legacyFactoryAddresses: LEGACY_FACTORY_ADDRESSES,
       legacyQuoteFactoryAddresses: LEGACY_QUOTE_FACTORY_ADDRESSES,
