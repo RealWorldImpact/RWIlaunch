@@ -541,6 +541,10 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 17px; heigh
 .token-detail-art img { grid-area: 1 / 1; width: 100%; height: 100%; display: block; border-radius: 50%; object-fit: cover; }
 .token-detail-art img[hidden] { display: none; }
 .token-detail-art span { font-family: var(--serif); font-size: clamp(100px, 18vw, 210px); font-weight: 600; letter-spacing: -.08em; }
+.token-detail-art .token-logo-repair { position: absolute; right: 18px; bottom: 18px; left: 18px; z-index: 2; min-height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--ink); border-radius: 999px; background: var(--ink); color: var(--lime); font: 600 10px/1 var(--mono); letter-spacing: .055em; text-transform: uppercase; transition: transform .16s ease, background .16s ease, color .16s ease; }
+.token-detail-art .token-logo-repair:hover { background: var(--white); color: var(--ink); transform: translateY(-1px); }
+.token-detail-art .token-logo-repair[hidden] { display: none; }
+.token-detail-art:has(.token-logo-repair:not([hidden])) { position: relative; }
 .token-detail-copy { display: flex; justify-content: flex-start; flex-direction: column; border-left: 1px solid var(--ink); padding: clamp(32px, 4vw, 52px); }
 .token-detail-title-row { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
 .token-detail-title-row p { margin: 0 0 4px; font-family: var(--mono); font-size: 11px; letter-spacing: .1em; }

@@ -1599,6 +1599,19 @@ function bufferedLaunchGasLimit(estimatedGas) {
   return buffered > LAUNCH_GAS_LIMIT_FLOOR ? buffered : LAUNCH_GAS_LIMIT_FLOOR;
 }
 
+async function waitForConfirmedLaunchReceipt(transaction, provider, timeoutMs = 180_000) {
+  try {
+    return await transaction.wait();
+  } catch (waitError) {
+    const immediate = await provider.getTransactionReceipt(transaction.hash).catch(() => null);
+    if (immediate && Number(immediate.status) === 1) return immediate;
+    if (immediate && Number(immediate.status) === 0) throw waitError;
+    const recovered = await provider.waitForTransaction(transaction.hash, 1, timeoutMs).catch(() => null);
+    if (recovered && Number(recovered.status) === 1) return recovered;
+    throw waitError;
+  }
+}
+
 async function safeLaunchGasLimit(provider, transactionRequest) {
   try {
     return bufferedLaunchGasLimit(await provider.estimateGas(transactionRequest));
@@ -4262,10 +4275,11 @@ async function launchOnMultiPairFactory() {
     button.textContent = "Confirm launch in wallet…";
     $("#modalNote").textContent = `${selected.length} selected pool${selected.length === 1 ? "" : "s"} will initialize atomically. If any pool fails, the complete transaction reverts.`;
     const transaction = await signer.sendTransaction({ ...transactionRequest, gasLimit });
+    state.lastLaunchTx = transaction.hash;
     state.lastDevBuyUsdAmount = formatUnits(devBuyUsdAmount, 18, 2);
     state.lastDevBuyEthAmount = devBuyEthAmount;
     button.textContent = `Locking ${selected.length} pool${selected.length === 1 ? "" : "s"}…`;
-    const receipt = await transaction.wait();
+    const receipt = await waitForConfirmedLaunchReceipt(transaction, provider);
     const launchEvents = [];
     for (const log of receipt.logs) {
       try {
@@ -4280,7 +4294,6 @@ async function launchOnMultiPairFactory() {
     if (!launchEvents.every((event) => sameAddress(event.args.token, tokenAddress))) {
       throw new Error("The selected pools did not resolve to one token.");
     }
-    state.lastLaunchTx = transaction.hash;
     state.lastTokenAddress = tokenAddress;
     state.lastPoolAddress = null;
     state.lastPoolId = launchEvents[0].args.poolId;

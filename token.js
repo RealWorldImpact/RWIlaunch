@@ -2204,17 +2204,21 @@ function renderTokenMetadata(metadata = {}) {
   renderTokenLinks(metadata.links);
   const logo = $("#detailLogo");
   const monogram = $("#detailMonogram");
+  const repair = $("#tokenLogoRepair");
+  if (repair && state.token) repair.href = `index.html?repairToken=${encodeURIComponent(state.token)}#dashboard`;
   if (!metadata.imageUrl) {
     logo.hidden = true;
     logo.removeAttribute("src");
     monogram.hidden = false;
     monogram.textContent = state.tokenSymbol.charAt(0) || "?";
+    if (repair) repair.hidden = false;
     return;
   }
   logo.alt = `${$("#detailName").textContent || "Token"} token logo`;
   logo.onload = () => {
     logo.hidden = false;
     monogram.hidden = true;
+    if (repair) repair.hidden = true;
   };
   logo.onerror = async () => {
     const failedUrl = logo.src;
@@ -2230,6 +2234,7 @@ function renderTokenMetadata(metadata = {}) {
     logo.removeAttribute("src");
     monogram.hidden = false;
     monogram.textContent = state.tokenSymbol.charAt(0) || "?";
+    if (repair) repair.hidden = false;
   };
   logo.hidden = false;
   monogram.hidden = true;
