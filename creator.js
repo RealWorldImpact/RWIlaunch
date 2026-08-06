@@ -134,14 +134,30 @@ async function queryLogsInBatches(contract, filter, firstBlock, latestBlock) {
 }
 
 async function readMetadata(token) {
+  let metadata = {};
   try {
     const url = new URL("api/token-metadata", new URL(".", window.location.href));
     url.searchParams.set("token", token);
     const response = await fetch(url, { headers: { accept: "application/json" } });
-    return response.ok ? response.json() : {};
+    if (response.ok) metadata = await response.json();
   } catch {
-    return {};
+    // The indexed market fallback below can still supply a public logo.
   }
+  if (metadata.image || metadata.imageUrl || metadata.logoURI) return metadata;
+  try {
+    const response = await fetch(`/api/dexscreener-market?token=${encodeURIComponent(token)}`, { headers: { accept: "application/json" } });
+    if (!response.ok) return metadata;
+    const pairs = await response.json();
+    const image = (Array.isArray(pairs) ? pairs : [])
+      .filter((pair) => sameAddress(pair?.baseToken?.address, token))
+      .sort((left, right) => Number(right?.liquidity?.usd || 0) - Number(left?.liquidity?.usd || 0))
+      .map((pair) => pair?.info?.imageUrl)
+      .find((value) => /^https:\/\//i.test(String(value || "")));
+    if (image) metadata.image = image;
+  } catch {
+    // A monogram remains visible when neither metadata source has artwork.
+  }
+  return metadata;
 }
 
 function assetUrl(value) {
@@ -392,12 +408,25 @@ function renderLaunches(launches) {
     card.setAttribute("aria-label", `Open ${launch.name} token page`);
     const art = document.createElement("div");
     art.className = "creator-launch-art";
-    const image = assetUrl(launch.metadata?.image || launch.metadata?.imageUrl || KNOWN_IMAGES[launch.token.toLowerCase()]);
-    if (image) art.style.backgroundImage = `url("${image}")`;
-    else {
+    const appendMonogram = () => {
       const monogram = document.createElement("span");
       monogram.textContent = launch.symbol.charAt(0) || "?";
       art.appendChild(monogram);
+    };
+    const imageUrl = assetUrl(launch.metadata?.image || launch.metadata?.imageUrl || launch.metadata?.logoURI || KNOWN_IMAGES[launch.token.toLowerCase()]);
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = `${launch.name} token logo`;
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.addEventListener("error", () => {
+        image.remove();
+        appendMonogram();
+      }, { once: true });
+      art.appendChild(image);
+    } else {
+      appendMonogram();
     }
     const copy = document.createElement("div");
     copy.className = "creator-launch-copy";

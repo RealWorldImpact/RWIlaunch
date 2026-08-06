@@ -89,6 +89,7 @@ const state = {
   dexScreenerToken: null, dexScreenerLaunch: null,
   marketProvider: null, rwiUsdPrice: null, ethUsdPrice: null, rwiUsdUpdatedAt: 0,
   tokenRwiPrice: null, tokenUsdPrice: null,
+  tokenLogoFallbackAttempted: false,
 };
 
 function isAddress(value) {
@@ -1745,6 +1746,23 @@ function resolveAssetUrl(path) {
   return new URL(cleanPath, new URL(".", window.location.href)).href;
 }
 
+async function readIndexedTokenImage(address) {
+  try {
+    const endpoint = `/api/dexscreener-market?token=${encodeURIComponent(address)}`;
+    const response = await withTimeout(fetch(endpoint, { headers: { Accept: "application/json" } }), 7_000, "Token image lookup timed out.");
+    if (!response.ok) return null;
+    const pairs = await response.json();
+    const image = (Array.isArray(pairs) ? pairs : [])
+      .filter((pair) => sameAddress(pair?.baseToken?.address, address))
+      .sort((left, right) => (finiteNumber(right?.liquidity?.usd) || 0) - (finiteNumber(left?.liquidity?.usd) || 0))
+      .map((pair) => pair?.info?.imageUrl)
+      .find((value) => /^https:\/\//i.test(String(value || "")));
+    return image ? resolveAssetUrl(image) : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSocialUrl(kind, value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -1795,6 +1813,7 @@ async function resolveTokenMetadata(address) {
   } else {
     metadata.imageUrl = resolveAssetUrl(metadata.image || metadata.imageUrl);
   }
+  if (!metadata.imageUrl) metadata.imageUrl = await readIndexedTokenImage(address);
   return metadata;
 }
 
@@ -1881,6 +1900,11 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
   const detailArt = $("#detailArt");
   detailArt.setAttribute("role", "img");
   detailArt.setAttribute("aria-label", `${name} ($${symbol}) token artwork`);
+  detailArt.style.backgroundImage = "";
+  state.tokenLogoFallbackAttempted = false;
+  const detailLogo = $("#detailLogo");
+  detailLogo.hidden = true;
+  detailLogo.removeAttribute("src");
   $("#detailAddress").textContent = address;
   $("#detailMonogram").textContent = symbol.charAt(0) || "?";
   $("#detailSupply").textContent = formatSupply(supply, decimals);
@@ -1926,10 +1950,38 @@ function renderToken({ address, name, symbol, supply, decimals, launch, metadata
 function renderTokenMetadata(metadata = {}) {
   $("#detailDescription").textContent = displayedTokenDescription(metadata.description, state.quoteSymbol);
   renderTokenLinks(metadata.links);
-  if (metadata.imageUrl) {
-    $("#detailArt").style.backgroundImage = `url("${metadata.imageUrl}")`;
-    $("#detailMonogram").textContent = "";
+  const logo = $("#detailLogo");
+  const monogram = $("#detailMonogram");
+  if (!metadata.imageUrl) {
+    logo.hidden = true;
+    logo.removeAttribute("src");
+    monogram.hidden = false;
+    monogram.textContent = state.tokenSymbol.charAt(0) || "?";
+    return;
   }
+  logo.alt = `${$("#detailName").textContent || "Token"} token logo`;
+  logo.onload = () => {
+    logo.hidden = false;
+    monogram.hidden = true;
+  };
+  logo.onerror = async () => {
+    const failedUrl = logo.src;
+    if (!state.tokenLogoFallbackAttempted && state.token) {
+      state.tokenLogoFallbackAttempted = true;
+      const fallback = await readIndexedTokenImage(state.token);
+      if (fallback && fallback !== failedUrl) {
+        logo.src = fallback;
+        return;
+      }
+    }
+    logo.hidden = true;
+    logo.removeAttribute("src");
+    monogram.hidden = false;
+    monogram.textContent = state.tokenSymbol.charAt(0) || "?";
+  };
+  logo.hidden = false;
+  monogram.hidden = true;
+  if (logo.src !== metadata.imageUrl) logo.src = metadata.imageUrl;
 }
 
 async function loadTokenPage() {

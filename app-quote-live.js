@@ -3,7 +3,7 @@ const PONS_ADDRESS = "0x39dBED3a2bd333467115dE45665cC57F813C4571";
 const FIXED_TOKEN_SUPPLY = 1_000_000_000n;
 const FIXED_POOL_ALLOCATION_BPS = 10_000;
 const TARGET_MARKET_CAP_USD = 10_000;
-const RELEASE_VERSION = "20260805-launch-gas-reserve-1";
+const RELEASE_VERSION = "20260805-token-image-audit-1";
 const TOKEN_DESCRIPTION_MAX_LENGTH = 500;
 const ETH_CLAIM_SLIPPAGE_BPS = 500n;
 const DEV_BUY_SLIPPAGE_BPS = 500n;
@@ -60,6 +60,12 @@ const PROFILE_REGISTRY_LOCAL_BLOCK_KEY = "rwi-profile-registry-block";
 const FACTORY_LOCAL_BLOCK_KEY = `${FACTORY_CONFIG.factoryAddressStorageKey || "rwi-launchpad-factory-address-v4"}-deployment-block`;
 const PROFILE_AVATAR_MAX_BYTES = 12_000;
 const LOGO_SIZE = 512;
+const QUOTE_ASSET_LOGOS = Object.freeze({
+  RWI: { src: "assets/rwi-logo.jpg", alt: "$RWI logo" },
+  ETH: { src: "assets/eth-logo.png", alt: "$ETH logo" },
+  USDG: { src: "assets/usdg-logo.png", alt: "$USDG logo" },
+  PONS: { src: "assets/pons-logo.png", alt: "$PONS logo" },
+});
 const KNOWN_TOKEN_IMAGES = Object.freeze({
   "0xc29d66d54d2ed13fffdc89323e5a9d70c197eaec": "assets/testcoin.png",
 });
@@ -396,8 +402,13 @@ function updatePreview() {
   $("#previewPair").textContent = `${ticker} / ${quote}`;
   $("#fixedPairLabel").textContent = `${ticker} / $${quote}`;
   $("#previewLiquidity").textContent = `0 ${quote} upfront`;
-  const pairSymbol = $(".pair-token .rwi-symbol > span");
-  if (pairSymbol) pairSymbol.textContent = quote;
+  const pairLogo = $("#pairQuoteLogo");
+  const quoteLogo = QUOTE_ASSET_LOGOS[quote] || QUOTE_ASSET_LOGOS.RWI;
+  if (pairLogo) {
+    pairLogo.src = quoteLogo.src;
+    pairLogo.alt = quoteLogo.alt;
+    pairLogo.style.objectFit = quote === "PONS" || quote === "ETH" || quote === "USDG" ? "contain" : "cover";
+  }
   const pairLinks = $(".pair-links");
   const quoteAddresses = {
     RWI: RWI_ADDRESS,
@@ -1008,13 +1019,31 @@ async function publishLaunchedTokenAssets(signer, address, poolReference, source
   } else {
     authorization = { signature: await signer.signMessage(await publicMetadataSigningMessage(payload)) };
   }
-  const response = await fetch(new URL("api/token-metadata", new URL(".", window.location.href)), {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ ...payload, ...authorization, imageDataUrl: await blobToDataUrl(imageFile) }),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "The public token metadata could not be published.");
+  const endpoint = new URL("api/token-metadata", new URL(".", window.location.href));
+  const body = JSON.stringify({ ...payload, ...authorization, imageDataUrl: await blobToDataUrl(imageFile) });
+  let response = null;
+  let result = {};
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = null;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body,
+      });
+      result = await response.json().catch(() => ({}));
+      if (response.ok) break;
+      lastError = new Error(result.error || "The public token metadata could not be published.");
+      if (response.status < 500) throw lastError;
+    } catch (error) {
+      lastError = error;
+      if (response && response.status < 500) throw error;
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+  }
+  if (!response?.ok) throw lastError || new Error("The public token metadata could not be published.");
+  if (!/^https:\/\//i.test(String(result.logoUrl || ""))) throw new Error("The public logo service did not return a valid image URL.");
   mergeLocalTokenMetadata(address, {
     schemaVersion: 2,
     image: result.logoUrl,
@@ -2199,11 +2228,12 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
         ["function collectFees(uint256 positionTokenId) returns (uint256 amount0, uint256 amount1)"],
         provider,
       ).collectFees.staticCall(positionTokenId);
-  const [nameResult, symbolResult, feeResult, launchRecordResult] = await Promise.allSettled([
+  const [nameResult, symbolResult, feeResult, launchRecordResult, publicMetadataResult] = await Promise.allSettled([
     tokenContract.name(),
     tokenContract.symbol(),
     feePreview,
     launchRecordPromise,
+    readPublicTokenMetadata(token),
   ]);
   const launchRecord = launchRecordResult.status === "fulfilled" ? launchRecordResult.value : null;
   const quoteSymbol = ponsMode ? "PONS" : multiQuote ? (Number(launchRecord?.quoteAsset ?? 0) === 0 ? "ETH" : "USDG") : "RWI";
@@ -2268,6 +2298,7 @@ async function readCreatorLaunch(eventLog, provider, factory, source) {
     multiQuote,
     quoteSymbol,
     quoteToken: launchRecord?.quoteToken ? String(launchRecord.quoteToken) : ponsMode ? PONS_ADDRESS : RWI_ADDRESS,
+    metadata: publicMetadataResult.status === "fulfilled" ? publicMetadataResult.value : null,
     ethOnly,
     blockNumber: Number(eventLog.blockNumber || 0),
   };
@@ -2796,7 +2827,22 @@ function renderCreatorLaunches() {
     const card = dashboardElement("article", "revenue-token");
     if (launch.internalMatch) card.classList.add("is-internal-match");
     const top = dashboardElement("div", "revenue-token-top");
-    const avatar = dashboardElement("div", "revenue-token-avatar", launch.symbol.charAt(0) || "?");
+    const avatar = dashboardElement("div", "revenue-token-avatar");
+    const avatarFallback = dashboardElement("span", "", launch.symbol.charAt(0) || "?");
+    avatar.appendChild(avatarFallback);
+    const renderDashboardTokenImageUrl = (imageUrl) => {
+      if (!imageUrl || !avatar.isConnected) return;
+      avatar.querySelector("img")?.remove();
+      const image = dashboardElement("img", "");
+      image.alt = `${launch.name} token logo`;
+      image.onload = () => { avatarFallback.hidden = true; };
+      image.onerror = () => {
+        image.remove();
+        avatarFallback.hidden = false;
+      };
+      image.src = imageUrl;
+      avatar.appendChild(image);
+    };
     const meta = dashboardElement("div", "revenue-token-meta");
     meta.appendChild(dashboardElement("span", "", `$${launch.symbol}`));
     meta.appendChild(dashboardElement("strong", "", launch.name));
@@ -2861,21 +2907,22 @@ function renderCreatorLaunches() {
     card.appendChild(fees);
     list.appendChild(card);
 
+    const publicLogoUrl = launch.metadata?.image || launch.metadata?.imageUrl || launch.metadata?.logoURI || null;
+    if (publicLogoUrl) renderDashboardTokenImageUrl(publicLogoUrl);
+
     readLogoAsset(`token:${launch.token.toLowerCase()}`).then((record) => {
       if (!avatar.isConnected) return;
       let logoBlob = record?.blob || null;
       const renderDashboardTokenLogo = (blob) => {
         if (!blob || !avatar.isConnected) return;
         const imageUrl = URL.createObjectURL(blob);
-        avatar.style.backgroundImage = `url("${imageUrl}")`;
-        avatar.style.backgroundSize = "cover";
-        avatar.style.backgroundPosition = "center";
-        avatar.textContent = "";
+        renderDashboardTokenImageUrl(imageUrl);
         setTimeout(() => URL.revokeObjectURL(imageUrl), 60_000);
       };
       renderDashboardTokenLogo(logoBlob);
-      if (launch.poolId && sameAddress(launch.factoryAddress, configuredFactoryAddress())) {
-        const metadata = readLocalTokenMetadata(launch.token) || {};
+      const currentMetadataFactories = [configuredFactoryAddress(), quoteFactoryAddress(), ponsFactoryAddress()].filter(isAddress);
+      if (launch.poolId && currentMetadataFactories.some((address) => sameAddress(launch.factoryAddress, address))) {
+        const metadata = { ...(launch.metadata || {}), ...(readLocalTokenMetadata(launch.token) || {}) };
         const publish = dashboardElement("button", "publish-token-logo", logoBlob
           ? (metadata.publicLogoUrl ? "Republish logo" : "Publish logo")
           : "Add public logo");
@@ -2892,6 +2939,7 @@ function renderCreatorLaunches() {
             if (!sameAddress(await signer.getAddress(), state.account)) throw new Error("Connected wallet changed. Reload the creator dashboard.");
             publish.textContent = "Approve in wallet…";
             await publishLaunchedTokenAssets(signer, launch.token, launch.poolId, {
+              factoryAddress: launch.factoryAddress,
               name: launch.name,
               symbol: launch.symbol,
               description: metadata.description || "",
@@ -3610,6 +3658,10 @@ async function launchOnQuoteFactory() {
     let publicationWarning = null;
     try {
       await persistLaunchedTokenAssets(state.lastTokenAddress, state.lastPoolId);
+    } catch {
+      saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolId, null);
+    }
+    try {
       button.textContent = "Publishing public logo…";
       publication = await publishLaunchedTokenAssets(signer, state.lastTokenAddress, state.lastPoolId, {
         factoryAddress,
@@ -3622,7 +3674,6 @@ async function launchOnQuoteFactory() {
         metadataCommitment: launchMetadataAuthorization.commitment,
       });
     } catch (error) {
-      saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolId, null);
       publicationWarning = String(error?.message || "The public logo could not be published.").slice(0, 220);
     }
 
@@ -3771,6 +3822,10 @@ async function launchOnPonsFactory() {
     let publicationWarning = null;
     try {
       await persistLaunchedTokenAssets(state.lastTokenAddress, state.lastPoolId);
+    } catch {
+      saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolId, null);
+    }
+    try {
       button.textContent = "Publishing public logo…";
       publication = await publishLaunchedTokenAssets(signer, state.lastTokenAddress, state.lastPoolId, {
         factoryAddress,
@@ -3783,7 +3838,6 @@ async function launchOnPonsFactory() {
         metadataCommitment: launchMetadataAuthorization.commitment,
       });
     } catch (error) {
-      saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolId, null);
       publicationWarning = String(error?.message || "The public logo could not be published.").slice(0, 220);
     }
     $("#modalTitle").textContent = "Your token is live.";
@@ -4020,7 +4074,7 @@ async function launchOnUniswap() {
         saveLocalTokenMetadata(state.lastTokenAddress, state.lastPoolId, null);
         assetPersistenceWarning = assetError?.message || "The logo could not be verified in browser storage.";
       }
-      if (!assetPersistenceWarning && state.lastPoolId) {
+      if (state.lastPoolId) {
         try {
           button.textContent = "Publishing public logo…";
           $("#modalNote").textContent = "The signed launch transaction already authorized this logo. Publishing it for every visitor now.";
@@ -4042,7 +4096,7 @@ async function launchOnUniswap() {
     }
     $("#modalTitle").textContent = "Your token is live.";
     $("#modalDevBuy").hidden = true;
-    const publicationWarning = assetPersistenceWarning || publicMetadataWarning;
+    const publicationWarning = publicMetadataPublication ? null : (publicMetadataWarning || assetPersistenceWarning);
     const liquidityCopy = liquidityVerification
       ? " The live position matches the launch record and is active inside its locked range."
       : liquidityVerificationWarning

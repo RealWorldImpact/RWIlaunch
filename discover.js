@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const RELEASE_VERSION = "20260805-discover-page-2";
+  const RELEASE_VERSION = "20260805-token-image-audit-1";
   const RWI_ADDRESS = "0x2286397228be256529BE1ae9ed8D7d16549e9C6A";
   const PONS_ADDRESS = "0x39dBED3a2bd333467115dE45665cC57F813C4571";
   const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
@@ -438,7 +438,15 @@
 
   async function readMarket(launch) {
     try {
-      const pair = selectPair(await fetchDexPairs(launch.token), launch);
+      const pairs = await fetchDexPairs(launch.token);
+      if (!launch.image) {
+        launch.image = pairs
+          .filter((pair) => sameAddress(pair?.baseToken?.address, launch.token))
+          .sort((left, right) => (finiteNumber(right?.liquidity?.usd) || 0) - (finiteNumber(left?.liquidity?.usd) || 0))
+          .map((pair) => pair?.info?.imageUrl)
+          .find((value) => /^https:\/\//i.test(String(value || ""))) || null;
+      }
+      const pair = selectPair(pairs, launch);
       const tokenUsd = tokenUsdFromPair(pair, launch.token);
       if (tokenUsd && tokenUsd > 0) {
         return {
