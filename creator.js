@@ -504,7 +504,7 @@ function showError(message) {
   const detail = document.createElement("span");
   detail.textContent = String(message || "Unknown creator-page error.").slice(0, 220);
   const back = document.createElement("a");
-  back.href = "index.html#discover";
+  back.href = "discover.html";
   back.textContent = "Return to all launches";
   status.append(title, detail, back);
 }
