@@ -4126,6 +4126,43 @@ async function quoteDevBuyAssetFromEth(provider, quote, ethAmount) {
   return BigInt(result.amountOut ?? result[0]);
 }
 
+async function verifyLockedMultiPairLaunch(provider, factory, tokenAddress, launchEvents) {
+  const vaultAddress = await factory.liquidityVault();
+  if (!isAddress(vaultAddress) || await provider.getCode(vaultAddress) === "0x") {
+    throw new Error("The permanent-liquidity vault is unavailable.");
+  }
+  const vault = new window.ethers.Contract(vaultAddress, [
+    "function lockedPools(bytes32 poolId) view returns(address token,int24 openingTick,bool tokenIs0,bool seeded,uint128 launchLiquidity,uint128 compoundedLiquidity,uint256 tokenAllocation)",
+  ], provider);
+  const stateView = new window.ethers.Contract(MULTI_PAIR_FACTORY_CONFIG.uniswapV4StateView, [
+    "function getSlot0(bytes32 poolId) view returns(uint160 sqrtPriceX96,int24 tick,uint24 protocolFee,uint24 lpFee)",
+  ], provider);
+  const checks = await Promise.all(launchEvents.map(async (event) => {
+    const poolId = event.args.poolId;
+    const [locked, slot0] = await Promise.all([
+      vault.lockedPools(poolId),
+      stateView.getSlot0(poolId),
+    ]);
+    return {
+      event,
+      locked,
+      sqrtPriceX96: BigInt(slot0.sqrtPriceX96 ?? slot0[0]),
+    };
+  }));
+  const invalid = checks.some(({ event, locked, sqrtPriceX96 }) => (
+    !Boolean(event.args.liquidityPermanentlyLocked)
+    || BigInt(event.args.liquidity) === 0n
+    || BigInt(event.args.tokenAmount) === 0n
+    || !Boolean(locked.seeded)
+    || !sameAddress(locked.token, tokenAddress)
+    || BigInt(locked.launchLiquidity) !== BigInt(event.args.liquidity)
+    || BigInt(locked.tokenAllocation) !== BigInt(event.args.tokenAmount)
+    || sqrtPriceX96 === 0n
+  ));
+  if (invalid) throw new Error("A selected pool did not pass the permanent-liquidity check.");
+  return true;
+}
+
 async function launchOnMultiPairFactory() {
   const factoryAddress = multiPairFactoryAddress();
   if (!factoryAddress || MULTI_PAIR_FACTORY_CONFIG.launchesPaused) {
@@ -4243,16 +4280,17 @@ async function launchOnMultiPairFactory() {
     if (!launchEvents.every((event) => sameAddress(event.args.token, tokenAddress))) {
       throw new Error("The selected pools did not resolve to one token.");
     }
-    const stateView = new window.ethers.Contract(MULTI_PAIR_FACTORY_CONFIG.uniswapV4StateView, [
-      "function getLiquidity(bytes32 poolId) view returns(uint128)",
-    ], provider);
-    const activeLiquidity = await Promise.all(launchEvents.map((event) => stateView.getLiquidity(event.args.poolId)));
-    if (activeLiquidity.some((amount) => BigInt(amount) === 0n)) throw new Error("A selected pool has no active opening liquidity.");
-
     state.lastLaunchTx = transaction.hash;
     state.lastTokenAddress = tokenAddress;
     state.lastPoolAddress = null;
     state.lastPoolId = launchEvents[0].args.poolId;
+    let liquidityVerificationWarning = null;
+    try {
+      button.textContent = "Verifying permanent liquidityâ€¦";
+      await verifyLockedMultiPairLaunch(provider, factory, tokenAddress, launchEvents);
+    } catch (error) {
+      liquidityVerificationWarning = String(error?.message || "The live liquidity check could not be completed.").slice(0, 180);
+    }
     try {
       await persistLaunchedTokenAssets(tokenAddress, state.lastPoolId);
     } catch {
@@ -4277,7 +4315,7 @@ async function launchOnMultiPairFactory() {
     $("#modalTitle").textContent = "Your token is live.";
     $("#modalDevBuy").hidden = true;
     $("#modalCopy").textContent = `One token is live across ${selected.map((quote) => `$${quote}`).join(", ")}. Use its token page to switch between pool charts and routes.`;
-    $("#modalNote").textContent = `5% active at launch · 95% progressively locked through approximately $1M · 2.5% of pool revenue auto-compounds forever.${publicationWarning ? ` Logo warning: ${publicationWarning}` : ""}`;
+    $("#modalNote").textContent = `5% opening inventory · 95% progressively locked through approximately $1M · 2.5% of pool revenue auto-compounds forever.${liquidityVerificationWarning ? ` Verification warning: ${liquidityVerificationWarning}` : ""}${publicationWarning ? ` Logo warning: ${publicationWarning}` : ""}`;
     $("#uniswapTradeButton").hidden = false;
     toast(`Token launched with ${selected.length} locked pool${selected.length === 1 ? "" : "s"}.`);
     await completeSuccessfulLaunch(tokenAddress);

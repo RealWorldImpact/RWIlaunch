@@ -1515,7 +1515,7 @@ async function refreshPoolActivation() {
     const view = new window.ethers.Contract(V4_STATE_VIEW, ["function getLiquidity(bytes32 poolId) view returns (uint128)"], provider);
     const activeLiquidity = await view.getLiquidity(state.poolId);
     if (activeLiquidity === 0n && !state.tradeQuote) {
-      setDirectTradeStatus("This launch is waiting for its first purchase.", true);
+      setDirectTradeStatus("Opening liquidity is locked and ready for the first purchase.");
     }
   } catch {
     // Trading remains available when the optional state read is unavailable.
@@ -1535,6 +1535,33 @@ async function verifyDisplayedLiquidity(launch) {
   try {
     const provider = marketProvider();
     const stateView = new window.ethers.Contract(V4_STATE_VIEW, V4_STATE_VIEW_ABI, provider);
+    const recordedLiquidity = BigInt(launch.liquidity);
+    if (launch.multiPair) {
+      const vaultAddress = launch.positionOwner;
+      if (!isAddress(vaultAddress)) throw new Error("Permanent-liquidity vault unavailable.");
+      const vault = new window.ethers.Contract(vaultAddress, [
+        "function lockedPools(bytes32 poolId) view returns(address token,int24 openingTick,bool tokenIs0,bool seeded,uint128 launchLiquidity,uint128 compoundedLiquidity,uint256 tokenAllocation)",
+      ], provider);
+      const [locked, slot0] = await Promise.all([
+        vault.lockedPools(launch.poolId),
+        stateView.getSlot0(launch.poolId),
+      ]);
+      const initialized = BigInt(slot0.sqrtPriceX96 ?? slot0[0]) > 0n;
+      if (
+        launch.liquidityPermanentlyLocked
+        && recordedLiquidity > 0n
+        && Boolean(locked.seeded)
+        && sameAddress(locked.token, state.token)
+        && BigInt(locked.launchLiquidity) === recordedLiquidity
+        && BigInt(locked.tokenAllocation) > 0n
+        && initialized
+      ) {
+        badge.textContent = "LP lock verified live";
+        return;
+      }
+      badge.textContent = "Check LP status";
+      return;
+    }
     const [activeLiquidity, positionInfo, slot0] = await Promise.all([
       stateView.getLiquidity(launch.poolId),
       stateView.getPositionInfo(
@@ -1546,7 +1573,6 @@ async function verifyDisplayedLiquidity(launch) {
       ),
       stateView.getSlot0(launch.poolId),
     ]);
-    const recordedLiquidity = BigInt(launch.liquidity);
     const positionLiquidity = BigInt(positionInfo.liquidity ?? positionInfo[0]);
     const currentTick = Number(slot0.tick ?? slot0[1]);
     const inRange = currentTick >= launch.tickLower && currentTick < launch.tickUpper;
@@ -1554,7 +1580,7 @@ async function verifyDisplayedLiquidity(launch) {
       launch.liquidityPermanentlyLocked
       && recordedLiquidity > 0n
       && BigInt(activeLiquidity) > 0n
-      && (launch.multiPair ? positionLiquidity > 0n : positionLiquidity === recordedLiquidity)
+      && positionLiquidity === recordedLiquidity
       && inRange
     ) {
       badge.textContent = "LP lock verified live";
