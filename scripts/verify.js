@@ -104,8 +104,12 @@ async function main() {
       outputSelection: { "*": { "*": ["abi", "evm.bytecode.object", "evm.deployedBytecode.object", "evm.deployedBytecode.immutableReferences"] } },
     },
   };
+  const standardInput = JSON.stringify(input);
+  if (process.env.VERIFICATION_INPUT_PATH) {
+    fs.writeFileSync(path.resolve(process.env.VERIFICATION_INPUT_PATH), standardInput);
+  }
 
-  const compilation = JSON.parse(solc.compile(JSON.stringify(input)));
+  const compilation = JSON.parse(solc.compile(standardInput));
   const errors = (compilation.errors || []).filter((entry) => entry.severity === "error");
   if (errors.length) throw new Error(`Verification input does not compile: ${errors[0].formattedMessage}`);
   const compiledBytecode = `0x${compilation.contracts[target.sourceName][target.contractName].evm.bytecode.object}`;
@@ -139,10 +143,9 @@ async function main() {
 
   const form = new FormData();
   form.append("compiler_version", `v${solc.version().replace(/\.Emscripten.*$/, "")}`);
-  form.append("contract_name", target.contractName);
-  form.append("files[0]", new Blob([JSON.stringify(input)], { type: "application/json" }), "standard-input.json");
-  form.append("autodetect_constructor_args", target === tokenTarget ? "true" : "false");
-  if (target !== tokenTarget) form.append("constructor_args", "");
+  form.append("contract_name", `${target.sourceName}:${target.contractName}`);
+  form.append("files[0]", new Blob([standardInput], { type: "application/json" }), "standard-input.json");
+  form.append("autodetect_constructor_args", "true");
   form.append("license_type", "mit");
 
   const response = await fetch(`${baseUrl}/api/v2/smart-contracts/${address}/verification/via/standard-input`, {
@@ -160,9 +163,8 @@ async function main() {
       contractaddress: address,
       contractname: `${target.sourceName}:${target.contractName}`,
       compilerversion: compilerVersion,
-      sourceCode: JSON.stringify(input),
-      constructorArguments: "",
-      autodetectConstructorArguments: target === tokenTarget ? "true" : "false",
+      sourceCode: standardInput,
+      autodetectConstructorArguments: "true",
       licenseType: "3",
     });
     const legacyResponse = await fetch(`${baseUrl}/api`, {
@@ -172,6 +174,20 @@ async function main() {
     });
     const legacyBody = await legacyResponse.json();
     if (!legacyResponse.ok || legacyBody.status !== "1") {
+      // Some Blockscout deployments enqueue a valid verification and then return HTTP 500.
+      // Confirm the explorer record before treating the transport response as a failure.
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        const check = await fetch(`${baseUrl}/api/v2/smart-contracts/${address}`, {
+          headers: { accept: "application/json", "user-agent": "RWI-Launchpad-Verifier/1.0" },
+        });
+        if (!check.ok) continue;
+        const result = await check.json();
+        if (result.source_code && result.name === target.contractName) {
+          console.log(`Verified ${target.contractName} at ${address} despite Blockscout's transient submission error.`);
+          return;
+        }
+      }
       throw new Error(`Blockscout verification failed on both APIs. v2 HTTP ${response.status}: ${body.slice(0, 500) || "<empty>"}; legacy response: ${JSON.stringify(legacyBody).slice(0, 500)}`);
     }
     const guid = legacyBody.result;
