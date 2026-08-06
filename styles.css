@@ -837,7 +837,18 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .developer-revenue { grid-template-columns: 1fr; align-items: stretch; }
   .developer-revenue-balance { text-align: left; }
   .developer-revenue .claim-revenue { width: 100%; }
-  .pair-box { grid-template-columns: 1fr auto; }
+  .pair-box { grid-template-columns: minmax(0, 1fr) auto; }
+  .compact-pair-box { align-items: start; gap: 10px 12px; overflow: hidden; }
+  .compact-pair-box .pair-token { min-width: 0; align-items: flex-start; gap: 9px; }
+  .compact-pair-box .pair-token > div:last-child { min-width: 0; }
+  .compact-pair-box .pair-token strong { max-width: 100%; font-size: 15px; line-height: 1.22; overflow-wrap: anywhere; word-break: normal; }
+  .compact-pair-box .pair-token span { line-height: 1.3; white-space: normal; }
+  .compact-pair-box .pair-logo-stack { min-width: 0; flex: 0 0 auto; padding-right: 0; }
+  .compact-pair-box .pair-logo-stack > span { width: 30px; height: 30px; flex-basis: 30px; }
+  .compact-pair-box .pair-logo-stack > span + span { margin-left: -9px; }
+  .compact-pair-box .venue-mark { align-self: start; }
+  .preview-stats > div { min-width: 0; }
+  .preview-stats strong { white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
   .builder-meta { min-width: 94px; }
   .draft-tools { flex-direction: column; align-items: flex-end; gap: 3px; }
   .form-actions { padding: 13px 16px; flex-wrap: wrap; }
@@ -926,6 +937,11 @@ footer small { justify-self: end; max-width: 490px; text-align: right; opacity: 
   .dextools-chart-shell { min-height: 230px; }
   .dextools-chart-frame { height: 230px; }
   .market-links { align-items: start; flex-direction: column; gap: 12px; }
+}
+
+@media (max-width: 430px) {
+  .compact-pair-box { grid-template-columns: 1fr; }
+  .compact-pair-box .venue-mark { align-items: flex-start; }
 }
 
 /* Compact token-market console: the full desktop experience fits inside one viewport. */
